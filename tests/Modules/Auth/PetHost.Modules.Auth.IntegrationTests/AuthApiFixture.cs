@@ -1,9 +1,11 @@
 using System.Data.Common;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using PetHost.Modules.Auth.Infrastructure;
 using PetHost.Modules.Auth.Infrastructure.Persistence;
+using PetHost.Shared.Infrastructure.Email;
 using Respawn;
 using Testcontainers.PostgreSql;
 using Testcontainers.Redis;
@@ -33,6 +35,9 @@ public sealed class AuthApiFixture : IAsyncLifetime
     private WebApplicationFactory<Program>? _factory;
     private Respawner? _respawner;
     private DbConnection? _connection;
+
+    /// <summary>E-mails que a API "mandou". Limpo a cada <see cref="ResetAsync"/>.</summary>
+    public CapturingEmailSender Emails { get; } = new();
 
     public HttpClient CreateClient() => Factory.CreateClient();
 
@@ -67,6 +72,17 @@ public sealed class AuthApiFixture : IAsyncLifetime
             builder.UseSetting("Seed:Admin:Email", SeededAdminEmail);
             builder.UseSetting("Seed:Admin:Password", SeededAdminPassword);
             builder.UseSetting("Seed:Admin:FullName", "PetHost Admin");
+
+            // O host SMTP só precisa passar na validação de subida: o envio é
+            // trocado pelo coletor abaixo e nunca abre conexão.
+            builder.UseSetting("Email:Host", "smtp.invalid");
+            builder.UseSetting("Email:Port", "25");
+            builder.UseSetting("Email:FromAddress", "no-reply@pethost.test");
+            builder.UseSetting("PasswordReset:TokenLifetimeMinutes", "30");
+            builder.UseSetting("PasswordReset:ResetUrl", "https://app.pethost.test/redefinir-senha?token={token}");
+
+            builder.ConfigureTestServices(services =>
+                services.AddSingleton<IEmailSender>(Emails));
         });
 
         // A WebApplicationFactory para o host no `builder.Build()`, então o
@@ -94,6 +110,8 @@ public sealed class AuthApiFixture : IAsyncLifetime
             await _respawner.ResetAsync(_connection);
 
         await Services.InitializeAuthModuleAsync(applyMigrations: false);
+
+        Emails.Clear();
     }
 
     public async ValueTask DisposeAsync()

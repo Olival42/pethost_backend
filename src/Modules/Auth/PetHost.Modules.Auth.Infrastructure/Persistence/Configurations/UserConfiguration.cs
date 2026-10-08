@@ -26,7 +26,8 @@ internal sealed class UserConfiguration : IEntityTypeConfiguration<User>
 
         builder.Property(u => u.FullName)
             .HasColumnName("full_name")
-            .HasMaxLength(User.FullNameMaxLength)
+            .HasConversion<FullNameConverter>()
+            .HasMaxLength(FullName.MaxLength)
             .IsRequired();
 
         builder.Property(u => u.Email)
@@ -49,11 +50,13 @@ internal sealed class UserConfiguration : IEntityTypeConfiguration<User>
 
         builder.Property(u => u.Phone)
             .HasColumnName("phone")
-            .HasMaxLength(User.PhoneMaxLength);
+            .HasConversion<PhoneNumberConverter>()
+            .HasMaxLength(PhoneNumber.MaxLength);
 
         builder.Property(u => u.AvatarUrl)
             .HasColumnName("avatar_url")
-            .HasMaxLength(User.AvatarUrlMaxLength);
+            .HasConversion<AvatarUrlConverter>()
+            .HasMaxLength(AvatarUrl.MaxLength);
 
         builder.Property(u => u.Neighborhood)
             .HasColumnName("neighborhood")
@@ -65,7 +68,8 @@ internal sealed class UserConfiguration : IEntityTypeConfiguration<User>
 
         builder.Property(u => u.State)
             .HasColumnName("state")
-            .HasColumnType($"char({User.StateLength})");
+            .HasConversion<StateCodeConverter>()
+            .HasColumnType($"char({StateCode.Length})");
 
         builder.Property(u => u.CreatedAt)
             .HasColumnName("created_at")

@@ -298,11 +298,11 @@ Toda conta do sistema: tutores, anfitriões e administradores. O tipo da conta (
 | `email` | `varchar(160)` | `UK¹` | não | E-mail de login. Único junto com role. |
 | `password_hash` | `varchar(255)` |  | não | Hash da senha (nunca a senha em texto). |
 | `role` | `enum` | `UK¹` | não | Tipo da conta: owner (tutor), host (anfitrião) ou admin. |
-| `phone` | `varchar(20)` |  | sim | Telefone com DDD. Só é mostrado ao outro lado depois do pagamento. |
-| `avatar_url` | `varchar(500)` |  | sim | Foto de perfil. |
+| `phone` | `varchar(20)` |  | sim | Telefone com DDD, só dígitos (ex.: 44999990000). Só é mostrado ao outro lado depois do pagamento. |
+| `avatar_url` | `varchar(500)` |  | sim | Foto de perfil. URL absoluta http/https. |
 | `neighborhood` | `varchar(80)` |  | sim | Bairro. Usado no selo "Vizinho" e na busca. |
 | `city` | `varchar(80)` |  | sim | Cidade. |
-| `state` | `char(2)` |  | sim | UF, ex.: PR. |
+| `state` | `char(2)` |  | sim | UF, ex.: PR. Só as 27 UFs válidas, em maiúsculas. |
 | `created_at` | `timestamp` |  | não | Quando o registro foi criado (UTC). |
 | `updated_at` | `timestamp` |  | não | Última alteração do registro (UTC). |
 

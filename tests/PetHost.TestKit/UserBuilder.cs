@@ -71,9 +71,13 @@ public sealed class UserBuilder
         if (hash.IsFailure)
             throw new InvalidOperationException("Invalid test password hash.");
 
+        var fullName = FullName.Create(_fullName);
+        if (fullName.IsFailure)
+            throw new InvalidOperationException($"Invalid test full name '{_fullName}'.");
+
         var user = _role is UserRole.Admin
-            ? User.CreateAdmin(_fullName, email.Value!, hash.Value!, _now)
-            : User.Register(_fullName, email.Value!, hash.Value!, _role, _now);
+            ? User.CreateAdmin(fullName.Value!, email.Value!, hash.Value!, _now)
+            : User.Register(fullName.Value!, email.Value!, hash.Value!, _role, _now);
 
         if (user.IsFailure)
             throw new InvalidOperationException($"Could not build test user: {user.FirstError?.Code}.");

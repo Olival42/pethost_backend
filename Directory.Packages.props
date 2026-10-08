@@ -25,6 +25,11 @@
     <PackageVersion Include="Microsoft.IdentityModel.JsonWebTokens" Version="8.23.0" />
   </ItemGroup>
 
+  <ItemGroup Label="E-mail">
+    <!-- SMTP. O System.Net.Mail.SmtpClient e marcado como nao recomendado pela Microsoft. -->
+    <PackageVersion Include="MailKit" Version="4.17.0" />
+  </ItemGroup>
+
   <ItemGroup Label="Cache / sessao">
     <PackageVersion Include="StackExchange.Redis" Version="3.3.1" />
   </ItemGroup>

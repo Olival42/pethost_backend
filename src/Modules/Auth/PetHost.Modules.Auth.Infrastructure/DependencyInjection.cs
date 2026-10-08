@@ -3,11 +3,14 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using PetHost.Modules.Auth.Application.Abstractions;
+using PetHost.Modules.Auth.Application.Passwords.ForgotPassword;
+using PetHost.Modules.Auth.Application.Passwords.ResetPassword;
 using PetHost.Modules.Auth.Application.Sessions.CreateSession;
 using PetHost.Modules.Auth.Application.Sessions.RefreshSession;
 using PetHost.Modules.Auth.Application.Sessions.Responses;
 using PetHost.Modules.Auth.Application.Sessions.RevokeSession;
 using PetHost.Modules.Auth.Domain.Users;
+using PetHost.Modules.Auth.Infrastructure.Notifications;
 using PetHost.Modules.Auth.Infrastructure.Persistence;
 using PetHost.Modules.Auth.Infrastructure.Persistence.Repositories;
 using PetHost.Modules.Auth.Infrastructure.Persistence.Seed;
@@ -52,6 +55,14 @@ public static class DependencyInjection
         services.AddSingleton<IValidateOptions<JwtOptions>, JwtOptionsValidator>();
 
         services.Configure<Argon2Options>(configuration.GetSection(Argon2Options.SectionName));
+        services.AddOptions<PasswordResetOptions>()
+            .Bind(configuration.GetSection(PasswordResetOptions.SectionName))
+            .Validate(o => o.TokenLifetimeMinutes > 0,
+                $"{PasswordResetOptions.SectionName}:{nameof(PasswordResetOptions.TokenLifetimeMinutes)} must be greater than zero.")
+            .Validate(o => string.IsNullOrWhiteSpace(o.ResetUrl) || o.ResetUrl.Contains(PasswordResetOptions.TokenPlaceholder, StringComparison.Ordinal),
+                $"{PasswordResetOptions.SectionName}:{nameof(PasswordResetOptions.ResetUrl)} must contain '{PasswordResetOptions.TokenPlaceholder}'.")
+            .ValidateOnStart();
+
         services.Configure<AdminSeedOptions>(configuration.GetSection(AdminSeedOptions.SectionName));
     }
 
@@ -85,6 +96,8 @@ public static class DependencyInjection
         services.AddSingleton<IPasswordHasher, Argon2PasswordHasher>();
         services.AddSingleton<IAccessTokenGenerator, JwtAccessTokenGenerator>();
         services.AddSingleton<IRefreshTokenStore, RedisRefreshTokenStore>();
+        services.AddSingleton<IPasswordResetTokenStore, RedisPasswordResetTokenStore>();
+        services.AddSingleton<IPasswordResetNotifier, PasswordResetEmailNotifier>();
     }
 
     /// <summary>
@@ -102,5 +115,11 @@ public static class DependencyInjection
 
         services.AddValidatedCommandHandler<
             RevokeSessionCommandHandler, RevokeSessionCommand, Unit>();
+
+        services.AddValidatedCommandHandler<
+            ForgotPasswordCommandHandler, ForgotPasswordCommand, Unit>();
+
+        services.AddValidatedCommandHandler<
+            ResetPasswordCommandHandler, ResetPasswordCommand, Unit>();
     }
 }

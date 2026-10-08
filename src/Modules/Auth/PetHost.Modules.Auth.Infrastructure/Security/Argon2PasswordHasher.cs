@@ -26,7 +26,7 @@ internal sealed class Argon2PasswordHasher(IOptions<Argon2Options> options) : IP
     private readonly Argon2Options _options = options.Value;
 
     /// <summary>
-    /// Calcula o hash. Senha vazia e violacao da <c>PasswordPolicy</c> e nunca
+    /// Calcula o hash. Senha vazia e violacao da regra de <c>Password</c> e nunca
     /// chega aqui pelo caminho normal (o validador barra antes): falha alto em
     /// vez de gravar o hash de uma senha vazia.
     /// </summary>

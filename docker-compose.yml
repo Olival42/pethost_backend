@@ -72,6 +72,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      mailpit:
+        condition: service_started
     ports:
       - "${API_HOST_PORT:-8080}:8080"
     environment:
@@ -102,12 +104,38 @@ services:
       Ngrok__AuthToken: ${NGROK_AUTHTOKEN:-}
       Ngrok__PublicUrl: ${NGROK_URL:-}
 
+      # --- e-mail (SMTP) ---
+      # Padrao: Mailpit do proprio compose, que captura os e-mails sem entregar.
+      # Caixa de entrada em http://localhost:${MAILPIT_UI_HOST_PORT:-8025}
+      Email__Host: ${EMAIL_SMTP_HOST:-mailpit}
+      Email__Port: ${EMAIL_SMTP_PORT:-1025}
+      Email__Username: ${EMAIL_SMTP_USERNAME:-}
+      Email__Password: ${EMAIL_SMTP_PASSWORD:-}
+      Email__FromAddress: ${EMAIL_FROM_ADDRESS:-no-reply@pethost.local}
+      Email__FromName: ${EMAIL_FROM_NAME:-PetHost}
+
+      # --- esqueci a senha ---
+      PasswordReset__TokenLifetimeMinutes: ${PASSWORD_RESET_TOKEN_LIFETIME_MINUTES:-30}
+      PasswordReset__ResetUrl: ${PASSWORD_RESET_URL:-}
+
       # --- seed do admin ---
       # Cria o admin na subida se ainda nao existir. Nunca altera um admin existente.
       Seed__Admin__Enabled: ${SEED_ADMIN_ENABLED:-false}
       Seed__Admin__FullName: ${SEED_ADMIN_FULL_NAME:-PetHost Admin}
       Seed__Admin__Email: ${SEED_ADMIN_EMAIL:-}
       Seed__Admin__Password: ${SEED_ADMIN_PASSWORD:-}
+    networks: [pethost]
+
+  # ---------------------------------------------------------------------------
+  # Mailpit - servidor SMTP de desenvolvimento com caixa de entrada web
+  # ---------------------------------------------------------------------------
+  mailpit:
+    image: axllent/mailpit:v1.31.1
+    container_name: pethost-mailpit
+    restart: unless-stopped
+    ports:
+      - "${MAILPIT_SMTP_HOST_PORT:-1025}:1025"
+      - "${MAILPIT_UI_HOST_PORT:-8025}:8025"
     networks: [pethost]
 
   # ---------------------------------------------------------------------------
