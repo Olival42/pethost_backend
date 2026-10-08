@@ -1,0 +1,41 @@
+# --- Build -------------------------------------------------------------------
+[Bb]in/
+[Oo]bj/
+[Oo]ut/
+[Pp]ublish/
+artifacts/
+*.nupkg
+
+# --- Testes e cobertura ------------------------------------------------------
+TestResults/
+coverage/
+*.coverage
+*.coveragexml
+*.trx
+
+# --- Segredos e ambiente -----------------------------------------------------
+# O .env tem chaves reais (Stripe, ngrok, JWT). O modelo versionado é o .env.example.
+.env
+.env.*
+!.env.example
+**/appsettings.Local.json
+*.pfx
+*.pem
+
+# --- IDE e editores ----------------------------------------------------------
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userprefs
+*.DotSettings.user
+
+# --- Sistema operacional -----------------------------------------------------
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# --- Logs --------------------------------------------------------------------
+logs/
+*.log

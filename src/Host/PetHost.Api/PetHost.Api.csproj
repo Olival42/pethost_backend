@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Shared\PetHost.Shared.Kernel\PetHost.Shared.Kernel.csproj" />
+    <ProjectReference Include="..\..\Shared\PetHost.Shared.Contracts\PetHost.Shared.Contracts.csproj" />
+    <ProjectReference Include="..\..\Shared\PetHost.Shared.Infrastructure\PetHost.Shared.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Auth\PetHost.Modules.Auth.Infrastructure\PetHost.Modules.Auth.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Auth\PetHost.Modules.Auth.Presentation\PetHost.Modules.Auth.Presentation.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="Microsoft.OpenApi" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+    <PackageReference Include="Serilog.AspNetCore" />
+    <PackageReference Include="Serilog.Sinks.Console" />
+    <!-- Exigido pelas ferramentas do EF Core: o startup project precisa dele
+         para que `dotnet ef` consiga montar o DbContext em design time. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+</Project>

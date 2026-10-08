@@ -1,0 +1,29 @@
+# Artefatos de build - nunca entram no contexto, a imagem compila do zero
+**/bin/
+**/obj/
+**/out/
+**/publish/
+**/TestResults/
+**/*.user
+**/*.suo
+
+# Segredos e ambiente
+.env
+.env.*
+**/appsettings.Local.json
+
+# Docker / infra
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+ngrok.yml
+
+# Git, IDE, docs
+.git/
+.gitignore
+.github/
+.vs/
+.vscode/
+.idea/
+docs/
+**/*.md

@@ -1,0 +1,45 @@
+<Project>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!--
+      Supressoes deliberadas. Todas as outras regras valem como erro.
+
+      CS1591  nao exigir /// em todo membro publico; o doc exige em endpoint (secao 13).
+      CS1573  permite documentar so os parametros nao obvios de um record, em vez de
+              obrigar um <param> para cada um (o que vira ruido em DTO de 9 campos).
+      CA1716  "Error", "Domain", "Shared" colidem com palavras reservadas de VB.
+              Sao exatamente os nomes que o PROJECT_STANDARDS manda usar (secoes 6 e 12)
+              e a API nao e consumida por outra linguagem .NET.
+      CA1000  Result<T>.Success / .Failure sao membros estaticos em tipo generico:
+              e a assinatura publicada no documento (secao 6).
+      CA1002  Result expoe List<Error>: idem, assinatura do documento.
+      CA1034  tipos aninhados em configuracoes do EF Core.
+      CA1062  validacao de argumento publico; usamos nullable reference types.
+    -->
+    <NoWarn>$(NoWarn);CS1591;CS1573;CA1716;CA1000;CA1002;CA1034;CA1062</NoWarn>
+  </PropertyGroup>
+
+  <!-- Projetos de teste nao precisam de XML doc nem de aviso como erro. -->
+  <PropertyGroup Condition="$(MSBuildProjectName.EndsWith('Tests'))">
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <IsPackable>false</IsPackable>
+    <!--
+      CA1707 proibe underscore em nome de membro, mas a secao 14 exige
+      MethodName_Should_X_When_Y. A regra do projeto vence dentro dos testes.
+    -->
+    <!--
+      CA1711 proibe tipo terminando em sufixo reservado como "Collection", mas
+      e a convencao do xUnit para [CollectionDefinition].
+    -->
+    <NoWarn>$(NoWarn);CA1707;CA1711</NoWarn>
+  </PropertyGroup>
+
+</Project>

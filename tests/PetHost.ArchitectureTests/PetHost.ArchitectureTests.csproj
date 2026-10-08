@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- xunit.v3 roda o projeto de teste como executavel. -->
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="FluentAssertions" />
+    <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" />
+    <PackageReference Include="NetArchTest.Rules" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Shared\PetHost.Shared.Kernel\PetHost.Shared.Kernel.csproj" />
+    <ProjectReference Include="..\..\src\Shared\PetHost.Shared.Contracts\PetHost.Shared.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Auth\PetHost.Modules.Auth.Domain\PetHost.Modules.Auth.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Auth\PetHost.Modules.Auth.Application\PetHost.Modules.Auth.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Auth\PetHost.Modules.Auth.Infrastructure\PetHost.Modules.Auth.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Auth\PetHost.Modules.Auth.Presentation\PetHost.Modules.Auth.Presentation.csproj" />
+  </ItemGroup>
+
+</Project>

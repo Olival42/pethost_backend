@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\PetHost.Modules.Auth.Application\PetHost.Modules.Auth.Application.csproj" />
+    <ProjectReference Include="..\PetHost.Modules.Auth.Domain\PetHost.Modules.Auth.Domain.csproj" />
+    <ProjectReference Include="..\..\..\Shared\PetHost.Shared.Kernel\PetHost.Shared.Kernel.csproj" />
+    <ProjectReference Include="..\..\..\Shared\PetHost.Shared.Contracts\PetHost.Shared.Contracts.csproj" />
+    <!-- Decorator de validacao e helpers de registro (secao 3: Shared.Infrastructure guarda decorators). -->
+    <ProjectReference Include="..\..\..\Shared\PetHost.Shared.Infrastructure\PetHost.Shared.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+    <PackageReference Include="EFCore.NamingConventions" />
+    <PackageReference Include="Konscious.Security.Cryptography.Argon2" />
+    <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" />
+    <PackageReference Include="StackExchange.Redis" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Hasher, gerador de JWT e store sao internal de proposito: o resto do
+         sistema fala com as portas da Application. O teste de unidade precisa
+         ver a implementacao. -->
+    <InternalsVisibleTo Include="PetHost.Modules.Auth.Infrastructure.UnitTests" />
+  </ItemGroup>
+
+</Project>

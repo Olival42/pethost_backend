@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\PetHost.Modules.Auth.Domain\PetHost.Modules.Auth.Domain.csproj" />
+    <ProjectReference Include="..\..\..\Shared\PetHost.Shared.Kernel\PetHost.Shared.Kernel.csproj" />
+    <ProjectReference Include="..\..\..\Shared\PetHost.Shared.Contracts\PetHost.Shared.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FluentValidation" />
+    <PackageReference Include="FluentValidation.DependencyInjectionExtensions" />
+  </ItemGroup>
+
+</Project>

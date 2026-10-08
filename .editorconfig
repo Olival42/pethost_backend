@@ -1,0 +1,67 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+indent_style = space
+trim_trailing_whitespace = true
+
+[*.{cs,csproj,props,targets,json,yml,yaml}]
+indent_size = 2
+
+[*.cs]
+indent_size = 4
+
+# namespace file-scoped (§12)
+csharp_style_namespace_declarations = file_scoped:error
+
+# var / expression-bodied
+csharp_style_var_when_type_is_apparent = true:suggestion
+csharp_style_expression_bodied_methods = when_on_single_line:suggestion
+
+# using fora do namespace, System primeiro (§12)
+csharp_using_directive_placement = outside_namespace:error
+dotnet_sort_system_directives_first = true
+dotnet_separate_import_directive_groups = false
+
+# this. desnecessario
+dotnet_style_qualification_for_field = false:error
+dotnet_style_qualification_for_property = false:error
+
+# nomes
+dotnet_naming_rule.interfaces_start_with_i.severity = error
+dotnet_naming_rule.interfaces_start_with_i.symbols = interface_symbol
+dotnet_naming_rule.interfaces_start_with_i.style = i_prefix_style
+dotnet_naming_symbols.interface_symbol.applicable_kinds = interface
+dotnet_naming_style.i_prefix_style.required_prefix = I
+dotnet_naming_style.i_prefix_style.capitalization = pascal_case
+
+dotnet_naming_rule.private_fields_underscore.severity = error
+dotnet_naming_rule.private_fields_underscore.symbols = private_field_symbol
+dotnet_naming_rule.private_fields_underscore.style = underscore_camel_style
+dotnet_naming_symbols.private_field_symbol.applicable_kinds = field
+dotnet_naming_symbols.private_field_symbol.applicable_accessibilities = private
+dotnet_naming_style.underscore_camel_style.required_prefix = _
+dotnet_naming_style.underscore_camel_style.capitalization = camel_case
+
+# using desnecessario (§12: using fora do namespace, sem sobra)
+dotnet_diagnostic.IDE0005.severity = error
+
+[*.{md,yml,yaml}]
+trim_trailing_whitespace = false
+
+# Migrations sao geradas pelo EF Core e o §11 proibe edita-las a mao.
+# Marcar como codigo gerado desliga as regras de estilo sem desligar nada no
+# codigo que escrevemos.
+[**/Persistence/Migrations/*.cs]
+generated_code = true
+dotnet_analyzer_diagnostic.severity = none
+dotnet_diagnostic.IDE0005.severity = none
+dotnet_diagnostic.IDE0161.severity = none
+dotnet_diagnostic.CA1861.severity = none
+
+# Projetos de teste nao geram XML doc, e o IDE0005 (using desnecessario) so
+# funciona no build quando o XML doc esta ligado. Nos testes fica a cargo da IDE.
+[tests/**/*.cs]
+dotnet_diagnostic.IDE0005.severity = suggestion

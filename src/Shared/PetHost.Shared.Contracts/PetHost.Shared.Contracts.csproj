@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\PetHost.Shared.Kernel\PetHost.Shared.Kernel.csproj" />
+  </ItemGroup>
+
+</Project>
