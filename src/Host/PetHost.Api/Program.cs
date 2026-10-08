@@ -9,6 +9,7 @@ using PetHost.Modules.Auth.Application;
 using PetHost.Modules.Auth.Infrastructure;
 using PetHost.Modules.Auth.Infrastructure.Security;
 using PetHost.Modules.Auth.Presentation;
+using PetHost.Shared.Infrastructure.Email;
 using PetHost.Shared.Infrastructure.Http;
 using Serilog;
 using Serilog.Formatting.Json;
@@ -47,6 +48,9 @@ builder.Services.AddOpenApi();
 
 // --- TimeProvider injetado: nenhum DateTime.UtcNow no domínio (§9) ---
 builder.Services.AddSingleton(TimeProvider.System);
+
+// --- E-mail: fila em memória + envio SMTP em segundo plano ---
+builder.Services.AddEmail(builder.Configuration);
 
 // --- Módulo Auth ---
 builder.Services.AddAuthApplication();

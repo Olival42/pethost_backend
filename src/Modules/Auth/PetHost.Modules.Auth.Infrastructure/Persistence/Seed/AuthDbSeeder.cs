@@ -66,8 +66,16 @@ internal sealed partial class AuthDbSeeder(
             return;
         }
 
+        // Sem regra de senha forte aqui: a senha do admin vem do ambiente, não do usuário.
+        var fullName = FullName.Create(settings.FullName);
+        if (fullName.IsFailure)
+        {
+            LogSeedRejected(logger, fullName.FirstError?.Code ?? "unknown");
+            return;
+        }
+
         var admin = User.CreateAdmin(
-            settings.FullName,
+            fullName.Value!,
             email.Value!,
             passwordHash.Value!,
             timeProvider.GetUtcNow());

@@ -19,12 +19,12 @@ internal static class SessionResponseFactory
     private static AuthenticatedUserResponse ToUserResponse(User user) =>
         new(
             user.Id.Value,
-            user.FullName,
+            user.FullName.Value,
             user.Email.Value,
             UserRoleValues.ToWire(user.Role),
-            user.Phone,
-            user.AvatarUrl,
+            user.Phone?.Value,
+            user.AvatarUrl?.Value,
             user.Neighborhood,
             user.City,
-            user.State);
+            user.State?.Value);
 }

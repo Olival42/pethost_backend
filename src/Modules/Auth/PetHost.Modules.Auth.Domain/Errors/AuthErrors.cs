@@ -24,7 +24,7 @@ public static class AuthErrors
         Error.Validation("fullName", "Full name is required.");
 
     public static readonly Error FullNameTooLong =
-        Error.Validation("fullName", $"Full name must be at most {User.FullNameMaxLength} characters.");
+        Error.Validation("fullName", $"Full name must be at most {FullName.MaxLength} characters.");
 
     /// <summary>Cadastro: só owner e host.</summary>
     public static readonly Error RoleInvalid =
@@ -36,6 +36,40 @@ public static class AuthErrors
 
     public static readonly Error PasswordRequired =
         Error.Validation("password", "Password is required.");
+
+    // Senha forte (Password). Cada regra é um erro: o cliente recebe a lista do que falta.
+
+    public static readonly Error PasswordTooShort =
+        Error.Validation("password", $"Password must be at least {Password.MinLength} characters.");
+
+    public static readonly Error PasswordTooLong =
+        Error.Validation("password", $"Password must be at most {Password.MaxLength} characters.");
+
+    public static readonly Error PasswordMissingUppercase =
+        Error.Validation("password", "Password must contain at least one uppercase letter.");
+
+    public static readonly Error PasswordMissingLowercase =
+        Error.Validation("password", "Password must contain at least one lowercase letter.");
+
+    public static readonly Error PasswordMissingDigit =
+        Error.Validation("password", "Password must contain at least one number.");
+
+    public static readonly Error PasswordMissingSpecialCharacter =
+        Error.Validation("password", "Password must contain at least one special character.");
+
+    // --- Perfil ---
+
+    public static readonly Error PhoneInvalid =
+        Error.Validation("phone", $"Phone must have area code and number: {PhoneNumber.MinDigits} to {PhoneNumber.MaxDigits} digits.");
+
+    public static readonly Error AvatarUrlInvalid =
+        Error.Validation("avatarUrl", "Avatar URL must be an absolute http or https address.");
+
+    public static readonly Error AvatarUrlTooLong =
+        Error.Validation("avatarUrl", $"Avatar URL must be at most {AvatarUrl.MaxLength} characters.");
+
+    public static readonly Error StateInvalid =
+        Error.Validation("state", "State must be a valid Brazilian state code, e.g. 'PR'.");
 
     public static readonly Error RefreshTokenRequired =
         Error.Validation("refreshToken", "Refresh token is required.");
@@ -51,6 +85,13 @@ public static class AuthErrors
 
     public static readonly Error RefreshTokenInvalid =
         new("AUTH_REFRESH_TOKEN_INVALID", "The refresh token is invalid, expired or already used.");
+
+    /// <summary>
+    /// Token de troca de senha inexistente, vencido, já usado ou substituído por um
+    /// pedido mais novo. Os quatro casos têm a mesma resposta.
+    /// </summary>
+    public static readonly Error PasswordResetTokenInvalid =
+        new("AUTH_PASSWORD_RESET_TOKEN_INVALID", "The password reset token is invalid, expired or already used.");
 
     // --- Regras de negócio ---
 

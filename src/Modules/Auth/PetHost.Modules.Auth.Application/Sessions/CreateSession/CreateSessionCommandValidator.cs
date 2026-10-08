@@ -1,5 +1,4 @@
 using FluentValidation;
-using PetHost.Modules.Auth.Application.Abstractions;
 using PetHost.Modules.Auth.Domain.Users;
 
 namespace PetHost.Modules.Auth.Application.Sessions.CreateSession;
@@ -19,8 +18,8 @@ public sealed class CreateSessionCommandValidator : AbstractValidator<CreateSess
 
         RuleFor(x => x.Password)
             .NotEmpty().WithMessage("Password is required.")
-            .MaximumLength(PasswordPolicy.MaxLength)
-                .WithMessage($"Password must be at most {PasswordPolicy.MaxLength} characters.");
+            .MaximumLength(Password.MaxLength)
+                .WithMessage($"Password must be at most {Password.MaxLength} characters.");
 
         RuleFor(x => x.Role)
             .NotEmpty().WithMessage("Role is required.")

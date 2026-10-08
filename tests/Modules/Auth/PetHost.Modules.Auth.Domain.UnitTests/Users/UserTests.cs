@@ -14,12 +14,14 @@ public sealed class UserTests
 
     private static PasswordHash AnyHash => PasswordHash.FromHash(UserBuilder.SampleHash).Value!;
 
+    private static FullName Name(string value) => FullName.Create(value).Value!;
+
     [Theory]
     [InlineData(UserRole.Owner)]
     [InlineData(UserRole.Host)]
     public void Register_Should_Succeed_When_RoleIsOwnerOrHost(UserRole role)
     {
-        var result = User.Register("Camila Souza", AnyEmail, AnyHash, role, Now);
+        var result = User.Register(Name("Camila Souza"), AnyEmail, AnyHash, role, Now);
 
         result.IsSuccess.Should().BeTrue();
         result.Value!.Role.Should().Be(role);
@@ -30,7 +32,7 @@ public sealed class UserTests
     [Fact]
     public void Register_Should_Fail_When_RoleIsAdmin()
     {
-        var result = User.Register("Admin", AnyEmail, AnyHash, UserRole.Admin, Now);
+        var result = User.Register(Name("Admin"), AnyEmail, AnyHash, UserRole.Admin, Now);
 
         result.IsFailure.Should().BeTrue();
         result.FirstError!.Code.Should().Be("AUTH_ADMIN_REGISTRATION_FORBIDDEN");
@@ -39,47 +41,19 @@ public sealed class UserTests
     [Fact]
     public void Register_Should_Fail_When_RoleIsNotAKnownValue()
     {
-        var result = User.Register("Camila", AnyEmail, AnyHash, (UserRole)99, Now);
+        var result = User.Register(Name("Camila"), AnyEmail, AnyHash, (UserRole)99, Now);
 
         result.IsFailure.Should().BeTrue();
         result.FirstError!.Field.Should().Be("role");
     }
 
-    [Theory]
-    [InlineData(null)]
-    [InlineData("")]
-    [InlineData("    ")]
-    public void Register_Should_Fail_When_FullNameIsMissing(string? fullName)
-    {
-        var result = User.Register(fullName, AnyEmail, AnyHash, UserRole.Owner, Now);
 
-        result.IsFailure.Should().BeTrue();
-        result.FirstError!.Field.Should().Be("fullName");
-    }
 
-    [Fact]
-    public void Register_Should_Fail_When_FullNameExceedsMaxLength()
-    {
-        var tooLong = new string('a', User.FullNameMaxLength + 1);
-
-        var result = User.Register(tooLong, AnyEmail, AnyHash, UserRole.Owner, Now);
-
-        result.IsFailure.Should().BeTrue();
-        result.FirstError!.Field.Should().Be("fullName");
-    }
-
-    [Fact]
-    public void Register_Should_TrimFullName_When_ValueHasSurroundingSpaces()
-    {
-        var result = User.Register("  Camila Souza  ", AnyEmail, AnyHash, UserRole.Owner, Now);
-
-        result.Value!.FullName.Should().Be("Camila Souza");
-    }
 
     [Fact]
     public void Register_Should_RaiseUserRegisteredDomainEvent_When_Succeeds()
     {
-        var result = User.Register("Camila Souza", AnyEmail, AnyHash, UserRole.Host, Now);
+        var result = User.Register(Name("Camila Souza"), AnyEmail, AnyHash, UserRole.Host, Now);
 
         result.Value!.DomainEvents.Should().ContainSingle()
             .Which.Should().BeOfType<UserRegisteredDomainEvent>()
@@ -89,7 +63,7 @@ public sealed class UserTests
     [Fact]
     public void CreateAdmin_Should_Succeed_When_CalledBySeeder()
     {
-        var result = User.CreateAdmin("PetHost Admin", AnyEmail, AnyHash, Now);
+        var result = User.CreateAdmin(Name("PetHost Admin"), AnyEmail, AnyHash, Now);
 
         result.IsSuccess.Should().BeTrue();
         result.Value!.Role.Should().Be(UserRole.Admin);
@@ -98,7 +72,7 @@ public sealed class UserTests
     [Fact]
     public void CreateAdmin_Should_NotRaiseDomainEvent_When_Seeding()
     {
-        var result = User.CreateAdmin("PetHost Admin", AnyEmail, AnyHash, Now);
+        var result = User.CreateAdmin(Name("PetHost Admin"), AnyEmail, AnyHash, Now);
 
         result.Value!.DomainEvents.Should().BeEmpty();
     }
@@ -124,13 +98,19 @@ public sealed class UserTests
         var user = new UserBuilder().WithCreatedAt(Now).Build();
         var later = Now.AddDays(1);
 
-        user.UpdateProfile("  44 99999-0000 ", null, " Jardim Alvorada ", " Maringá ", "pr", later);
+        user.UpdateProfile(
+            PhoneNumber.Create("(44) 99999-0000").Value,
+            AvatarUrl.Create("https://cdn.pethost.com/a.png").Value,
+            " Jardim Alvorada ",
+            " Maringá ",
+            StateCode.Create("pr").Value,
+            later);
 
-        user.Phone.Should().Be("44 99999-0000");
-        user.AvatarUrl.Should().BeNull();
+        user.Phone!.Value.Should().Be("44999990000");
+        user.AvatarUrl!.Value.Should().Be("https://cdn.pethost.com/a.png");
         user.Neighborhood.Should().Be("Jardim Alvorada");
         user.City.Should().Be("Maringá");
-        user.State.Should().Be("PR");
+        user.State!.Value.Should().Be("PR");
         user.UpdatedAt.Should().Be(later);
     }
 
@@ -138,12 +118,14 @@ public sealed class UserTests
     public void UpdateProfile_Should_ClearField_When_ValueIsBlank()
     {
         var user = new UserBuilder().Build();
-        user.UpdateProfile("44 99999-0000", null, "Zona 7", "Maringá", "PR", Now);
+        user.UpdateProfile(
+            PhoneNumber.Create("44 99999-0000").Value, null, "Zona 7", "Maringá", StateCode.Create("PR").Value, Now);
 
-        user.UpdateProfile("   ", null, null, null, null, Now);
+        user.UpdateProfile(null, null, "   ", null, null, Now);
 
         user.Phone.Should().BeNull();
         user.Neighborhood.Should().BeNull();
+        user.State.Should().BeNull();
     }
 
     [Fact]

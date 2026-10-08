@@ -16,12 +16,8 @@ namespace PetHost.Modules.Auth.Domain.Users;
 /// </remarks>
 public sealed class User : Entity<UserId>
 {
-    public const int FullNameMaxLength = 120;
-    public const int PhoneMaxLength = 20;
-    public const int AvatarUrlMaxLength = 500;
     public const int NeighborhoodMaxLength = 80;
     public const int CityMaxLength = 80;
-    public const int StateLength = 2;
 
     /// <summary>Construtor só para o EF Core materializar a entidade.</summary>
     private User()
@@ -32,7 +28,7 @@ public sealed class User : Entity<UserId>
     }
 
     private User(
-        string fullName,
+        FullName fullName,
         Email email,
         PasswordHash passwordHash,
         UserRole role,
@@ -47,18 +43,22 @@ public sealed class User : Entity<UserId>
         UpdatedAt = now;
     }
 
-    public string FullName { get; private set; }
+    public FullName FullName { get; private set; }
     public Email Email { get; private set; }
     public PasswordHash PasswordHash { get; private set; }
     public UserRole Role { get; private set; }
 
-    public string? Phone { get; private set; }
-    public string? AvatarUrl { get; private set; }
-    public string? Neighborhood { get; private set; }
-    public string? City { get; private set; }
+    public PhoneNumber? Phone { get; private set; }
+    public AvatarUrl? AvatarUrl { get; private set; }
 
-    /// <summary>UF com duas letras, ex.: <c>PR</c>.</summary>
-    public string? State { get; private set; }
+    /// <summary>
+    /// Bairro e cidade ficam como texto: a única regra deles é o tamanho, então um
+    /// value object não protegeria nada além do que a coluna já protege.
+    /// </summary>
+    public string? Neighborhood { get; private set; }
+
+    public string? City { get; private set; }
+    public StateCode? State { get; private set; }
 
     public DateTimeOffset CreatedAt { get; private set; }
     public DateTimeOffset UpdatedAt { get; private set; }
@@ -68,7 +68,7 @@ public sealed class User : Entity<UserId>
     /// admin só existe pelo seed.
     /// </summary>
     public static Result<User> Register(
-        string? fullName,
+        FullName fullName,
         Email email,
         PasswordHash passwordHash,
         UserRole role,
@@ -80,11 +80,7 @@ public sealed class User : Entity<UserId>
         if (role is not (UserRole.Owner or UserRole.Host))
             return Result<User>.Failure(AuthErrors.RoleInvalid);
 
-        var name = NormalizeFullName(fullName);
-        if (name.IsFailure)
-            return Result<User>.FromFailure(name);
-
-        var user = new User(name.Value!, email, passwordHash, role, now);
+        var user = new User(fullName, email, passwordHash, role, now);
         user.RaiseDomainEvent(new UserRegisteredDomainEvent(user.Id, role, now));
 
         return Result<User>.Success(user);
@@ -95,17 +91,11 @@ public sealed class User : Entity<UserId>
     /// o admin é criado direto no banco. Nenhum caso de uso da API chama este método.
     /// </summary>
     public static Result<User> CreateAdmin(
-        string? fullName,
+        FullName fullName,
         Email email,
         PasswordHash passwordHash,
-        DateTimeOffset now)
-    {
-        var name = NormalizeFullName(fullName);
-
-        return name.IsFailure
-            ? Result<User>.FromFailure(name)
-            : Result<User>.Success(new User(name.Value!, email, passwordHash, UserRole.Admin, now));
-    }
+        DateTimeOffset now) =>
+        Result<User>.Success(new User(fullName, email, passwordHash, UserRole.Admin, now));
 
     /// <summary>Troca o hash da senha. Recebe hash, nunca senha em texto.</summary>
     public Result ChangePassword(PasswordHash newPasswordHash, DateTimeOffset now)
@@ -116,35 +106,26 @@ public sealed class User : Entity<UserId>
         return Result.Success();
     }
 
-    /// <summary>Atualiza os campos opcionais de perfil. <c>null</c> limpa o campo.</summary>
+    /// <summary>
+    /// Atualiza os campos opcionais de perfil. <c>null</c> limpa o campo. Telefone,
+    /// foto e UF chegam já validados pelos próprios value objects.
+    /// </summary>
     public Result UpdateProfile(
-        string? phone,
-        string? avatarUrl,
+        PhoneNumber? phone,
+        AvatarUrl? avatarUrl,
         string? neighborhood,
         string? city,
-        string? state,
+        StateCode? state,
         DateTimeOffset now)
     {
-        Phone = Trim(phone);
-        AvatarUrl = Trim(avatarUrl);
+        Phone = phone;
+        AvatarUrl = avatarUrl;
         Neighborhood = Trim(neighborhood);
         City = Trim(city);
-        State = Trim(state)?.ToUpperInvariant();
+        State = state;
         UpdatedAt = now;
 
         return Result.Success();
-    }
-
-    private static Result<string> NormalizeFullName(string? fullName)
-    {
-        if (string.IsNullOrWhiteSpace(fullName))
-            return Result<string>.Failure(AuthErrors.FullNameRequired);
-
-        var normalized = fullName.Trim();
-
-        return normalized.Length > FullNameMaxLength
-            ? Result<string>.Failure(AuthErrors.FullNameTooLong)
-            : Result<string>.Success(normalized);
     }
 
     private static string? Trim(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
