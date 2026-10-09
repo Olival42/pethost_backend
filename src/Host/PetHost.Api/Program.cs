@@ -1,16 +1,26 @@
+using System.Net;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.IdentityModel.Tokens;
 using PetHost.Api.Authentication;
 using PetHost.Api.HealthChecks;
+using PetHost.Api.OpenApi;
+using PetHost.Modules.Audit.Application;
+using PetHost.Modules.Audit.Infrastructure;
+using PetHost.Modules.Audit.Presentation;
 using PetHost.Modules.Auth.Application;
 using PetHost.Modules.Auth.Infrastructure;
 using PetHost.Modules.Auth.Infrastructure.Security;
 using PetHost.Modules.Auth.Presentation;
+using PetHost.Modules.Owners.Application;
+using PetHost.Modules.Owners.Infrastructure;
+using PetHost.Modules.Owners.Presentation;
 using PetHost.Shared.Infrastructure.Email;
 using PetHost.Shared.Infrastructure.Http;
+using PetHost.Shared.Infrastructure.RateLimiting;
 using Serilog;
 using Serilog.Formatting.Json;
 
@@ -38,13 +48,16 @@ builder.Services
         behavior.SuppressMapClientErrors = true;
     })
     .AddJsonOptions(json => ConfigureJson(json.JsonSerializerOptions))
-    .AddAuthPresentation();
+    .AddAuthPresentation()
+    .AddOwnersPresentation()
+    .AddAuditPresentation();
 
 // O mesmo serializador vale para o que não passa pelo MVC — o handler global de
 // exceção e o 401 do JWT escrevem com WriteAsJsonAsync, que usa estas opções.
 builder.Services.ConfigureHttpJsonOptions(json => ConfigureJson(json.SerializerOptions));
 
-builder.Services.AddOpenApi();
+// Documento OpenAPI (/openapi/v1.json) com o JWT declarado, para o Swagger UI.
+builder.Services.AddOpenApi(openApi => openApi.AddDocumentTransformer<BearerSecuritySchemeTransformer>());
 
 // --- TimeProvider injetado: nenhum DateTime.UtcNow no domínio (§9) ---
 builder.Services.AddSingleton(TimeProvider.System);
@@ -52,9 +65,17 @@ builder.Services.AddSingleton(TimeProvider.System);
 // --- E-mail: fila em memória + envio SMTP em segundo plano ---
 builder.Services.AddEmail(builder.Configuration);
 
+// --- Módulo Audit (trilha de auditoria, usada pelos outros módulos) ---
+builder.Services.AddAuditApplication();
+builder.Services.AddAuditInfrastructure(builder.Configuration);
+
 // --- Módulo Auth ---
 builder.Services.AddAuthApplication();
 builder.Services.AddAuthInfrastructure(builder.Configuration);
+
+// --- Módulo Owners (tutores) ---
+builder.Services.AddOwnersApplication();
+builder.Services.AddOwnersInfrastructure(builder.Configuration);
 
 // --- Autenticação ---
 var jwtOptions = builder.Configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>()
@@ -91,6 +112,27 @@ builder.Services
 
 builder.Services.AddAuthorization();
 
+// --- Rate limit: geral para todo endpoint, mais rígido nos críticos ---
+builder.Services.AddPetHostRateLimiting(builder.Configuration);
+
+// --- IP real atrás de proxy (ngrok, balanceador) ---
+// O rate limit por IP depende disso: sem ler o X-Forwarded-For, todo cliente que chega
+// pelo proxy teria o IP do proxy e cairia no mesmo limite. Só proxies de rede privada
+// (a rede do Docker) e loopback são confiáveis — senão qualquer um forjaria o header.
+var trustForwardedHeaders = builder.Configuration.GetValue<bool>("ForwardedHeaders:Enabled");
+if (trustForwardedHeaders)
+{
+    builder.Services.Configure<ForwardedHeadersOptions>(forwarded =>
+    {
+        forwarded.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+        forwarded.ForwardLimit = 1;
+        forwarded.KnownIPNetworks.Add(System.Net.IPNetwork.Parse("10.0.0.0/8"));
+        forwarded.KnownIPNetworks.Add(System.Net.IPNetwork.Parse("172.16.0.0/12"));
+        forwarded.KnownIPNetworks.Add(System.Net.IPNetwork.Parse("192.168.0.0/16"));
+        forwarded.KnownProxies.Add(IPAddress.IPv6Loopback);
+    });
+}
+
 // --- Health checks (§15) ---
 builder.Services.AddHealthChecks()
     .AddCheck<PostgresHealthCheck>("postgres", tags: ["ready"])
@@ -102,26 +144,50 @@ builder.Services.AddProblemDetails();
 
 var app = builder.Build();
 
+if (trustForwardedHeaders)
+    app.UseForwardedHeaders();
+
 app.UseExceptionHandler();
 app.UseSerilogRequestLogging();
 
+// Só fora de produção: o documento lista todas as rotas e o formato de cada uma.
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
+
+    // Swagger UI em /swagger, lendo o documento gerado acima.
+    app.UseSwaggerUI(swagger =>
+    {
+        swagger.SwaggerEndpoint("/openapi/v1.json", "PetHost API v1");
+        swagger.DocumentTitle = "PetHost API";
+        swagger.EnablePersistAuthorization();
+        swagger.DisplayRequestDuration();
+    });
 }
 
 app.UseAuthentication();
+
+// Depois da autenticação: endpoint logado é limitado pelo usuário do token, não pelo IP.
+app.UseRateLimiter();
+
 app.UseAuthorization();
 
 app.MapControllers();
 
 // Liveness: o processo responde. Readiness: as dependências respondem.
-app.MapHealthChecks("/health/live", new() { Predicate = _ => false });
-app.MapHealthChecks("/health/ready", new() { Predicate = check => check.Tags.Contains("ready") });
+// Fora do rate limit: o healthcheck do Docker e o balanceador chamam toda hora.
+app.MapHealthChecks("/health/live", new() { Predicate = _ => false }).DisableRateLimiting();
+app.MapHealthChecks("/health/ready", new() { Predicate = check => check.Tags.Contains("ready") }).DisableRateLimiting();
 
 // Migrations no startup só fora de produção; em produção é step do pipeline (§11).
 // O seed do admin é idempotente e roda sempre que estiver habilitado.
 await app.Services.InitializeAuthModuleAsync(
+    applyMigrations: app.Environment.IsDevelopment());
+
+await app.Services.InitializeOwnersModuleAsync(
+    applyMigrations: app.Environment.IsDevelopment());
+
+await app.Services.InitializeAuditModuleAsync(
     applyMigrations: app.Environment.IsDevelopment());
 
 await app.RunAsync();

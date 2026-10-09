@@ -1,6 +1,6 @@
 # PetHost — Dicionário de dados
 
-_Modelo lógico do MVP · 14 tabelas · outubro de 2026 · complementa o [`escopo-mvp.md`](escopo-mvp.md)_
+_Modelo lógico do MVP · 15 tabelas · outubro de 2026 · complementa o [`escopo-mvp.md`](escopo-mvp.md)_
 
 Este documento explica cada tabela e cada coluna do banco: o que guarda, por que existe e quais regras valem. O banco ainda não foi escolhido (PostgreSQL ou SQL Server), então os tipos são genéricos; a seção 1 mostra como cada um vira tipo real.
 
@@ -94,6 +94,7 @@ Os nomes seguem o padrão mais comum em projetos atuais. A regra de ouro: **um j
 
 ```mermaid
 erDiagram
+    users ||--o| owners : "is owner"
     users ||--o{ pets : "owns"
     pet_types ||--o{ pets : "classifies"
     users ||--o| listings : "hosts"
@@ -119,9 +120,29 @@ erDiagram
         enum role UK
         varchar phone "nullable"
         varchar avatar_url "nullable"
+        date birth_date "nullable"
+        char zip_code "nullable"
+        varchar street "nullable"
+        varchar street_number "nullable"
+        varchar complement "nullable"
         varchar neighborhood "nullable"
         varchar city "nullable"
         char state "nullable"
+        boolean is_active
+        timestamp deactivated_at "nullable"
+        timestamp suspended_at "nullable"
+        varchar suspension_reason "nullable"
+        uuid suspended_by "nullable"
+        timestamp created_at
+        timestamp updated_at
+    }
+    owners {
+        uuid id PK
+        uuid user_id FK, UK
+        char cpf UK "nullable"
+        varchar stripe_customer_id UK "nullable"
+        boolean is_active
+        timestamp deactivated_at "nullable"
         timestamp created_at
         timestamp updated_at
     }
@@ -159,7 +180,10 @@ erDiagram
         uuid host_id FK, UK
         varchar title
         text description
-        varchar address_line
+        char zip_code
+        varchar street
+        varchar street_number
+        varchar complement "nullable"
         varchar neighborhood
         varchar city
         char state
@@ -289,7 +313,7 @@ Na ordem do fluxo: contas e pets, depois o anfitrião, depois a reserva e o paga
 
 ### `users` · Usuários
 
-Toda conta do sistema: tutores, anfitriões e administradores. O tipo da conta (role) é escolhido no cadastro e não muda. A mesma pessoa pode ter uma conta de tutor e outra de anfitrião com o mesmo e-mail.
+Toda conta do sistema: tutores, anfitriões e administradores — os dados **comuns** aos papéis. O tipo da conta (role) é escolhido no cadastro e não muda. A mesma pessoa pode ter uma conta de tutor e outra de anfitrião com o mesmo e-mail; cada uma tem os próprios dados e o próprio status. Fica no schema `auth` (módulo Auth).
 
 | Coluna | Tipo | Chave | Nulo | Descrição |
 |---|---|---|---|---|
@@ -298,17 +322,49 @@ Toda conta do sistema: tutores, anfitriões e administradores. O tipo da conta (
 | `email` | `varchar(160)` | `UK¹` | não | E-mail de login. Único junto com role. |
 | `password_hash` | `varchar(255)` |  | não | Hash da senha (nunca a senha em texto). |
 | `role` | `enum` | `UK¹` | não | Tipo da conta: owner (tutor), host (anfitrião) ou admin. |
-| `phone` | `varchar(20)` |  | sim | Telefone com DDD, só dígitos (ex.: 44999990000). Só é mostrado ao outro lado depois do pagamento. |
+| `phone` | `varchar(20)` |  | sim² | Telefone com DDD, só dígitos (ex.: 44999990000). Só é mostrado ao outro lado depois do pagamento. |
 | `avatar_url` | `varchar(500)` |  | sim | Foto de perfil. URL absoluta http/https. |
-| `neighborhood` | `varchar(80)` |  | sim | Bairro. Usado no selo "Vizinho" e na busca. |
-| `city` | `varchar(80)` |  | sim | Cidade. |
-| `state` | `char(2)` |  | sim | UF, ex.: PR. Só as 27 UFs válidas, em maiúsculas. |
+| `birth_date` | `date` |  | sim² | Data de nascimento. 18 anos ou mais. Usada na verificação de documentos: o tutor só troca até o primeiro pagamento, com a senha. |
+| `zip_code` | `char(8)` |  | sim² | CEP, só dígitos (ex.: 87020000). |
+| `street` | `varchar(120)` |  | sim² | Rua / logradouro. |
+| `street_number` | `varchar(10)` |  | sim² | Número. Texto: aceita "S/N", "120-A". |
+| `complement` | `varchar(60)` |  | sim | Complemento (apto, bloco). |
+| `neighborhood` | `varchar(80)` |  | sim² | Bairro. Usado no selo "Vizinho" e na busca. |
+| `city` | `varchar(80)` |  | sim² | Cidade. |
+| `state` | `char(2)` |  | sim² | UF, ex.: PR. Só as 27 UFs válidas, em maiúsculas. |
+| `is_active` | `boolean` |  | não | Conta ativa. Inativa não entra nem renova sessão; vale só para esta conta, não para a outra da mesma pessoa. |
+| `deactivated_at` | `timestamp` |  | sim | Quando foi inativada. Nulo enquanto ativa. |
+| `suspended_at` | `timestamptz` |  | sim | Quando o **admin** suspendeu a conta. Diferente de inativar: a pessoa não reativa sozinha. Nulo se não suspensa. |
+| `suspension_reason` | `varchar(500)` |  | sim | Motivo informado pelo admin. Obrigatório ao suspender. |
+| `suspended_by` | `uuid` |  | sim | O admin que suspendeu (users.id). Sem FK: o histórico não depende da conta do admin. |
 | `created_at` | `timestamp` |  | não | Quando o registro foi criado (UTC). |
 | `updated_at` | `timestamp` |  | não | Última alteração do registro (UTC). |
 
 > Índice único (`email, role`).
 >
-> O admin é criado direto no banco (`seed`).
+> ² Obrigatório para tutor e anfitrião (o cadastro exige); nulo só no admin, que é criado direto no banco (`seed`).
+>
+> **Endereço:** rua, número, complemento, CEP, cidade e UF são exatamente os campos do endereço de cobrança do Stripe (`line1` = rua + número, `line2` = complemento, `postal_code`, `city`, `state`, `country = BR`). Rua, número e complemento só aparecem para o outro lado depois do pagamento (escopo, regra 7).
+
+### `owners` · Tutores
+
+O que só o tutor tem. 1:1 com `users` de role `owner`: tem id próprio e aponta para a conta por `user_id`. Criado junto com a conta no cadastro de tutor. Fica no schema `owner` (módulo Owners) — por isso `user_id` é **FK lógica, sem constraint física**: módulos não têm restrição nem JOIN entre schemas; a ligação é garantida pela aplicação.
+
+| Coluna | Tipo | Chave | Nulo | Descrição |
+|---|---|---|---|---|
+| `id` | `uuid` | `PK` | não | Identificador do tutor. |
+| `user_id` | `uuid` | `FK UK` | não | A conta do tutor → users.id (FK lógica, sem constraint física). Única: um tutor por conta. |
+| `cpf` | `char(11)` | `UK` | sim | Nulo só em tutor suspenso cujo CPF o admin liberou (disputa de CPF; check `cpf IS NOT NULL OR suspended_at IS NOT NULL`). CPF, só dígitos, com dígitos verificadores conferidos. Um CPF por conta de tutor. Pode ser corrigido **só até o primeiro pagamento** (enquanto `stripe_customer_id` é nulo). Regra entre papéis: o mesmo CPF só pode estar também numa conta de anfitrião do **mesmo e-mail** (escopo, restrição 9). |
+| `stripe_customer_id` | `varchar(255)` | `UK` | sim | Customer no Stripe (cus_...). Criado no primeiro pagamento. |
+| `is_active` | `boolean` | | não | Falso depois de inativado. Default `true`. Anda junto com `users.is_active` da conta. |
+| `deactivated_at` | `timestamptz` | | sim | Quando foi inativado pela última vez. Nulo enquanto ativo. |
+| `suspended_at` | `timestamptz` | | sim | Quando o admin suspendeu. Anda junto com `users.suspended_at`. |
+| `created_at` | `timestamp` |  | não | Quando o registro foi criado (UTC). |
+| `updated_at` | `timestamp` |  | não | Última alteração do registro (UTC). |
+
+> **Para o Stripe:** o tutor é o pagador. No primeiro pagamento, o módulo de pagamentos cria o Customer com nome, e-mail, telefone (`+55...`) e endereço de `users`, e o CPF como tax ID `br_cpf`. O id volta para `stripe_customer_id` e é reaproveitado nos pagamentos seguintes (cartão salvo, recibos, histórico).
+>
+> O CPF do **anfitrião** também precisa ficar no banco, guardado pelo módulo do anfitrião e enviado ao Stripe Connect no onboarding (que confere CPF, nome e nascimento e coleta documento e conta bancária). Sem ele aqui não dá para aplicar a restrição 9: o Stripe não devolve o número completo do documento. Na hora de gravar o CPF de qualquer papel, a aplicação confere os dois lados: CPF de outro e-mail → `409`.
 
 ### `pet_types` · Tipos de pet
 
@@ -361,7 +417,10 @@ O espaço que o anfitrião oferece (no app: "cantinho"). Um por conta de anfitri
 | `host_id` | `uuid` | `FK UK` | não | Anfitrião dono → users.id (role = host). Único: um cantinho por conta. |
 | `title` | `varchar(80)` |  | não | Título, ex.: "Casa com quintal no Jardim Alvorada". |
 | `description` | `text` |  | não | Descrição livre da casa e da rotina. |
-| `address_line` | `varchar(200)` |  | não | Endereço completo. Só aparece para o tutor após o pagamento. |
+| `zip_code` | `char(8)` |  | não | CEP, só dígitos. Mesmo formato do endereço de `users`. |
+| `street` | `varchar(120)` |  | não | Rua. Só aparece para o tutor após o pagamento. |
+| `street_number` | `varchar(10)` |  | não | Número ("S/N" aceito). Só aparece após o pagamento. |
+| `complement` | `varchar(60)` |  | sim | Complemento. Só aparece após o pagamento. |
 | `neighborhood` | `varchar(80)` |  | não | Bairro. É o que aparece na busca. |
 | `city` | `varchar(80)` |  | não | Cidade. |
 | `state` | `char(2)` |  | não | UF. |
@@ -532,6 +591,26 @@ Cada mensagem do chat. Pode ter texto, foto ou os dois. Durante a estadia, as fo
 
 > Índice em (`conversation_id, created_at`).
 
+### `audit_entries` · Trilha de auditoria
+
+Quem fez o quê, sobre o quê, quando e de onde. Schema `audit` (módulo Audit, [`modulo-audit.md`](modulo-audit.md)). Só recebe `INSERT`: nunca é alterada nem apagada pela aplicação. Sem FK para as outras tabelas, de propósito: o registro sobrevive à conta ou ao tutor.
+
+| Coluna | Tipo | Chave | Nulo | Descrição |
+|---|---|---|---|---|
+| `id` | `uuid` | `PK` | não | UUID v7 (ordenado pelo tempo). |
+| `occurred_at` | `timestamptz` |  | não | Quando aconteceu (UTC). |
+| `action` | `varchar(64)` |  | não | `alvo.ação`, ex.: `owner.suspended`, `session.login_failed`. |
+| `target_type` | `varchar(32)` |  | não | `account`, `owner`, `audit`. |
+| `target_id` | `uuid` |  | sim | Id do alvo (conta, tutor). Nulo quando não se sabe (login com e-mail inexistente). |
+| `actor_id` | `uuid` |  | sim | Quem fez (users.id). Nulo em ação anônima sem conta. |
+| `actor_role` | `varchar(16)` |  | sim | Papel de quem fez, quando veio do token. |
+| `reason` | `varchar(500)` |  | sim | Motivo — obrigatório nas ações do admin. |
+| `details` | `jsonb` |  | não | Contexto curto. **Nunca** senha, token ou CPF completo. |
+| `ip_address` | `varchar(45)` |  | sim | IP do cliente (já resolvido pelo `X-Forwarded-For`). Dado pessoal: tem retenção. |
+| `trace_id` | `varchar(64)` |  | sim | Liga o registro ao log do request. |
+
+> Índices: (`target_type`, `target_id`, `occurred_at`), (`actor_id`, `occurred_at`), (`action`, `occurred_at`), (`occurred_at`).
+
 ### `reviews` · Avaliações
 
 Avaliação feita depois da reserva concluída. Cada lado avalia o outro uma vez.
@@ -552,6 +631,7 @@ Avaliação feita depois da reserva concluída. Cada lado avalia o outro uma vez
 
 | De | Para | Cardinalidade | Observação |
 |---|---|---|---|
+| `users` | `owners` | 1 : 0..1 | Só contas owner. owners.user_id → users.id; schemas diferentes, sem FK física. |
 | `users` | `pets` | 1 : N | Só contas owner têm pets. |
 | `pet_types` | `pets` | 1 : N | size só é preenchido se has_size. |
 | `users` | `listings` | 1 : 0..1 | Uma conta host tem no máximo um cantinho. |

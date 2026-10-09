@@ -120,6 +120,22 @@ public sealed partial class PasswordEndpointsTests(AuthApiFixture fixture) : IAs
     }
 
     [Fact]
+    public async Task Reset_Should_RejectTheOldAccessTokenImmediately_When_PasswordChanges()
+    {
+        await CreateOwnerAsync();
+        var login = await LoginAsync(OldPassword);
+        var accessToken = (await login.Content.ReadFromJsonAsync<JsonElement>(Json, Ct))
+            .GetProperty("data").GetProperty("accessToken").GetString()!;
+        var token = await RequestTokenAsync();
+
+        (await ResetAsync(token, NewPassword)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/users/me");
+        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
+        (await _client.SendAsync(request, Ct)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
     public async Task Reset_Should_Return401_When_TokenIsReused()
     {
         await CreateOwnerAsync();

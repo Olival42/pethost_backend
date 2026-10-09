@@ -19,6 +19,7 @@ public sealed class UserBuilder
     private string _passwordHash = SampleHash;
     private UserRole _role = UserRole.Owner;
     private DateTimeOffset _now = DefaultNow;
+    private DateOnly _birthDate = new(1990, 5, 10);
     private Guid? _id;
 
     public UserBuilder WithFullName(string? fullName)
@@ -42,6 +43,12 @@ public sealed class UserBuilder
     public UserBuilder WithRole(UserRole role)
     {
         _role = role;
+        return this;
+    }
+
+    public UserBuilder WithBirthDate(DateOnly birthDate)
+    {
+        _birthDate = birthDate;
         return this;
     }
 
@@ -77,7 +84,15 @@ public sealed class UserBuilder
 
         var user = _role is UserRole.Admin
             ? User.CreateAdmin(fullName.Value!, email.Value!, hash.Value!, _now)
-            : User.Register(fullName.Value!, email.Value!, hash.Value!, _role, _now);
+            : User.Register(
+                fullName.Value!,
+                email.Value!,
+                hash.Value!,
+                _role,
+                PhoneNumber.Create("44 99999-0000").Value!,
+                _birthDate,
+                DefaultAddress(),
+                _now);
 
         if (user.IsFailure)
             throw new InvalidOperationException($"Could not build test user: {user.FirstError?.Code}.");
@@ -99,4 +114,8 @@ public sealed class UserBuilder
 
         property.SetValue(user, new UserId(id));
     }
+
+    /// <summary>Endereço válido qualquer em Maringá-PR.</summary>
+    public static Address DefaultAddress() =>
+        Address.Create("87020-000", "Rua das Flores", "120", "Apto 3", "Zona 7", "Maringá", "PR").Value!;
 }

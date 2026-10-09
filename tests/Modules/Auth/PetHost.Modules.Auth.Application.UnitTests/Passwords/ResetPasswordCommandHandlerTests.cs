@@ -5,6 +5,7 @@ using PetHost.Modules.Auth.Application.Abstractions;
 using PetHost.Modules.Auth.Application.Passwords.ResetPassword;
 using PetHost.Modules.Auth.Domain.Users;
 using PetHost.TestKit;
+using PetHost.Shared.Contracts.Audit;
 using Xunit;
 
 namespace PetHost.Modules.Auth.Application.UnitTests.Passwords;
@@ -21,6 +22,8 @@ public sealed class ResetPasswordCommandHandlerTests
     private readonly Mock<IPasswordHasher> _passwordHasher = new();
     private readonly Mock<IPasswordResetTokenStore> _tokenStore = new();
     private readonly Mock<IRefreshTokenStore> _refreshTokenStore = new();
+    private readonly Mock<IAccessTokenRevocationStore> _accessTokenRevocationStore = new();
+    private readonly Mock<IAuditTrail> _auditTrail = new();
     private readonly ResetPasswordCommandHandler _sut;
 
     public ResetPasswordCommandHandlerTests()
@@ -33,6 +36,8 @@ public sealed class ResetPasswordCommandHandlerTests
             _passwordHasher.Object,
             _tokenStore.Object,
             _refreshTokenStore.Object,
+            _accessTokenRevocationStore.Object,
+            _auditTrail.Object,
             new FakeTimeProvider(Now));
     }
 
@@ -55,6 +60,10 @@ public sealed class ResetPasswordCommandHandlerTests
         _refreshTokenStore.Verify(
             s => s.RevokeAllAsync(new UserId(TestIds.Of(42)), It.IsAny<CancellationToken>()),
             Times.Once);
+        _accessTokenRevocationStore.Verify(
+            s => s.RevokeAllAsync(new UserId(TestIds.Of(42)), It.IsAny<CancellationToken>()),
+            Times.Once,
+            "o access token antigo não pode seguir valendo depois da troca de senha");
     }
 
     [Fact]

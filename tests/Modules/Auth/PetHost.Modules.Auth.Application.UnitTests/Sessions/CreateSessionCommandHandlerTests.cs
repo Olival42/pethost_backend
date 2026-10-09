@@ -4,6 +4,7 @@ using PetHost.Modules.Auth.Application.Abstractions;
 using PetHost.Modules.Auth.Application.Sessions.CreateSession;
 using PetHost.Modules.Auth.Domain.Users;
 using PetHost.TestKit;
+using PetHost.Shared.Contracts.Audit;
 using Xunit;
 
 namespace PetHost.Modules.Auth.Application.UnitTests.Sessions;
@@ -15,6 +16,7 @@ public sealed class CreateSessionCommandHandlerTests
     private readonly Mock<IUserRepository> _userRepository = new();
     private readonly Mock<IPasswordHasher> _passwordHasher = new();
     private readonly Mock<IAccessTokenGenerator> _accessTokenGenerator = new();
+    private readonly Mock<IAuditTrail> _auditTrail = new();
     private readonly Mock<IRefreshTokenStore> _refreshTokenStore = new();
     private readonly CreateSessionCommandHandler _sut;
 
@@ -24,7 +26,8 @@ public sealed class CreateSessionCommandHandlerTests
             _userRepository.Object,
             _passwordHasher.Object,
             _accessTokenGenerator.Object,
-            _refreshTokenStore.Object);
+            _refreshTokenStore.Object,
+            _auditTrail.Object);
     }
 
     [Fact]
@@ -234,4 +237,53 @@ public sealed class CreateSessionCommandHandlerTests
         _refreshTokenStore
             .Setup(s => s.IssueAsync(It.IsAny<UserId>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new RefreshToken(value, expiresAt));
+
+    // ----- suspensão e trilha -----
+
+    [Fact]
+    public async Task HandleAsync_Should_ReturnSuspended_When_AdminSuspendedTheAccount()
+    {
+        var user = new UserBuilder().WithId(TestIds.Of(7)).WithEmail("camila@exemplo.com").Build();
+        user.Suspend("fraude", Guid.CreateVersion7(), Now);
+        user.Deactivate(Now);
+        GivenUser(user);
+        GivenPasswordMatches();
+
+        var result = await _sut.HandleAsync(new CreateSessionCommand("camila@exemplo.com", "senha", "owner"), CancellationToken.None);
+
+        result.FirstError!.Code.Should().Be("AUTH_ACCOUNT_SUSPENDED", "suspensa vem antes de inativa: reativar não resolve");
+        _auditTrail.Verify(a => a.RecordAsync(
+            It.Is<AuditRecord>(r => r.Action == AuditActions.LoginFailed && r.TargetId == TestIds.Of(7) && r.Details!["reason"] == "suspended"),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task HandleAsync_Should_RecordFailureWithTheAccount_When_PasswordIsWrong()
+    {
+        var user = new UserBuilder().WithId(TestIds.Of(8)).WithEmail("camila@exemplo.com").Build();
+        GivenUser(user);
+        GivenPasswordDoesNotMatch();
+
+        await _sut.HandleAsync(new CreateSessionCommand("camila@exemplo.com", "errada", "owner"), CancellationToken.None);
+
+        _auditTrail.Verify(a => a.RecordAsync(
+            It.Is<AuditRecord>(r => r.Action == AuditActions.LoginFailed && r.TargetId == TestIds.Of(8) && r.Details!["reason"] == "invalid_credentials"),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task HandleAsync_Should_RecordSuccessWithTheUserAsActor_When_LoggedIn()
+    {
+        var user = new UserBuilder().WithId(TestIds.Of(9)).WithEmail("camila@exemplo.com").Build();
+        GivenUser(user);
+        GivenPasswordMatches();
+        GivenAccessToken("jwt", Now.AddMinutes(15), 900);
+        GivenRefreshToken("refresh", Now.AddDays(30));
+
+        await _sut.HandleAsync(new CreateSessionCommand("camila@exemplo.com", "senha", "owner"), CancellationToken.None);
+
+        _auditTrail.Verify(a => a.RecordAsync(
+            It.Is<AuditRecord>(r => r.Action == AuditActions.LoginSucceeded && r.ActorId == TestIds.Of(9)),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
 }

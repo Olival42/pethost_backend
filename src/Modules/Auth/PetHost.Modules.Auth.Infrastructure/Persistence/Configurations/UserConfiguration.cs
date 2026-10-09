@@ -58,18 +58,66 @@ internal sealed class UserConfiguration : IEntityTypeConfiguration<User>
             .HasConversion<AvatarUrlConverter>()
             .HasMaxLength(AvatarUrl.MaxLength);
 
-        builder.Property(u => u.Neighborhood)
-            .HasColumnName("neighborhood")
-            .HasMaxLength(User.NeighborhoodMaxLength);
+        builder.Property(u => u.BirthDate)
+            .HasColumnName("birth_date")
+            .HasColumnType("date");
 
-        builder.Property(u => u.City)
-            .HasColumnName("city")
-            .HasMaxLength(User.CityMaxLength);
+        builder.Property(u => u.IsActive)
+            .HasColumnName("is_active")
+            .HasDefaultValue(true)
+            .IsRequired();
 
-        builder.Property(u => u.State)
-            .HasColumnName("state")
-            .HasConversion<StateCodeConverter>()
-            .HasColumnType($"char({StateCode.Length})");
+        builder.Property(u => u.DeactivatedAt)
+            .HasColumnName("deactivated_at")
+            .HasColumnType("timestamptz");
+
+        builder.Property(u => u.SuspendedAt)
+            .HasColumnName("suspended_at")
+            .HasColumnType("timestamptz");
+
+        builder.Property(u => u.SuspensionReason)
+            .HasColumnName("suspension_reason")
+            .HasMaxLength(User.SuspensionReasonMaxLength);
+
+        // Sem FK: o admin é um usuário desta mesma tabela, mas apagar a conta dele não
+        // pode apagar nem bloquear o histórico de quem ele suspendeu.
+        builder.Property(u => u.SuspendedBy)
+            .HasColumnName("suspended_by");
+
+        // Endereço como tipo complexo: colunas na própria users, sem tabela nem join.
+        // Opcional porque o admin não tem endereço; tutor e anfitrião sempre têm.
+        builder.ComplexProperty(u => u.Address, address =>
+        {
+            address.Property(a => a.ZipCode)
+                .HasColumnName("zip_code")
+                .HasConversion<ZipCodeConverter>()
+                .HasColumnType($"char({ZipCode.Length})");
+
+            address.Property(a => a.Street)
+                .HasColumnName("street")
+                .HasMaxLength(Address.StreetMaxLength);
+
+            address.Property(a => a.Number)
+                .HasColumnName("street_number")
+                .HasMaxLength(Address.NumberMaxLength);
+
+            address.Property(a => a.Complement)
+                .HasColumnName("complement")
+                .HasMaxLength(Address.ComplementMaxLength);
+
+            address.Property(a => a.Neighborhood)
+                .HasColumnName("neighborhood")
+                .HasMaxLength(Address.NeighborhoodMaxLength);
+
+            address.Property(a => a.City)
+                .HasColumnName("city")
+                .HasMaxLength(Address.CityMaxLength);
+
+            address.Property(a => a.State)
+                .HasColumnName("state")
+                .HasConversion<StateCodeConverter>()
+                .HasColumnType($"char({StateCode.Length})");
+        });
 
         builder.Property(u => u.CreatedAt)
             .HasColumnName("created_at")

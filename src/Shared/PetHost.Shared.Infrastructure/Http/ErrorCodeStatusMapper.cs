@@ -34,6 +34,8 @@ public static class ErrorCodeStatusMapper
         ("_TOKEN_EXPIRED", StatusCodes.Status401Unauthorized),
 
         ("_FORBIDDEN", StatusCodes.Status403Forbidden),
+        ("_DEACTIVATED", StatusCodes.Status403Forbidden),
+        ("_SUSPENDED", StatusCodes.Status403Forbidden),
         ("_NOT_OWNED_BY_REQUESTER", StatusCodes.Status403Forbidden),
     ];
 

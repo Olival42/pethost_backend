@@ -1,6 +1,7 @@
 using PetHost.Modules.Auth.Application.Abstractions;
 using PetHost.Modules.Auth.Domain.Errors;
 using PetHost.Modules.Auth.Domain.Users;
+using PetHost.Shared.Contracts.Audit;
 using PetHost.Shared.Kernel.Messaging;
 using PetHost.Shared.Kernel.Primitives;
 using PetHost.Shared.Kernel.Results;
@@ -18,6 +19,8 @@ public sealed class ResetPasswordCommandHandler(
     IPasswordHasher passwordHasher,
     IPasswordResetTokenStore passwordResetTokenStore,
     IRefreshTokenStore refreshTokenStore,
+    IAccessTokenRevocationStore accessTokenRevocationStore,
+    IAuditTrail auditTrail,
     TimeProvider timeProvider) : ICommandHandler<ResetPasswordCommand, Unit>
 {
     public async Task<Result<Unit>> HandleAsync(
@@ -61,6 +64,16 @@ public sealed class ResetPasswordCommandHandler(
 
         await refreshTokenStore
             .RevokeAllAsync(user.Id, cancellationToken)
+            .ConfigureAwait(false);
+
+        await accessTokenRevocationStore
+            .RevokeAllAsync(user.Id, cancellationToken)
+            .ConfigureAwait(false);
+
+        await auditTrail
+            .RecordAsync(
+                new AuditRecord(AuditActions.PasswordResetCompleted, AuditTargets.Account, user.Id.Value, ActorId: user.Id.Value),
+                cancellationToken)
             .ConfigureAwait(false);
 
         return Result<Unit>.Success(Unit.Value);

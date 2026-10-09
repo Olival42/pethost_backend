@@ -19,6 +19,14 @@
     <ProjectReference Include="..\..\src\Modules\Auth\PetHost.Modules.Auth.Application\PetHost.Modules.Auth.Application.csproj" />
     <ProjectReference Include="..\..\src\Modules\Auth\PetHost.Modules.Auth.Infrastructure\PetHost.Modules.Auth.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Modules\Auth\PetHost.Modules.Auth.Presentation\PetHost.Modules.Auth.Presentation.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Owners\PetHost.Modules.Owners.Domain\PetHost.Modules.Owners.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Owners\PetHost.Modules.Owners.Application\PetHost.Modules.Owners.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Owners\PetHost.Modules.Owners.Infrastructure\PetHost.Modules.Owners.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Owners\PetHost.Modules.Owners.Presentation\PetHost.Modules.Owners.Presentation.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Audit\PetHost.Modules.Audit.Domain\PetHost.Modules.Audit.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Audit\PetHost.Modules.Audit.Application\PetHost.Modules.Audit.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Audit\PetHost.Modules.Audit.Infrastructure\PetHost.Modules.Audit.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Audit\PetHost.Modules.Audit.Presentation\PetHost.Modules.Audit.Presentation.csproj" />
   </ItemGroup>
 
 </Project>

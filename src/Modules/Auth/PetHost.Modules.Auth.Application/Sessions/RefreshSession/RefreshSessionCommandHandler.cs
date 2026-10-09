@@ -37,7 +37,7 @@ public sealed class RefreshSessionCommandHandler(
 
         // Token válido de uma conta que não existe mais: trata como token inválido,
         // sem revelar que a conta foi removida.
-        if (user is null)
+        if (user is null || !user.IsActive || user.IsSuspended)
             return Result<SessionResponse>.Failure(AuthErrors.RefreshTokenInvalid);
 
         var accessToken = accessTokenGenerator.Generate(user);

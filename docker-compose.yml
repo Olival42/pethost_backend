@@ -81,6 +81,11 @@ services:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
       ASPNETCORE_HTTP_PORTS: "8080"
 
+      # --- proxy ---
+      # A API fica atras do ngrok: le o IP real do X-Forwarded-For (rate limit por IP).
+      # So confia em proxies da rede privada do Docker.
+      ForwardedHeaders__Enabled: "true"
+
       # --- conexoes ---
       # `__` e o separador de secao da configuracao do ASP.NET Core:
       # ConnectionStrings__Postgres -> configuration["ConnectionStrings:Postgres"]

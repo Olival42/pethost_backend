@@ -1,10 +1,12 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using PetHost.Modules.Auth.Application.Passwords.ForgotPassword;
 using PetHost.Modules.Auth.Application.Passwords.ResetPassword;
 using PetHost.Shared.Contracts.Responses;
 using PetHost.Shared.Infrastructure.Http;
+using PetHost.Shared.Infrastructure.RateLimiting;
 using PetHost.Shared.Kernel.Messaging;
 using PetHost.Shared.Kernel.Primitives;
 
@@ -24,10 +26,12 @@ public sealed class PasswordController(
     /// uso único, e um pedido novo invalida o anterior.
     /// </remarks>
     [HttpPost("forgot")]
+    [EnableRateLimiting(RateLimitPolicies.PasswordReset)]
     [AllowAnonymous]
     [ProducesResponseType<ApiResponse<Unit>>(StatusCodes.Status200OK)]
     [ProducesResponseType<ApiResponse<Unit>>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<ApiResponse<Unit>>(StatusCodes.Status500InternalServerError)]
+    [ProducesResponseType<ApiResponse<Unit>>(StatusCodes.Status429TooManyRequests)]
     public async Task<IActionResult> ForgotAsync(
         [FromBody] ForgotPasswordCommand command,
         CancellationToken cancellationToken)
@@ -44,11 +48,13 @@ public sealed class PasswordController(
     /// Depois da troca, todas as sessões da conta são encerradas.
     /// </remarks>
     [HttpPost("reset")]
+    [EnableRateLimiting(RateLimitPolicies.PasswordReset)]
     [AllowAnonymous]
     [ProducesResponseType<ApiResponse<Unit>>(StatusCodes.Status200OK)]
     [ProducesResponseType<ApiResponse<Unit>>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<ApiResponse<Unit>>(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType<ApiResponse<Unit>>(StatusCodes.Status500InternalServerError)]
+    [ProducesResponseType<ApiResponse<Unit>>(StatusCodes.Status429TooManyRequests)]
     public async Task<IActionResult> ResetAsync(
         [FromBody] ResetPasswordCommand command,
         CancellationToken cancellationToken)

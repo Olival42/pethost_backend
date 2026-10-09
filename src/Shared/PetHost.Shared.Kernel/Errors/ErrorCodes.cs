@@ -9,5 +9,6 @@ public static class ErrorCodes
     public const string Unauthorized = "UNAUTHORIZED";
     public const string Forbidden = "FORBIDDEN";
     public const string BusinessRule = "BUSINESS_RULE_VIOLATION";
+    public const string TooManyRequests = "TOO_MANY_REQUESTS";
     public const string Unexpected = "UNEXPECTED_ERROR";
 }
