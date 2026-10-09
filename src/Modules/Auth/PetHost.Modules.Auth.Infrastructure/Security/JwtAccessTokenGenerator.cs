@@ -50,6 +50,7 @@ internal sealed class JwtAccessTokenGenerator : IAccessTokenGenerator
                 [JwtClaimNames.Name] = user.FullName.Value,
                 [JwtClaimNames.Role] = UserRoleValues.ToWire(user.Role),
                 [JwtClaimNames.TokenId] = Guid.NewGuid().ToString(),
+                [JwtClaimNames.IssuedAtMilliseconds] = now.ToUnixTimeMilliseconds(),
             },
         };
 

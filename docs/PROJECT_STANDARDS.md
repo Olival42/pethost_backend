@@ -34,7 +34,7 @@
 4. **Erro esperado não usa exceção.** Fluxo de negócio previsível retorna `Result`. Exceção só para bug ou infraestrutura fora.
 5. **Toda regra de negócio tem teste unitário.** Sem exceção.
 
-**Módulos** (bounded contexts): `Auth`, `Users`, `Pets`, `Booking`, `Availability`, `Payments`, `Reviews`, `Notifications`. Criar módulo novo é decisão de arquitetura — discutir antes do PR.
+**Módulos** (bounded contexts): `Auth` (conta, sessão, perfil comum), `Owners` (perfil de tutor), `Audit` (trilha de auditoria de todos os módulos), `Pets`, `Booking`, `Availability`, `Payments`, `Reviews`, `Notifications`. Criar módulo novo é decisão de arquitetura — discutir antes do PR.
 
 ---
 
@@ -143,6 +143,7 @@ public static class ErrorCodes
     public const string Unauthorized = "UNAUTHORIZED";
     public const string Forbidden    = "FORBIDDEN";
     public const string BusinessRule = "BUSINESS_RULE_VIOLATION";
+    public const string TooManyRequests = "TOO_MANY_REQUESTS";
     public const string Unexpected   = "UNEXPECTED_ERROR";
 }
 ```
@@ -355,6 +356,7 @@ Sucesso `200` · validação `400` · regra de negócio `422` · inesperado `500
 | `NOT_FOUND` | 404 | Recurso inexistente |
 | `CONFLICT` | 409 | Duplicidade, concorrência otimista |
 | `BUSINESS_RULE_VIOLATION` | 422 | Payload válido, regra impede a operação |
+| `TOO_MANY_REQUESTS` | 429 | Rate limit estourado. Vem com o header `Retry-After` (segundos) |
 | `UNEXPECTED_ERROR` | 500 | Exceção não tratada |
 
 **Códigos de módulo:** `<MODULE>_<REASON>` em `SCREAMING_SNAKE_CASE` — `AUTH_INVALID_CREDENTIALS`, `AUTH_EMAIL_ALREADY_REGISTERED`, `BOOKING_NOT_FOUND`, `BOOKING_OVERLAPPING_PERIOD`, `BOOKING_ALREADY_CANCELLED`, `PET_NOT_OWNED_BY_REQUESTER`, `PAYMENT_GATEWAY_REJECTED`.
@@ -497,7 +499,7 @@ public sealed class BookingsController(
 
 Mapeamento `PascalCase → snake_case` via `UseSnakeCaseNamingConvention()`; configuração explícita por entidade em `IEntityTypeConfiguration<T>`.
 
-**Queries:** `AsNoTracking()` sempre na leitura · toda lista **paginada** (sem coleção ilimitada) · `Include` explícito, lazy loading off · projetar direto no DTO via `Select` · `enum` como **string** · concorrência otimista com `xmin` → `CONFLICT`.
+**Queries:** `AsNoTracking()` sempre na leitura · toda lista **paginada** (exceção: lista administrativa, ver §13) (sem coleção ilimitada) · `Include` explícito, lazy loading off · projetar direto no DTO via `Select` · `enum` como **string** · concorrência otimista com `xmin` → `CONFLICT`.
 
 **Migrations:** nome em inglês, `PascalCase`, imperativo (`CreateBookingsTable`, `AddCancellationReasonToBookings`). Migration já aplicada em produção **nunca** é editada — crie outra. Em produção não rodam no startup: step dedicado do pipeline.
 
@@ -545,6 +547,8 @@ O time pensa em português, o código fala inglês. Esta é a tradução oficial
 | Cuidador | `Sitter` | Check-in / check-out | `CheckIn` / `CheckOut` |
 | Disponibilidade | `Availability` | Diária | `NightlyRate` |
 | Usuário / perfil | `User` / `Profile` | Vacina | `Vaccination` |
+| Inativar (pela pessoa) | `Deactivate` | Suspender (pelo admin) | `Suspend` |
+| Trilha de auditoria | `AuditTrail` / `AuditEntry` | Motivo | `Reason` |
 
 ---
 
@@ -556,13 +560,19 @@ O time pensa em português, o código fala inglês. Esta é a tradução oficial
 
 Prefixo `/api` sempre · versão obrigatória desde o primeiro endpoint · recurso substantivo **plural** em `kebab-case` · ID com constraint tipada (`{bookingId:guid}`) · query string `camelCase`.
 
-**Sem verbo na rota.** Ação não-CRUD vira sub-recurso substantivado:
+**Ação não-CRUD:** prefira sub-recurso substantivado (`POST /bookings/{id}/cancellation`). Verbo curto no fim da rota é **permitido** quando a ação é sobre a sessão ou a própria conta e o substantivo ficaria artificial — sempre `POST`, sempre no último segmento:
 
 | ❌ | ✅ |
 |----|----|
 | `POST /bookings/{id}/cancel` | `POST /bookings/{id}/cancellation` |
 | `POST /auth/do-login` | `POST /auth/sessions/login` |
 | `POST /auth/refresh-token` | `POST /auth/sessions/refresh` |
+| `POST /users/create` | `POST /users/register` |
+| `POST /users/{id}/disable` (id vindo do cliente) | `POST /owners/me/deactivate` |
+
+Verbos em uso: `register`, `login`, `refresh`, `logout`, `switch`, `deactivate`, `reactivate`, `forgot`, `reset`. Sub-recurso da conta: `POST /users/me/password` (troca de senha logada).
+
+**`me`:** rota sobre a conta do usuário autenticado usa `me` (`GET /users/me`, `GET /owners/me`); o id sai do token (`sub`), **nunca** do corpo ou da rota. Ninguém lê nem altera dado de outra pessoa por um id que ela mesma enviou.
 
 | Verbo | Uso | Sucesso |
 |-------|-----|---------|
@@ -571,10 +581,16 @@ Prefixo `/api` sempre · versão obrigatória desde o primeiro endpoint · recur
 | `PUT` / `PATCH` | Substitui / atualiza parcialmente | `200` |
 | `DELETE` | Remove (preferir soft delete) | `200` |
 
+`Location` aponta para onde o recurso criado é lido: `/{resource}/{id}` ou, quando o recurso é do próprio usuário, a rota `me` (`Location: /api/v1/users/me`). No controller: `result.ToCreatedResult(location)`.
+
+**Edição de perfil é `PATCH`:** só o que vier no corpo muda. Campo ausente ou `null` = não mexer; texto vazio (`""`) limpa um campo opcional, porque `null` não distingue "não mexer" de "apagar". Objeto aninhado (endereço) também é parcial e é validado inteiro depois de completado com o valor atual. Todos os erros de validação voltam juntos.
+
+**Dado sensível fora do `PATCH`:** senha e e-mail têm rota própria e pedem a senha atual (`POST /users/me/password`). Dado sensível que fica no `PATCH` do papel (CPF do tutor) pede `currentPassword` quando muda. Senha atual errada é `400` no campo `currentPassword`, não `401` — o token é válido.
+
 > Nunca `204` — o envelope acompanha toda resposta.
 
 ```
-POST   /api/v1/auth/registrations
+POST   /api/v1/users/register      ·  GET  /api/v1/users/me
 POST   /api/v1/auth/sessions/login    ·  POST /api/v1/auth/sessions/refresh
 GET    /api/v1/pets?page=1&pageSize=20&species=Dog
 POST   /api/v1/bookings               ·  GET  /api/v1/bookings/{bookingId:guid}
@@ -584,7 +600,32 @@ GET    /api/v1/hosts/{hostId:guid}/availability?from=2026-11-01&to=2026-11-30
 
 **Paginação:** `?page=1&pageSize=20` — `page` inicia em 1, `pageSize` default 20 e máximo 100. Resposta em `Data` via `PagedResult<T>` (`items`, `page`, `pageSize`, `totalCount`, `totalPages`).
 
-Todo endpoint tem `/// <summary>`, `[ProducesResponseType<ApiResponse<T>>]` para **cada** status possível e `[Authorize]`/`[AllowAnonymous]` explícito.
+Exceção: **lista administrativa** (só `admin`) pode sair sem paginação nem filtro enquanto o volume for pequeno — ex.: `GET /owners`. Lista que o usuário final vê é sempre paginada.
+
+Todo endpoint tem `/// <summary>`, `[ProducesResponseType<ApiResponse<T>>]` para **cada** status possível e `[Authorize]`/`[AllowAnonymous]` explícito — é o que aparece no Swagger (`/swagger`, só em Development, documento do `Microsoft.AspNetCore.OpenApi` em `/openapi/v1.json`, com o JWT declarado para o botão Authorize). O `429` do limite geral vale para todos e não é repetido em cada um; endpoint com política própria declara o `429`.
+
+### Rate limit
+
+Rate limiting nativo do ASP.NET Core (`AddPetHostRateLimiting`, em `Shared.Infrastructure/RateLimiting`), janela fixa, sem fila:
+
+- **Limite geral** em todo endpoint: por usuário logado (`sub`) ou, sem token, por IP.
+- **Endpoint crítico** ganha política própria, mais rígida, com `[EnableRateLimiting(RateLimitPolicies.X)]` — conta à parte do limite geral:
+
+| Política | Para | Chave | Padrão |
+|---|---|---|---|
+| `credentials` | Senha conferida sem sessão: login, troca de conta, reativação | IP | 10 / 5 min |
+| `registration` | Criar conta | IP | 10 / 1 h |
+| `password-reset` | Esqueci a senha (pedido e troca com o token) | IP | 5 / 15 min |
+| `session` | Refresh e logout | IP | 30 / 1 min |
+| `account-sensitive` | Logado, pede a senha ou derruba a conta: trocar senha, inativar | usuário | 5 / 15 min |
+| `account-update` | `PATCH` de perfil (inclui troca de CPF) | usuário | 20 / 15 min |
+| geral | Todo endpoint | usuário ou IP | 120 / 1 min |
+
+- Estourou: `429 TOO_MANY_REQUESTS` no envelope + `Retry-After`. Log `Warning` com rota e IP.
+- Health checks ficam fora (`DisableRateLimiting`).
+- Endpoint novo que confere senha, cria conta ou manda e-mail **precisa** de política própria.
+- Atrás de proxy, o IP vem do `X-Forwarded-For` (`ForwardedHeaders:Enabled`), confiando só em proxy de rede privada e loopback.
+- Os contadores ficam em memória: valem por instância. Com mais de uma instância, mover para o Redis.
 
 ---
 
@@ -700,6 +741,19 @@ Um `IExceptionHandler` global no host é o **único** lugar que captura exceçã
 | Tracing / métricas | OpenTelemetry (ASP.NET Core, `HttpClient`, Npgsql); contador de caso de uso por resultado |
 | Health checks | `/health/live` e `/health/ready` (inclui Postgres) |
 
+### Trilha de auditoria
+
+Log é para operar o sistema; a **trilha** (módulo Audit, `audit.audit_entries`) é o registro de negócio de quem fez o quê. Todo módulo registra pelo contrato `IAuditTrail` (`Shared.Contracts/Audit`), nunca referenciando o Audit.
+
+| Regra | Detalhe |
+|-------|---------|
+| O que registrar | Toda mudança de estado relevante (criar, alterar dado sensível, mudar status), toda ação do admin sobre dado de outra pessoa, login (sucesso e falha) e leitura de dado pessoal pelo admin (LGPD) |
+| O que não registrar | Leitura do próprio usuário, refresh, logout — o log do request basta |
+| Quando | No handler, **depois** que a operação gravou. A trilha nunca derruba o request |
+| Ação do admin | Sempre com `reason` (obrigatório na API) |
+| Conteúdo | `AuditActions.X` (`alvo.ação`) + `AuditTargets.X` + id. Campo alterado pelo **nome**, nunca pelo valor. CPF só mascarado. Nunca senha, token, hash, e-mail digitado |
+| Quem fez | Sai do token; informe `ActorId` só quando não há token (login, cadastro) |
+
 ---
 
 ## 16. Git
@@ -740,6 +794,7 @@ test(booking): cover overlapping period rule
 - [ ] Testes de arquitetura passando
 - [ ] Migration com nome descritivo, aplicada em banco limpo
 - [ ] Nenhum dado sensível em log; `/// <summary>` em todo membro público
+- [ ] Mudança de estado relevante e ação do admin registradas na trilha (`IAuditTrail`), sem dado sensível
 - [ ] Este documento atualizado, se um padrão mudou
 
 ---

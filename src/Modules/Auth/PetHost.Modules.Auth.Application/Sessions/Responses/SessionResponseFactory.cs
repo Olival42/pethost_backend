@@ -16,7 +16,7 @@ internal static class SessionResponseFactory
             accessToken.ExpiresAt.ToUnixTimeSeconds(),
             ToUserResponse(user));
 
-    private static AuthenticatedUserResponse ToUserResponse(User user) =>
+    public static AuthenticatedUserResponse ToUserResponse(User user) =>
         new(
             user.Id.Value,
             user.FullName.Value,
@@ -24,7 +24,7 @@ internal static class SessionResponseFactory
             UserRoleValues.ToWire(user.Role),
             user.Phone?.Value,
             user.AvatarUrl?.Value,
-            user.Neighborhood,
-            user.City,
-            user.State?.Value);
+            user.BirthDate,
+            AddressMapping.ToAddressData(user.Address),
+            user.IsActive);
 }

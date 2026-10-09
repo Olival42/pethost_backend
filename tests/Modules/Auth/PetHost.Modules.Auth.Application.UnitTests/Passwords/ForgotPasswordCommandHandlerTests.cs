@@ -4,6 +4,7 @@ using PetHost.Modules.Auth.Application.Abstractions;
 using PetHost.Modules.Auth.Application.Passwords.ForgotPassword;
 using PetHost.Modules.Auth.Domain.Users;
 using PetHost.TestKit;
+using PetHost.Shared.Contracts.Audit;
 using Xunit;
 
 namespace PetHost.Modules.Auth.Application.UnitTests.Passwords;
@@ -15,6 +16,7 @@ public sealed class ForgotPasswordCommandHandlerTests
     private readonly Mock<IUserRepository> _userRepository = new();
     private readonly Mock<IPasswordResetTokenStore> _tokenStore = new();
     private readonly Mock<IPasswordResetNotifier> _notifier = new();
+    private readonly Mock<IAuditTrail> _auditTrail = new();
     private readonly ForgotPasswordCommandHandler _sut;
 
     public ForgotPasswordCommandHandlerTests()
@@ -23,7 +25,7 @@ public sealed class ForgotPasswordCommandHandlerTests
             .Setup(s => s.IssueAsync(It.IsAny<UserId>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new PasswordResetToken("token-de-reset", Now.AddMinutes(30)));
 
-        _sut = new ForgotPasswordCommandHandler(_userRepository.Object, _tokenStore.Object, _notifier.Object);
+        _sut = new ForgotPasswordCommandHandler(_userRepository.Object, _tokenStore.Object, _notifier.Object, _auditTrail.Object);
     }
 
     [Fact]

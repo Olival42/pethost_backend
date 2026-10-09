@@ -83,7 +83,7 @@ A ideia é que o produto não pareça um sistema genérico. Ele tem quatro princ
 
 | Funcionalidade          | Como fica (versão simples)                                                                                                                                                                                                         |
 |-----------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Contas separadas**        | Conta de **tutor** ou de **anfitrião**, escolhida no cadastro. Pode usar o mesmo e-mail nas duas. Admin é criado direto no banco.                                                                                                      |
+| **Contas separadas**        | Conta de **tutor** ou de **anfitrião**, escolhida no cadastro. Pode usar o mesmo e-mail nas duas e alternar entre elas; cada uma pode ser inativada sem afetar a outra. O cadastro de tutor cria a conta (dados comuns e endereço) e o perfil de tutor (CPF) num pedido só. Admin é criado direto no banco.                                                                                                      |
 | **Tipos de pet**            | Lista mantida pelo admin: Cachorro, Gato, Pequenos animais. Porte (P, M, G) só para cachorro.                                                                                                                                          |
 | **Cadastro de pet (ficha)** | Nome, foto, tipo, raça (texto livre), porte, idade, sexo, castrado, vacinas em dia, remédio e horário, alimentação, se dá bem com cães, gatos e crianças, veterinário e "coisas que só quem convive sabe".                             |
 | **Cantinho**                | Fotos (até 5), descrição, bairro e endereço, tipo de casa, tem quintal, tem cães, gatos ou crianças em casa, tipos e portes aceitos, capacidade (quantos pets ao mesmo tempo, de tutores diferentes), diária por pet, regras da casa.  |
@@ -97,7 +97,7 @@ A ideia é que o produto não pareça um sistema genérico. Ele tem quatro princ
 | **Selos automáticos**       | Calculados, não cadastrados: Vizinho, Responde rápido, Casa com quintal, Experiente, Bem avaliado (regras na seção 7).                                                                                                                 |
 | **"Combina com seu pet"**   | Ao ver um cantinho, o sistema cruza a ficha do pet com a casa e com os outros hóspedes do período: "A Pipoca não se dá com gatos e aqui tem gato" ou "Nessas datas a Dona Cida também recebe o Thor, cão grande". Avisa, não bloqueia. |
 | **Painel do anfitrião**     | Pedidos novos, próximas estadias e quanto recebeu no mês.                                                                                                                                                                              |
-| **Admin mínimo**            | Aprovar anfitriões e gerenciar tipos de pet. Duas telas.                                                                                                                                                                               |
+| **Admin mínimo**            | Aprovar anfitriões e gerenciar tipos de pet. Duas telas. Suspender conta e liberar CPF em disputa; trilha de auditoria de tudo.                                                                                                                                                                               |
 
 ### 3.2 Fica de fora
 
@@ -185,11 +185,12 @@ O PetHost é a plataforma no Stripe; cada anfitrião é uma **conta conectada**.
 
 ## 8. Modelo entidade-relacionamento
 
-Modelo lógico do MVP: 14 tabelas. Nomes em inglês e snake_case, no padrão de mercado; o app continua em português. O **dicionário de dados** ([`dicionario-de-dados.md`](dicionario-de-dados.md)) explica cada tabela e coluna.
+Modelo lógico do MVP: 15 tabelas. Nomes em inglês e snake_case, no padrão de mercado; o app continua em português. O **dicionário de dados** ([`dicionario-de-dados.md`](dicionario-de-dados.md)) explica cada tabela e coluna.
 
 | No app                    | No banco                      |
 |-------------------------------|-----------------------------------|
 | **Tutor · Anfitrião · Admin** | users.role = owner · host · admin |
+| **Dados do tutor (CPF)**      | owners                            |
 | **Cantinho**                  | listings                          |
 | **Reserva / estadia**         | bookings                          |
 | **Avaliação**                 | reviews                           |
@@ -199,6 +200,7 @@ Notação pé-de-galinha (no Mermaid): `||` exatamente um · `o{` zero ou muitos
 
 ```mermaid
 erDiagram
+    users ||--o| owners : "is owner"
     users ||--o{ pets : "owns"
     pet_types ||--o{ pets : "classifies"
     users ||--o| listings : "hosts"
@@ -220,6 +222,11 @@ erDiagram
         uuid id PK
         varchar email UK
         enum role UK
+    }
+    owners {
+        uuid id PK
+        uuid user_id FK, UK
+        char cpf UK
     }
     pet_types {
         uuid id PK
@@ -290,6 +297,7 @@ _Aqui só as chaves. Todas as colunas estão no dicionário de dados e na versã
 
 | Relacionamento                 | Cardinalidade | Observação                                   |
 |------------------------------------|-------------------|--------------------------------------------------|
+| **users → owners**                 | 1 : 0..1          | Só contas owner. Criado junto no cadastro.       |
 | **users → pets**                   | 1 : N             | Só contas owner têm pets.                        |
 | **pet_types → pets**               | 1 : N             | size só é preenchido se has_size.                |
 | **users → listings**               | 1 : 0..1          | Uma conta host tem no máximo um cantinho.        |
@@ -307,7 +315,7 @@ _Aqui só as chaves. Todas as colunas estão no dicionário de dados e na versã
 | **users → messages**               | 1 : N             | sender_id.                                       |
 
 ### Restrições que o modelo precisa garantir
-1. users: (email, role) único. O mesmo e-mail pode existir uma vez como owner e uma vez como host.
+1. users: (email, role) único. O mesmo e-mail pode existir uma vez como owner e uma vez como host. owners: cpf único; só pode ser trocado até o primeiro pagamento.
 2. pets.owner_id, bookings.owner_id e conversations.owner_id apontam para users com role = owner; listings.host_id e conversations.host_id para role = host. Validado na aplicação.
 3. booking_pets: todo pet precisa ser do mesmo tutor da reserva, e de tipo e porte aceitos pelo cantinho.
 4. bookings: check_out_date \> check_in_date; pet_count = linhas em booking_pets; nightly_rate_cents é cópia do preço no momento do pedido.
@@ -315,6 +323,8 @@ _Aqui só as chaves. Todas as colunas estão no dicionário de dados e na versã
 6. Dinheiro sempre em centavos inteiros (\*\_cents), como o Stripe. payments: platform_fee_cents + host_payout_cents = amount_cents − refunded_cents.
 7. reviews.rating entre 1 e 5; só para bookings com status completed.
 8. stripe_events.stripe_event_id único: webhook repetido não é processado duas vezes.
+9. **CPF identifica a pessoa; o e-mail identifica o login.** Um CPF aparece em no máximo uma conta de tutor e uma de anfitrião, e só se as duas forem do **mesmo e-mail** (a mesma pessoa). CPF já usado por outro e-mail, em qualquer papel, é recusado (`409`). Hoje vale entre tutores; vale para o anfitrião quando o CPF dele for guardado (dicionário, tabela owners).
+10. **Titularidade do CPF:** validar o dígito não prova que o CPF é de quem digitou. O anfitrião é verificado pelo Stripe Connect (CPF, nome e nascimento conferidos na Receita) antes de receber. O tutor não é verificado no MVP — opções: consulta CPF + nome + nascimento (Serpro Datavalid) ou Stripe Identity no primeiro pagamento. Quem tem o CPF recusado porque outra conta já o usa fala com o suporte; o admin confere o documento, libera o CPF e inativa a conta indevida.
 9. Nada com histórico é apagado: pets e cantinhos são desativados (is_active, status).
 
 ## 9. Telas

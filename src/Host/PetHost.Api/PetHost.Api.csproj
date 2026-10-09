@@ -6,11 +6,16 @@
     <ProjectReference Include="..\..\Shared\PetHost.Shared.Infrastructure\PetHost.Shared.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Auth\PetHost.Modules.Auth.Infrastructure\PetHost.Modules.Auth.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Auth\PetHost.Modules.Auth.Presentation\PetHost.Modules.Auth.Presentation.csproj" />
+    <ProjectReference Include="..\..\Modules\Owners\PetHost.Modules.Owners.Infrastructure\PetHost.Modules.Owners.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Owners\PetHost.Modules.Owners.Presentation\PetHost.Modules.Owners.Presentation.csproj" />
+    <ProjectReference Include="..\..\Modules\Audit\PetHost.Modules.Audit.Infrastructure\PetHost.Modules.Audit.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Audit\PetHost.Modules.Audit.Presentation\PetHost.Modules.Audit.Presentation.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
     <PackageReference Include="Microsoft.OpenApi" />
+    <PackageReference Include="Swashbuckle.AspNetCore.SwaggerUI" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
     <PackageReference Include="Serilog.AspNetCore" />
     <PackageReference Include="Serilog.Sinks.Console" />

@@ -11,18 +11,39 @@
     <Project Path="src/Shared/PetHost.Shared.Kernel/PetHost.Shared.Kernel.csproj" />
   </Folder>
   <Folder Name="/src/Modules/" />
+  <Folder Name="/src/Modules/Audit/">
+    <Project Path="src/Modules/Audit/PetHost.Modules.Audit.Application/PetHost.Modules.Audit.Application.csproj" />
+    <Project Path="src/Modules/Audit/PetHost.Modules.Audit.Domain/PetHost.Modules.Audit.Domain.csproj" />
+    <Project Path="src/Modules/Audit/PetHost.Modules.Audit.Infrastructure/PetHost.Modules.Audit.Infrastructure.csproj" />
+    <Project Path="src/Modules/Audit/PetHost.Modules.Audit.Presentation/PetHost.Modules.Audit.Presentation.csproj" />
+  </Folder>
   <Folder Name="/src/Modules/Auth/" />
+  <Folder Name="/src/Modules/Owners/">
+    <Project Path="src/Modules/Owners/PetHost.Modules.Owners.Application/PetHost.Modules.Owners.Application.csproj" />
+    <Project Path="src/Modules/Owners/PetHost.Modules.Owners.Domain/PetHost.Modules.Owners.Domain.csproj" />
+    <Project Path="src/Modules/Owners/PetHost.Modules.Owners.Infrastructure/PetHost.Modules.Owners.Infrastructure.csproj" />
+    <Project Path="src/Modules/Owners/PetHost.Modules.Owners.Presentation/PetHost.Modules.Owners.Presentation.csproj" />
+  </Folder>
   <Folder Name="/src/Shared/" />
   <Folder Name="/tests/">
     <Project Path="tests/PetHost.ArchitectureTests/PetHost.ArchitectureTests.csproj" />
     <Project Path="tests/PetHost.TestKit/PetHost.TestKit.csproj" />
   </Folder>
   <Folder Name="/tests/Modules/" />
+  <Folder Name="/tests/Modules/Audit/">
+    <Project Path="tests/Modules/Audit/PetHost.Modules.Audit.Domain.UnitTests/PetHost.Modules.Audit.Domain.UnitTests.csproj" />
+    <Project Path="tests/Modules/Audit/PetHost.Modules.Audit.Application.UnitTests/PetHost.Modules.Audit.Application.UnitTests.csproj" />
+  </Folder>
   <Folder Name="/tests/Modules/Auth/">
     <Project Path="tests/Modules/Auth/PetHost.Modules.Auth.Application.UnitTests/PetHost.Modules.Auth.Application.UnitTests.csproj" />
     <Project Path="tests/Modules/Auth/PetHost.Modules.Auth.Domain.UnitTests/PetHost.Modules.Auth.Domain.UnitTests.csproj" />
     <Project Path="tests/Modules/Auth/PetHost.Modules.Auth.Infrastructure.UnitTests/PetHost.Modules.Auth.Infrastructure.UnitTests.csproj" />
     <Project Path="tests/Modules/Auth/PetHost.Modules.Auth.IntegrationTests/PetHost.Modules.Auth.IntegrationTests.csproj" />
+  </Folder>
+  <Folder Name="/tests/Modules/Owners/">
+    <Project Path="tests/Modules/Owners/PetHost.Modules.Owners.Application.UnitTests/PetHost.Modules.Owners.Application.UnitTests.csproj" />
+    <Project Path="tests/Modules/Owners/PetHost.Modules.Owners.Domain.UnitTests/PetHost.Modules.Owners.Domain.UnitTests.csproj" />
+    <Project Path="tests/Modules/Owners/PetHost.Modules.Owners.IntegrationTests/PetHost.Modules.Owners.IntegrationTests.csproj" />
   </Folder>
   <Folder Name="/tests/Shared/">
     <Project Path="tests/Shared/PetHost.Shared.Contracts.UnitTests/PetHost.Shared.Contracts.UnitTests.csproj" />

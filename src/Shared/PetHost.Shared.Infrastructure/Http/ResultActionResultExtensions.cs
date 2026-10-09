@@ -19,4 +19,18 @@ public static class ResultActionResultExtensions
             StatusCode = response.Success ? successStatusCode : response.Error!.Code.ToHttpStatusCode(),
         };
     }
+
+    /// <summary>
+    /// <c>201 Created</c> com o header <c>Location</c> apontando para onde o recurso
+    /// criado pode ser lido (§13). Em falha, igual a <see cref="ToActionResult{T}"/>.
+    /// </summary>
+    public static IActionResult ToCreatedResult<T>(this Result<T> result, string location)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(location);
+
+        if (result.IsFailure)
+            return result.ToActionResult();
+
+        return new CreatedResult(location, result.ToApiResponse());
+    }
 }

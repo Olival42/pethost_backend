@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
+using PetHost.Modules.Audit.Infrastructure;
+using PetHost.Modules.Audit.Infrastructure.Persistence;
 using PetHost.Modules.Auth.Infrastructure;
 using PetHost.Modules.Auth.Infrastructure.Persistence;
 using PetHost.Shared.Infrastructure.Email;
@@ -41,6 +43,21 @@ public sealed class AuthApiFixture : IAsyncLifetime
 
     public HttpClient CreateClient() => Factory.CreateClient();
 
+    /// <summary>
+    /// Outra instância da API sobre os mesmos containers, com configuração extra — por
+    /// exemplo, o rate limit ligado com limites baixos. Quem chama descarta.
+    /// </summary>
+    public WebApplicationFactory<Program> WithSettings(IReadOnlyDictionary<string, string> settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+
+        return Factory.WithWebHostBuilder(builder =>
+        {
+            foreach (var (key, value) in settings)
+                builder.UseSetting(key, value);
+        });
+    }
+
     public IServiceProvider Services => Factory.Services;
 
     private WebApplicationFactory<Program> Factory =>
@@ -68,6 +85,9 @@ public sealed class AuthApiFixture : IAsyncLifetime
             builder.UseSetting("Argon2:Iterations", "1");
             builder.UseSetting("Argon2:DegreeOfParallelism", "1");
 
+            // Os testes fazem dezenas de logins do mesmo "IP": o rate limit tem testes próprios.
+            builder.UseSetting("RateLimiting:Enabled", "false");
+
             builder.UseSetting("Seed:Admin:Enabled", "true");
             builder.UseSetting("Seed:Admin:Email", SeededAdminEmail);
             builder.UseSetting("Seed:Admin:Password", SeededAdminPassword);
@@ -88,6 +108,7 @@ public sealed class AuthApiFixture : IAsyncLifetime
         // A WebApplicationFactory para o host no `builder.Build()`, então o
         // trecho final do Program.cs (migrations + seed) não roda sozinho aqui.
         await Services.InitializeAuthModuleAsync(applyMigrations: true);
+        await Services.InitializeAuditModuleAsync(applyMigrations: true);
 
         _connection = new NpgsqlConnection(_postgres.GetConnectionString());
         await _connection.OpenAsync();
@@ -95,8 +116,12 @@ public sealed class AuthApiFixture : IAsyncLifetime
         _respawner = await Respawner.CreateAsync(_connection, new RespawnerOptions
         {
             DbAdapter = DbAdapter.Postgres,
-            SchemasToInclude = [AuthDbContext.Schema],
-            TablesToIgnore = [new Respawn.Graph.Table(AuthDbContext.Schema, AuthDbContext.MigrationsHistoryTable)],
+            SchemasToInclude = [AuthDbContext.Schema, AuditDbContext.Schema],
+            TablesToIgnore =
+            [
+                new Respawn.Graph.Table(AuthDbContext.Schema, AuthDbContext.MigrationsHistoryTable),
+                new Respawn.Graph.Table(AuditDbContext.Schema, AuditDbContext.MigrationsHistoryTable),
+            ],
         });
     }
 
