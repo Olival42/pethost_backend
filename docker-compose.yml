@@ -74,6 +74,8 @@ services:
         condition: service_healthy
       mailpit:
         condition: service_started
+      rustfs-init:
+        condition: service_completed_successfully
     ports:
       - "${API_HOST_PORT:-8080}:8080"
     environment:
@@ -123,6 +125,19 @@ services:
       PasswordReset__TokenLifetimeMinutes: ${PASSWORD_RESET_TOKEN_LIFETIME_MINUTES:-30}
       PasswordReset__ResetUrl: ${PASSWORD_RESET_URL:-}
 
+      # --- imagens (bucket S3 compativel) ---
+      # Padrao: o RustFS do proprio compose. Para usar o Cloudflare R2, preencha as
+      # variaveis STORAGE_* no .env (veja docs/armazenamento-de-imagens.md).
+      # ServiceUrl e o endereco que a API usa (rede do Docker); PublicBaseUrl e o que
+      # vai para o banco e o navegador abre.
+      Storage__ServiceUrl: ${STORAGE_SERVICE_URL:-http://rustfs:9000}
+      Storage__Region: ${STORAGE_REGION:-us-east-1}
+      Storage__AccessKeyId: ${STORAGE_ACCESS_KEY_ID:-pethost}
+      Storage__SecretAccessKey: ${STORAGE_SECRET_ACCESS_KEY:-pethost_local_dev}
+      Storage__BucketName: ${STORAGE_BUCKET_NAME:-pethost-images}
+      Storage__PublicBaseUrl: ${STORAGE_PUBLIC_BASE_URL:-http://localhost:9000/pethost-images}
+      Storage__ForcePathStyle: ${STORAGE_FORCE_PATH_STYLE:-true}
+
       # --- seed do admin ---
       # Cria o admin na subida se ainda nao existir. Nunca altera um admin existente.
       Seed__Admin__Enabled: ${SEED_ADMIN_ENABLED:-false}
@@ -141,6 +156,56 @@ services:
     ports:
       - "${MAILPIT_SMTP_HOST_PORT:-1025}:1025"
       - "${MAILPIT_UI_HOST_PORT:-8025}:8025"
+    networks: [pethost]
+
+  # ---------------------------------------------------------------------------
+  # RustFS - armazenamento de imagens compativel com S3 (o R2 de desenvolvimento)
+  # ---------------------------------------------------------------------------
+  # Mesma API do Cloudflare R2: o codigo e o mesmo, muda so a configuracao.
+  # Console web em http://localhost:${RUSTFS_CONSOLE_HOST_PORT:-9001}
+  rustfs:
+    image: rustfs/rustfs:1.0.1
+    container_name: pethost-rustfs
+    restart: unless-stopped
+    environment:
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:-pethost}
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:-pethost_local_dev}
+      RUSTFS_CONSOLE_ENABLE: "true"
+    ports:
+      - "${RUSTFS_HOST_PORT:-9000}:9000"
+      - "${RUSTFS_CONSOLE_HOST_PORT:-9001}:9001"
+    volumes:
+      - rustfs-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:9000/health > /dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 5s
+    networks: [pethost]
+
+  # Cria o bucket com leitura publica (como o do R2) e termina. Idempotente.
+  rustfs-init:
+    image: amazon/aws-cli:2.27.50
+    container_name: pethost-rustfs-init
+    restart: "no"
+    depends_on:
+      rustfs:
+        condition: service_healthy
+    environment:
+      AWS_ACCESS_KEY_ID: ${RUSTFS_ACCESS_KEY:-pethost}
+      AWS_SECRET_ACCESS_KEY: ${RUSTFS_SECRET_KEY:-pethost_local_dev}
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+      AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+      BUCKET: ${RUSTFS_BUCKET_NAME:-pethost-images}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        aws --endpoint-url http://rustfs:9000 s3api head-bucket --bucket "$$BUCKET" 2>/dev/null
+        || aws --endpoint-url http://rustfs:9000 s3api create-bucket --bucket "$$BUCKET";
+        aws --endpoint-url http://rustfs:9000 s3api put-bucket-policy --bucket "$$BUCKET"
+        --policy "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"AWS\":[\"*\"]},\"Action\":[\"s3:GetObject\"],\"Resource\":[\"arn:aws:s3:::$$BUCKET/*\"]}]}"
     networks: [pethost]
 
   # ---------------------------------------------------------------------------
@@ -175,6 +240,7 @@ services:
 volumes:
   postgres-data:
   redis-data:
+  rustfs-data:
 
 networks:
   pethost:

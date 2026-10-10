@@ -14,7 +14,6 @@ public sealed class PetProfileBuilder
         Species: "dog",
         SpeciesDescription: null,
         Name: "Pipoca",
-        PhotoUrl: "https://cdn.pethost.com/pipoca.png",
         Breed: "SRD",
         Size: "medium",
         BirthDate: "2022-03-15",
@@ -65,6 +64,20 @@ public sealed class PetProfileBuilder
             : throw new InvalidOperationException($"Invalid test pet: {profile.FirstError?.Message}");
     }
 
-    /// <summary>Um pet cadastrado com esta ficha.</summary>
-    public Pet BuildPet(PetKeeper keeper) => Pet.Create(keeper, Build(), DefaultNow);
+    /// <summary>Um pet cadastrado com esta ficha e, se pedido, com fotos (<c>pipoca-1.png</c>, ...).</summary>
+    public Pet BuildPet(PetKeeper keeper, int photos = 0)
+    {
+        var pet = Pet.Create(keeper, Build(), DefaultNow);
+
+        for (var i = 1; i <= photos; i++)
+            pet.AddPhoto(PhotoUrl(i), PhotoHash(i), DefaultNow);
+
+        return pet;
+    }
+
+    /// <summary>URL da foto <paramref name="number"/> que <see cref="BuildPet"/> põe no pet.</summary>
+    public static string PhotoUrl(int number) => $"https://cdn.pethost.com/pipoca-{number}.png";
+
+    /// <summary>Hash (64 caracteres) da foto <paramref name="number"/> que <see cref="BuildPet"/> põe no pet.</summary>
+    public static string PhotoHash(int number) => number.ToString("D64", System.Globalization.CultureInfo.InvariantCulture);
 }

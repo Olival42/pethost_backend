@@ -32,11 +32,12 @@ public static class PetsErrors
     public static readonly Error NameTooLong =
         Error.Validation("name", $"Name must be at most {PetProfile.NameMaxLength} characters.");
 
+    // A URL da foto vem do bucket, não do cliente: estes dois só aparecem com o storage mal configurado.
     public static readonly Error PhotoUrlInvalid =
         Error.Validation("photoUrl", "Photo URL must be an absolute http or https address.");
 
     public static readonly Error PhotoUrlTooLong =
-        Error.Validation("photoUrl", $"Photo URL must be at most {PetProfile.PhotoUrlMaxLength} characters.");
+        Error.Validation("photoUrl", $"Photo URL must be at most {PetPhoto.UrlMaxLength} characters.");
 
     public static readonly Error BreedTooLong =
         Error.Validation("breed", $"Breed must be at most {PetProfile.BreedMaxLength} characters.");
@@ -120,6 +121,18 @@ public static class PetsErrors
     /// </summary>
     public static readonly Error MicrochipAlreadyRegistered =
         new("PET_MICROCHIP_ALREADY_REGISTERED", "Another active pet already has this microchip number. If this pet is yours, contact support.");
+
+    /// <summary>422: o pet já tem o máximo de fotos. Tire uma antes de pôr outra.</summary>
+    public static readonly Error PhotoLimitReached =
+        new("PET_PHOTO_LIMIT_REACHED", $"A pet can have at most {Pet.MaxPhotos} photos. Remove one before adding another.");
+
+    /// <summary>409: o pet já tem esta mesma imagem (mesmo arquivo) em uma das fotos.</summary>
+    public static readonly Error PhotoAlreadyExists =
+        new("PET_PHOTO_ALREADY_EXISTS", "This pet already has this photo.");
+
+    /// <summary>404: o pet não tem foto com esse id.</summary>
+    public static Error PhotoNotFound(PetPhotoId id) =>
+        new("PET_PHOTO_NOT_FOUND", $"Photo '{id.Value}' was not found.");
 
     /// <summary>404: não existe anfitrião com esse id.</summary>
     public static Error HostNotFound(Guid hostId) =>

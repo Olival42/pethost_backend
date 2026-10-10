@@ -15,6 +15,9 @@ public sealed class PetsDbContext(DbContextOptions<PetsDbContext> options) : DbC
     /// <summary>Histórico de migrations, isolado no schema do módulo.</summary>
     public const string MigrationsHistoryTable = "__ef_migrations_history";
 
+    /// <summary>Campo de <see cref="Pet"/> com as fotos, para o mapeamento e o <c>Include</c>.</summary>
+    internal const string PhotosField = "_photos";
+
     public DbSet<Pet> Pets => Set<Pet>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)

@@ -12,5 +12,6 @@ public static class ErrorCodes
     public const string TooManyRequests = "TOO_MANY_REQUESTS";
     public const string MethodNotAllowed = "METHOD_NOT_ALLOWED";
     public const string UnsupportedMediaType = "UNSUPPORTED_MEDIA_TYPE";
+    public const string PayloadTooLarge = "PAYLOAD_TOO_LARGE";
     public const string Unexpected = "UNEXPECTED_ERROR";
 }

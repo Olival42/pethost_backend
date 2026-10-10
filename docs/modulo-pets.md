@@ -57,6 +57,9 @@ tests/Modules/Hosts/ Domain.UnitTests
 | `PATCH` | `/api/v1/pets/{petId}` | dono do pet | Altera a ficha — só o que vier | `200` |
 | `POST` | `/api/v1/pets/{petId}/deactivation` | dono do pet | Desativa | `200` |
 | `DELETE` | `/api/v1/pets/{petId}/deactivation` | dono do pet | Reativa | `200` |
+| `POST` | `/api/v1/pets/{petId}/photos` | dono do pet | Adiciona uma foto (até 3; upload `multipart/form-data`, parte `file`) | `200` |
+| `PATCH` | `/api/v1/pets/{petId}/photos/{photoId}` | dono do pet | Substitui a imagem de uma foto (mesmo id e posição) | `200` |
+| `DELETE` | `/api/v1/pets/{petId}/photos/{photoId}` | dono do pet | Tira uma foto | `200` |
 | `GET` | `/api/v1/hosts/{hostId}/pets` | qualquer token | Pets **ativos** da casa do anfitrião | `200` |
 
 As listas não têm paginação nem filtro (pedido do produto; exceção registrada no §13 dos padrões). Ordem: do mais novo para o mais antigo.
@@ -84,7 +87,6 @@ O mesmo em todas as rotas de um pet (cadastro, `GET /pets/{petId}`, `PATCH`, des
   "keeper": { "id": "0199d1f0-...", "type": "owner", "name": "Camila Souza", "avatarUrl": "https://..." },
   "species": "dog",
   "name": "Pipoca",
-  "photoUrl": "https://cdn.pethost.com/pipoca.png",
   "breed": "SRD",
   "size": "medium",
   "birthDate": "2022-03-15",
@@ -100,6 +102,10 @@ O mesmo em todas as rotas de um pet (cadastro, `GET /pets/{petId}`, `PATCH`, des
   "weightKg": 14.5,
   "microchip": "985112004567890",
   "allergies": "Frango",
+  "photos": [
+    { "id": "0199d2b1-...", "url": "https://<bucket>/pets/0199d2b1....jpg" },
+    { "id": "0199d2b2-...", "url": "https://<bucket>/pets/0199d2b2....png" }
+  ],
   "isActive": true,
   "createdAt": "2026-10-09T12:00:00+00:00",
   "updatedAt": "2026-10-09T12:00:00+00:00"
@@ -118,6 +124,7 @@ O mesmo em todas as rotas de um pet (cadastro, `GET /pets/{petId}`, `PATCH`, des
   ```
 
   Sem pets, `pets` vem `[]` e o `keeper` vem do mesmo jeito.
+- `photos`: até 3 fotos, em ordem de posição. A **primeira é a capa**. Sem foto, vem `[]`. Cada foto tem `id` (para substituir ou tirar) e `url` (pública, abre direto no navegador).
 - `speciesDescription` aparece só em `exotic`; `size`, só em cachorro e gato (no gato, se informado); `deactivatedAt`, só em pet inativo.
 
 ### 3.2 `POST /api/v1/pets`
@@ -134,7 +141,7 @@ Corpo: os campos da ficha (seção 4), sem dono — ele vem do token.
 
 ### 3.3 `PATCH /api/v1/pets/{petId}`
 
-Regra do §13: campo ausente ou `null` não mexe; `""` limpa um campo opcional de texto (`photoUrl`, `breed`, `birthDate`, `medicationNotes`, `feedingNotes`, `vetContact`, `notes`, `microchip`, `allergies`). A ficha que resulta da mescla é **validada inteira** e todos os erros voltam juntos.
+Regra do §13: campo ausente ou `null` não mexe; `""` limpa um campo opcional de texto (`breed`, `birthDate`, `medicationNotes`, `feedingNotes`, `vetContact`, `notes`, `microchip`, `allergies`). A ficha que resulta da mescla é **validada inteira** e todos os erros voltam juntos.
 
 ```json
 { "name": "Paçoca", "breed": "", "goodWithCats": true }
@@ -155,6 +162,35 @@ Regra do §13: campo ausente ou `null` não mexe; `""` limpa um campo opcional d
 
 Pet com histórico não é apagado (escopo, restrição 9): é desativado — faleceu, foi doado. Idempotente nos dois sentidos; devolve o pet no formato da 3.1. Pet inativo some para quem não é o dono (inclusive da lista da casa do anfitrião) e continua em `GET /pets/me` do dono.
 
+### 3.5 Fotos (até 3)
+
+As fotos ficam na tabela `pet.pet_photos`. As três rotas recebem e devolvem o pet no formato da 3.1, com `photos` atualizado; só o dono mexe (pet de outra conta: `404 PET_NOT_FOUND`). Valem também para pet desativado. O upload é `multipart/form-data` com a imagem na parte **`file`**: JPEG, PNG ou WebP, até 5 MB. Regras do arquivo e do bucket em [armazenamento-de-imagens.md](armazenamento-de-imagens.md).
+
+| Rota | O que faz |
+|---|---|
+| `POST /pets/{petId}/photos` | Adiciona uma foto na **primeira vaga livre** (1 a 3). A vaga 1 é a capa; se a capa for tirada, a próxima foto adicionada vira a capa. Com 3 fotos: `422 PET_PHOTO_LIMIT_REACHED`. |
+| `PATCH /pets/{petId}/photos/{photoId}` | **Só substitui**: troca a imagem daquela foto, mantendo o `id` e a posição, e apaga a imagem antiga do bucket. |
+| `DELETE /pets/{petId}/photos/{photoId}` | Tira a foto e apaga a imagem. As outras ficam onde estavam. Tirar de novo: `404 PET_PHOTO_NOT_FOUND`. |
+
+A posse do pet, a vaga (no `POST`) e a existência da foto (no `PATCH`) são conferidas **antes** do envio: uma recusa não deixa arquivo no bucket.
+
+**Foto repetida:** o pet não pode ter a mesma imagem duas vezes. Na hora do upload a API calcula o SHA-256 dos bytes e guarda em `content_hash`; se o pet já tem uma foto com o mesmo hash, a resposta é `409 PET_PHOTO_ALREADY_EXISTS` e a cópia enviada é apagada do bucket. Vale no `POST` e no `PATCH`, inclusive substituir uma foto pela mesma imagem. A regra é **por pet**: a mesma imagem pode estar em pets diferentes. Ela pega o **mesmo arquivo**; a mesma foto recortada, comprimida ou reexportada tem outros bytes e passa como imagem nova.
+
+```bash
+curl -X POST  http://localhost:8080/api/v1/pets/{petId}/photos           -H "Authorization: Bearer <token>" -F "file=@pipoca.jpg"
+curl -X PATCH http://localhost:8080/api/v1/pets/{petId}/photos/{photoId} -H "Authorization: Bearer <token>" -F "file=@pipoca-nova.jpg"
+```
+
+| Status | Código | Quando |
+|---|---|---|
+| `400` | `VALIDATION_ERROR` | Campo `file`: faltando, vazio, acima de 5 MB ou que não é JPEG/PNG/WebP. |
+| `404` | `PET_NOT_FOUND` | Pet não existe ou é de outra conta. |
+| `404` | `PET_PHOTO_NOT_FOUND` | A foto não é deste pet (`PATCH`, `DELETE`). |
+| `413` | `PAYLOAD_TOO_LARGE` | Corpo acima de 8 MB. |
+| `415` | `UNSUPPORTED_MEDIA_TYPE` | Corpo que não é `multipart/form-data`. |
+| `409` | `PET_PHOTO_ALREADY_EXISTS` | O pet já tem essa imagem (mesmo arquivo) em uma das fotos. |
+| `422` | `PET_PHOTO_LIMIT_REACHED` | O pet já tem 3 fotos (`POST`). |
+
 ## 4. Regras da ficha
 
 Tudo no value object `PetProfile` (domínio), usado no cadastro (o validador chama a mesma regra) e no PATCH (depois da mescla).
@@ -164,7 +200,7 @@ Tudo no value object `PetProfile` (domínio), usado no cadastro (o validador cha
 | `species` | Obrigatório. `dog`, `cat`, `cockatiel` (calopsita), `parrot` (papagaio), `parakeet` (periquito), `canary` (canário), `rabbit`, `hamster`, `guinea_pig` (porquinho-da-índia), `fish`, `turtle` (tartaruga/jabuti) ou `exotic`. Maiúscula/minúscula tanto faz. |
 | `speciesDescription` | Obrigatória **só** em `exotic` (até 60): o que é o animal ("Iguana verde"). Proibida nas outras espécies. |
 | `name` | Obrigatório, até 60. |
-| `photoUrl` | Opcional, URL absoluta `http`/`https`, até 500. |
+| fotos | **Não vêm no JSON** (cadastro e PATCH ignoram `photoUrl`/`photos`). Entram por upload, nas rotas `/photos` (seção 3.5). |
 | `breed` | Opcional, texto livre, até 60. Vazio = sem raça definida. |
 | `size` | `small`, `medium`, `large`. **Obrigatório** em `dog`, **opcional** em `cat`, proibido nas outras espécies. |
 | `birthDate` | Opcional, `yyyy-MM-dd`, aproximada, não no futuro. |
@@ -185,6 +221,9 @@ Texto é aparado; texto vazio em campo opcional vira nulo.
 | `PET_NOT_FOUND` | 404 | Pet '{id}' was not found. Também para pet de outra conta. |
 | `PET_KEEPER_NOT_FOUND` | 404 | This account has no owner or host profile yet. |
 | `PET_HOST_NOT_FOUND` | 404 | Host '{id}' was not found. |
+| `PET_PHOTO_NOT_FOUND` | 404 | Photo '{id}' was not found. |
+| `PET_PHOTO_ALREADY_EXISTS` | 409 | This pet already has this photo. |
+| `PET_PHOTO_LIMIT_REACHED` | 422 | A pet can have at most 3 photos. Remove one before adding another. |
 | `PET_MICROCHIP_ALREADY_REGISTERED` | 409 | Another active pet already has this microchip number. If this pet is yours, contact support. |
 
 **Microchip único:** o número identifica um animal só, então dois pets **ativos** não podem ter o mesmo microchip, nem entre contas diferentes. Pet desativado não conta: se o animal mudou de tutor, o antigo desativa e o novo cadastra com o mesmo número. A regra é conferida no cadastro, no PATCH (só quando o número muda) e ao reativar: se outro pet ativo ficou com o número nesse meio-tempo, a reativação devolve `409`. No banco, o índice parcial `uq_pets_microchip_active` garante a mesma coisa.
@@ -193,7 +232,7 @@ Texto é aparado; texto vazio em campo opcional vira nulo.
 
 ## 5. Banco
 
-Schema `pet`, histórico em `pet.__ef_migrations_history`. Migrations: `CreatePetsTable`, `AddHealthDetailsToPets`, `AllowSizeForCats`.
+Schema `pet`, histórico em `pet.__ef_migrations_history`. Migrations: `CreatePetsTable`, `AddHealthDetailsToPets`, `AllowSizeForCats`, `AddUniqueMicrochipToPets`, `AddPetPhotos` (cria `pet_photos`, copia a `photo_url` de cada pet como a foto 1 e remove a coluna), `AddContentHashToPetPhotos`.
 
 ```sql
 CREATE TABLE pet.pets (
@@ -203,7 +242,6 @@ CREATE TABLE pet.pets (
     species             varchar(20)  NOT NULL,
     species_description varchar(60),
     name                varchar(60)  NOT NULL,
-    photo_url           varchar(500),
     breed               varchar(60),
     size                varchar(10),
     birth_date          date,
@@ -235,6 +273,22 @@ CREATE INDEX ix_pets_owner_id ON pet.pets (owner_id);
 CREATE INDEX ix_pets_host_id ON pet.pets (host_id);
 -- Em SQL na migration AddUniqueMicrochipToPets: o EF não indexa coluna de tipo complexo.
 CREATE UNIQUE INDEX uq_pets_microchip_active ON pet.pets (microchip) WHERE is_active AND microchip IS NOT NULL;
+
+CREATE TABLE pet.pet_photos (
+    id          uuid          NOT NULL,
+    pet_id      uuid          NOT NULL,   -- FK física: mesma tabela-mãe, mesmo módulo
+    url         varchar(500)  NOT NULL,
+    content_hash char(64),                -- SHA-256 da imagem; nulo só nas fotos de antes da regra
+    position    smallint      NOT NULL,   -- vaga 1..3; a menor é a capa
+    created_at  timestamptz   NOT NULL,
+    CONSTRAINT pk_pet_photos PRIMARY KEY (id),
+    CONSTRAINT fk_pet_photos_pets FOREIGN KEY (pet_id) REFERENCES pet.pets (id) ON DELETE CASCADE,
+    CONSTRAINT ck_pet_photos_position CHECK (position BETWEEN 1 AND 3)
+);
+-- Limite de 3 também no banco: dois uploads ao mesmo tempo não criam a quarta foto.
+CREATE UNIQUE INDEX uq_pet_photos_pet_id_position ON pet.pet_photos (pet_id, position);
+-- A mesma imagem não entra duas vezes no mesmo pet.
+CREATE UNIQUE INDEX uq_pet_photos_pet_id_content_hash ON pet.pet_photos (pet_id, content_hash) WHERE content_hash IS NOT NULL;
 ```
 
 ```bash
@@ -278,9 +332,9 @@ O que o Stripe pede de uma empresa e **não** guardamos (cargo do representante,
 | Projeto | O que cobre | Resultado |
 |---|---|---|
 | `Hosts.Domain.UnitTests` | `Cnpj` (numérico e alfanumérico, máscara, dígitos), `Cpf`, `CompanyAddress` (todos os erros juntos), `Host` (PF sem dados de empresa, PJ com tudo, nomes obrigatórios) | 36 ✅ |
-| `Pets.Domain.UnitTests` | `PetProfile` (cada regra e cada erro, porte obrigatório no cachorro e opcional no gato, descrição só em exótico, peso/microchip/alergias, texto vazio vira nulo, ida e volta), `Pet` (um dono só, tutor ≠ anfitrião com o mesmo id, ficha igual não mexe no `updatedAt`, desativar/reativar idempotentes), enums | 62 ✅ |
-| `Pets.Application.UnitTests` | Cadastro (tutor, anfitrião, sem perfil, trilha, microchip repetido), validador, PATCH (parcial, limpar com `""`, troca de espécie, nada mudou, pet inativo, todos os erros, pet de outra conta = 404, mesma pessoa em outro papel, microchip repetido), `PetPatch`, desativar/reativar (reativar com microchip já em uso), quem vê o quê, listas com o dono uma vez no topo | 52 ✅ |
-| `Pets.IntegrationTests` | Pela API com Postgres e Redis em container: cadastro (`201` + `Location`, `400` com todos os campos, exótico, anfitrião sem perfil `404`, anfitrião com perfil, `401`, admin `403`), PATCH (inclusive de pet inativo), pet de outra conta `404`, desativar/reativar, `/pets/me` e a lista do anfitrião com o dono uma vez no topo, rota inexistente/id fora do formato `404` e método errado `405` no envelope, visibilidade entre tutores, pets da casa do anfitrião vistos pelo tutor, peso e microchip, gato com e sem porte, microchip repetido (`409` no cadastro, PATCH e reativação; liberado quando o pet antigo é desativado), CHECK de dono único e índice do microchip no banco | 30 ✅ |
+| `Pets.Domain.UnitTests` | `PetProfile` (cada regra e cada erro, porte obrigatório no cachorro e opcional no gato, descrição só em exótico, peso/microchip/alergias, texto vazio vira nulo, ida e volta), `Pet` (fotos: vagas em ordem, limite de 3, vaga liberada reaproveitada, substituir mantém id e posição, imagem repetida ao adicionar e ao substituir, URL inválida, foto de outro pet; um dono só, tutor ≠ anfitrião com o mesmo id, ficha igual não mexe no `updatedAt`, desativar/reativar idempotentes), enums | 73 ✅ |
+| `Pets.Application.UnitTests` | Cadastro (tutor, anfitrião, sem perfil, trilha, microchip repetido), validador, PATCH (parcial, limpar com `""`, troca de espécie, nada mudou, pet inativo, todos os erros, pet de outra conta = 404, mesma pessoa em outro papel, microchip repetido), `PetPatch`, desativar/reativar (reativar com microchip já em uso), quem vê o quê, listas com o dono uma vez no topo, fotos: adicionar (limite e posse conferidos antes do upload, compensação se gravar falhar), substituir (imagem antiga apagada, foto de outro pet sem upload), tirar | 60 ✅ |
+| `Pets.IntegrationTests` | Pela API com Postgres e Redis em container: cadastro (`201` + `Location`, `400` com todos os campos, exótico, anfitrião sem perfil `404`, anfitrião com perfil, `401`, admin `403`), PATCH (inclusive de pet inativo), pet de outra conta `404`, desativar/reativar, `/pets/me` e a lista do anfitrião com o dono uma vez no topo, rota inexistente/id fora do formato `404` e método errado `405` no envelope, visibilidade entre tutores, pets da casa do anfitrião vistos pelo tutor, peso e microchip, gato com e sem porte, microchip repetido (`409` no cadastro, PATCH e reativação; liberado quando o pet antigo é desativado), CHECK de dono único e índice do microchip no banco. `PetPhotoTests`: adicionar (bucket e link público, `422` na quarta foto sem upload, `404` sem upload para pet de outra conta, `400` de arquivo grande ou que não é imagem, `413` acima do teto), imagem repetida (`409` sem deixar arquivo; liberada em outro pet), substituir (mesmo id e posição, imagem antiga apagada, `404` de foto de outro pet, `409` com imagem de outra foto), tirar (só aquela foto; de novo `404`), `photoUrl` do JSON ignorado, limite de 3 no banco (vaga única, CHECK) | 44 ✅ |
 
 ## 9. Decisões e pendências
 
@@ -305,4 +359,4 @@ O que o Stripe pede de uma empresa e **não** guardamos (cargo do representante,
 | 2 | Pet em reserva ativa. | Quando o módulo Booking existir, desativar um pet com estadia confirmada ou em andamento deve ser recusado (ou cancelar a estadia). |
 | 3 | Ver a ficha do pet do tutor pelo anfitrião. | Hoje só o dono e o admin veem o pet de um tutor. Com o Booking, o anfitrião passa a ver os pets do pedido que recebeu. |
 | 4 | Tutor/anfitrião inativado ou suspenso. | Os pets dele continuam ativos e o pet do anfitrião continua visível na casa. Quando o anfitrião tiver status, a lista da casa pode esconder anfitrião inativo. |
-| 5 | Upload de foto. | `photoUrl` recebe uma URL pronta; o upload (storage) ainda não existe. |
+| 5 | Fotos do pet: resolvido. | Até 3 por pet, em `pet.pet_photos` (seção 3.5). Reordenar ou escolher a capa ainda não tem rota: a capa é a foto da menor vaga. |

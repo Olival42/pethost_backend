@@ -1,11 +1,14 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using PetHost.Modules.Pets.Application.Pets.AddPetPhoto;
 using PetHost.Modules.Pets.Application.Pets.DeactivatePet;
 using PetHost.Modules.Pets.Application.Pets.GetPetById;
 using PetHost.Modules.Pets.Application.Pets.ListMyPets;
 using PetHost.Modules.Pets.Application.Pets.ReactivatePet;
 using PetHost.Modules.Pets.Application.Pets.RegisterPet;
+using PetHost.Modules.Pets.Application.Pets.RemovePetPhoto;
+using PetHost.Modules.Pets.Application.Pets.ReplacePetPhoto;
 using PetHost.Modules.Pets.Application.Pets.Responses;
 using PetHost.Modules.Pets.Application.Pets.UpdatePet;
 using PetHost.Shared.Contracts.Authorization;
@@ -26,6 +29,9 @@ public sealed class PetsController(
     ICommandHandler<UpdatePetCommand, PetResponse> updatePet,
     ICommandHandler<DeactivatePetCommand, PetResponse> deactivatePet,
     ICommandHandler<ReactivatePetCommand, PetResponse> reactivatePet,
+    ICommandHandler<AddPetPhotoCommand, PetResponse> addPetPhoto,
+    ICommandHandler<ReplacePetPhotoCommand, PetResponse> replacePetPhoto,
+    ICommandHandler<RemovePetPhotoCommand, PetResponse> removePetPhoto,
     IQueryHandler<GetPetByIdQuery, PetResponse> getPetById,
     IQueryHandler<ListMyPetsQuery, KeeperPetsResponse> listMyPets) : ControllerBase
 {
@@ -59,7 +65,6 @@ public sealed class PetsController(
             request.Species,
             request.SpeciesDescription,
             request.Name,
-            request.PhotoUrl,
             request.Breed,
             request.Size,
             request.BirthDate,
@@ -148,7 +153,6 @@ public sealed class PetsController(
             request.Species,
             request.SpeciesDescription,
             request.Name,
-            request.PhotoUrl,
             request.Breed,
             request.Size,
             request.BirthDate,
@@ -207,6 +211,79 @@ public sealed class PetsController(
     {
         var result = await reactivatePet.HandleAsync(
             new ReactivatePetCommand(User.GetUserId(), CurrentRole(), petId),
+            cancellationToken);
+
+        return result.ToActionResult();
+    }
+
+    /// <summary>Adiciona uma foto ao pet (até 3).</summary>
+    /// <remarks>
+    /// <c>multipart/form-data</c> com a imagem na parte <c>file</c>: JPEG, PNG ou WebP, até
+    /// 5 MB (o formato é conferido pelo conteúdo, não pelo nome). A foto entra na primeira
+    /// vaga livre; a primeira de <c>photos</c> é a capa. Com 3 fotos, 422
+    /// <c>PET_PHOTO_LIMIT_REACHED</c>: substitua (<c>PATCH</c>) ou tire (<c>DELETE</c>) uma.
+    /// Arquivo inválido: 400 no campo <c>file</c>. Pet de outra conta: 404 <c>PET_NOT_FOUND</c>.
+    /// </remarks>
+    [HttpPost("{petId:guid}/photos")]
+    [Authorize(Roles = Keepers)]
+    [ImageUploadEndpoint]
+    [ProducesResponseType<ApiResponse<PetResponse>>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ApiResponse<PetResponse>>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ApiResponse<PetResponse>>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ApiResponse<PetResponse>>(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType<ApiResponse<PetResponse>>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ApiResponse<PetResponse>>(StatusCodes.Status413PayloadTooLarge)]
+    [ProducesResponseType<ApiResponse<PetResponse>>(StatusCodes.Status415UnsupportedMediaType)]
+    [ProducesResponseType<ApiResponse<PetResponse>>(StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> AddPhotoAsync(Guid petId, IFormFile? file, CancellationToken cancellationToken)
+    {
+        var result = await addPetPhoto.HandleAsync(
+            new AddPetPhotoCommand(User.GetUserId(), CurrentRole(), petId, file.ToImageUpload()),
+            cancellationToken);
+
+        return result.ToActionResult();
+    }
+
+    /// <summary>Substitui uma foto do pet.</summary>
+    /// <remarks>
+    /// <c>multipart/form-data</c> com a imagem nova na parte <c>file</c>. A foto mantém o id e a
+    /// posição; a imagem antiga é apagada do bucket. Foto que não é do pet: 404
+    /// <c>PET_PHOTO_NOT_FOUND</c>. Pet de outra conta: 404 <c>PET_NOT_FOUND</c>.
+    /// </remarks>
+    [HttpPatch("{petId:guid}/photos/{photoId:guid}")]
+    [Authorize(Roles = Keepers)]
+    [ImageUploadEndpoint]
+    [ProducesResponseType<ApiResponse<PetResponse>>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ApiResponse<PetResponse>>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ApiResponse<PetResponse>>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ApiResponse<PetResponse>>(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType<ApiResponse<PetResponse>>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ApiResponse<PetResponse>>(StatusCodes.Status413PayloadTooLarge)]
+    [ProducesResponseType<ApiResponse<PetResponse>>(StatusCodes.Status415UnsupportedMediaType)]
+    public async Task<IActionResult> ReplacePhotoAsync(Guid petId, Guid photoId, IFormFile? file, CancellationToken cancellationToken)
+    {
+        var result = await replacePetPhoto.HandleAsync(
+            new ReplacePetPhotoCommand(User.GetUserId(), CurrentRole(), petId, photoId, file.ToImageUpload()),
+            cancellationToken);
+
+        return result.ToActionResult();
+    }
+
+    /// <summary>Tira uma foto do pet.</summary>
+    /// <remarks>
+    /// A imagem é apagada do bucket; as outras fotos mantêm a posição. Foto que não é do pet:
+    /// 404 <c>PET_PHOTO_NOT_FOUND</c>. Pet de outra conta: 404 <c>PET_NOT_FOUND</c>.
+    /// </remarks>
+    [HttpDelete("{petId:guid}/photos/{photoId:guid}")]
+    [Authorize(Roles = Keepers)]
+    [ProducesResponseType<ApiResponse<PetResponse>>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ApiResponse<PetResponse>>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ApiResponse<PetResponse>>(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType<ApiResponse<PetResponse>>(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> RemovePhotoAsync(Guid petId, Guid photoId, CancellationToken cancellationToken)
+    {
+        var result = await removePetPhoto.HandleAsync(
+            new RemovePetPhotoCommand(User.GetUserId(), CurrentRole(), petId, photoId),
             cancellationToken);
 
         return result.ToActionResult();

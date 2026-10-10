@@ -145,7 +145,6 @@ public sealed class RegisterPetCommandHandlerTests
             data.Species,
             data.SpeciesDescription,
             data.Name,
-            data.PhotoUrl,
             data.Breed,
             data.Size,
             data.BirthDate,
@@ -185,7 +184,6 @@ public sealed class RegisterPetCommandValidatorTests
             Species = "rabbit",
             Size = "large",
             Name = "",
-            PhotoUrl = "javascript:alert(1)",
             Sex = null,
             GoodWithKids = null,
         };
@@ -194,6 +192,6 @@ public sealed class RegisterPetCommandValidatorTests
         var result = await _sut.ValidateAsync(command, TestContext.Current.CancellationToken);
 
         // Assert
-        result.Errors.Select(e => e.PropertyName).Should().BeEquivalentTo(["size", "name", "photoUrl", "sex", "goodWithKids"]);
+        result.Errors.Select(e => e.PropertyName).Should().BeEquivalentTo(["size", "name", "sex", "goodWithKids"]);
     }
 }

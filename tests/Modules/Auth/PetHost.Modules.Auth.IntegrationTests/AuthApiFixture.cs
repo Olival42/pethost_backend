@@ -8,6 +8,7 @@ using PetHost.Modules.Audit.Infrastructure.Persistence;
 using PetHost.Modules.Auth.Infrastructure;
 using PetHost.Modules.Auth.Infrastructure.Persistence;
 using PetHost.Shared.Infrastructure.Email;
+using PetHost.TestKit;
 using Respawn;
 using Testcontainers.PostgreSql;
 using Testcontainers.Redis;
@@ -98,6 +99,10 @@ public sealed class AuthApiFixture : IAsyncLifetime
             builder.UseSetting("Email:Host", "smtp.invalid");
             builder.UseSetting("Email:Port", "25");
             builder.UseSetting("Email:FromAddress", "no-reply@pethost.test");
+
+            // Auth não envia imagens: só precisa que a API suba.
+            foreach (var (key, value) in TestImageBucket.UnusedSettings)
+                builder.UseSetting(key, value);
             builder.UseSetting("PasswordReset:TokenLifetimeMinutes", "30");
             builder.UseSetting("PasswordReset:ResetUrl", "https://app.pethost.test/redefinir-senha?token={token}");
 

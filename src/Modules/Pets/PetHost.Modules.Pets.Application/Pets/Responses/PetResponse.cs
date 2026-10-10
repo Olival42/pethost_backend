@@ -10,6 +10,7 @@ namespace PetHost.Modules.Pets.Application.Pets.Responses;
 /// <param name="OwnerId">Id do tutor dono do pet. Omitido quando o pet é de um anfitrião, e nas listas.</param>
 /// <param name="HostId">Id do anfitrião dono do pet. Omitido quando o pet é de um tutor, e nas listas.</param>
 /// <param name="Keeper">Nome e foto do dono. Omitido nas listas.</param>
+/// <param name="Photos">Até 3 fotos, pela vaga: a primeira é a capa. Lista vazia se não há foto.</param>
 /// <param name="Species">Ex.: <c>dog</c>, <c>guinea_pig</c>, <c>exotic</c>.</param>
 /// <param name="Size"><c>small</c>, <c>medium</c> ou <c>large</c>. Só cachorro e gato.</param>
 /// <param name="Sex"><c>male</c>, <c>female</c> ou <c>unknown</c>.</param>
@@ -23,7 +24,6 @@ public sealed record PetResponse(
     string Species,
     string? SpeciesDescription,
     string Name,
-    string? PhotoUrl,
     string? Breed,
     string? Size,
     DateOnly? BirthDate,
@@ -40,6 +40,7 @@ public sealed record PetResponse(
     decimal? WeightKg,
     string? Microchip,
     string? Allergies,
+    IReadOnlyList<PetPhotoResponse> Photos,
     bool IsActive,
     DateTimeOffset? DeactivatedAt,
     DateTimeOffset CreatedAt,
@@ -59,7 +60,6 @@ public sealed record PetResponse(
             PetSpeciesValues.ToWire(profile.Species),
             profile.SpeciesDescription,
             profile.Name,
-            profile.PhotoUrl,
             profile.Breed,
             profile.Size is { } size ? PetSizeValues.ToWire(size) : null,
             profile.BirthDate,
@@ -76,6 +76,7 @@ public sealed record PetResponse(
             profile.WeightKg,
             profile.Microchip,
             profile.Allergies,
+            [.. pet.Photos.Select(photo => new PetPhotoResponse(photo.Id.Value, photo.Url))],
             pet.IsActive,
             pet.DeactivatedAt,
             pet.CreatedAt,
@@ -96,3 +97,8 @@ public sealed record PetResponse(
         return From(pet, keepers.GetValueOrDefault(pet.Keeper));
     }
 }
+
+/// <summary>Uma foto do pet.</summary>
+/// <param name="Id">Para tirar a foto: <c>DELETE /pets/{petId}/photos/{id}</c>.</param>
+/// <param name="Url">URL pública da imagem; abre direto no navegador.</param>
+public sealed record PetPhotoResponse(Guid Id, string Url);

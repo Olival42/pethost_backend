@@ -12,6 +12,7 @@
   <ItemGroup>
     <PackageReference Include="FluentValidation" />
     <PackageReference Include="MailKit" />
+    <PackageReference Include="AWSSDK.S3" />
   </ItemGroup>
 
 </Project>

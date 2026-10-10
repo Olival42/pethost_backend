@@ -2,12 +2,15 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using PetHost.Modules.Pets.Application.Abstractions;
+using PetHost.Modules.Pets.Application.Pets.AddPetPhoto;
 using PetHost.Modules.Pets.Application.Pets.DeactivatePet;
 using PetHost.Modules.Pets.Application.Pets.GetPetById;
 using PetHost.Modules.Pets.Application.Pets.ListHostPets;
 using PetHost.Modules.Pets.Application.Pets.ListMyPets;
 using PetHost.Modules.Pets.Application.Pets.ReactivatePet;
 using PetHost.Modules.Pets.Application.Pets.RegisterPet;
+using PetHost.Modules.Pets.Application.Pets.RemovePetPhoto;
+using PetHost.Modules.Pets.Application.Pets.ReplacePetPhoto;
 using PetHost.Modules.Pets.Application.Pets.Responses;
 using PetHost.Modules.Pets.Application.Pets.UpdatePet;
 using PetHost.Modules.Pets.Domain.Pets;
@@ -49,6 +52,9 @@ public static class DependencyInjection
         services.AddValidatedCommandHandler<UpdatePetCommandHandler, UpdatePetCommand, PetResponse>();
         services.AddValidatedCommandHandler<DeactivatePetCommandHandler, DeactivatePetCommand, PetResponse>();
         services.AddValidatedCommandHandler<ReactivatePetCommandHandler, ReactivatePetCommand, PetResponse>();
+        services.AddValidatedCommandHandler<AddPetPhotoCommandHandler, AddPetPhotoCommand, PetResponse>();
+        services.AddValidatedCommandHandler<ReplacePetPhotoCommandHandler, ReplacePetPhotoCommand, PetResponse>();
+        services.AddValidatedCommandHandler<RemovePetPhotoCommandHandler, RemovePetPhotoCommand, PetResponse>();
 
         services.AddScoped<IQueryHandler<GetPetByIdQuery, PetResponse>, GetPetByIdQueryHandler>();
         services.AddScoped<IQueryHandler<ListMyPetsQuery, KeeperPetsResponse>, ListMyPetsQueryHandler>();

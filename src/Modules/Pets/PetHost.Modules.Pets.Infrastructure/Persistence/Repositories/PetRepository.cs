@@ -7,7 +7,9 @@ namespace PetHost.Modules.Pets.Infrastructure.Persistence.Repositories;
 internal sealed class PetRepository(PetsDbContext dbContext) : IPetRepository
 {
     public Task<Pet?> GetByIdAsync(PetId id, CancellationToken cancellationToken) =>
-        dbContext.Pets.FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
+        dbContext.Pets
+            .Include(PetsDbContext.PhotosField)
+            .FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
 
     public async Task<IReadOnlyList<Pet>> ListByKeeperAsync(PetKeeper keeper, CancellationToken cancellationToken) =>
         await ByKeeper(keeper)
@@ -37,7 +39,7 @@ internal sealed class PetRepository(PetsDbContext dbContext) : IPetRepository
     /// <summary>Filtra pela coluna do tipo do dono — a que tem índice.</summary>
     private IQueryable<Pet> ByKeeper(PetKeeper keeper)
     {
-        var pets = dbContext.Pets.AsNoTracking();
+        var pets = dbContext.Pets.AsNoTracking().Include(PetsDbContext.PhotosField);
 
         return keeper.Type == KeeperType.Owner
             ? pets.Where(p => p.OwnerId == keeper.Id)

@@ -19,7 +19,6 @@ public sealed class PetProfile : ValueObject
 {
     public const int NameMaxLength = 60;
     public const int SpeciesDescriptionMaxLength = 60;
-    public const int PhotoUrlMaxLength = 500;
     public const int BreedMaxLength = 60;
     public const int VetContactMaxLength = 160;
 
@@ -52,8 +51,6 @@ public sealed class PetProfile : ValueObject
     public string? SpeciesDescription { get; private set; }
 
     public string Name { get; private set; }
-
-    public string? PhotoUrl { get; private set; }
 
     /// <summary>Texto livre. Vazio = sem raça definida.</summary>
     public string? Breed { get; private set; }
@@ -109,7 +106,6 @@ public sealed class PetProfile : ValueObject
         var species = ParseSpecies(data.Species, errors);
         var speciesDescription = CheckSpeciesDescription(species, data.SpeciesDescription, errors);
         var name = Required(data.Name, NameMaxLength, PetsErrors.NameRequired, PetsErrors.NameTooLong, errors);
-        var photoUrl = CheckPhotoUrl(data.PhotoUrl, errors);
         var breed = Optional(data.Breed, BreedMaxLength, PetsErrors.BreedTooLong, errors);
         var size = CheckSize(species, data.Size, errors);
         var birthDate = CheckBirthDate(data.BirthDate, now, errors);
@@ -135,7 +131,6 @@ public sealed class PetProfile : ValueObject
             Species = species.GetValueOrDefault(),
             SpeciesDescription = speciesDescription,
             Name = name ?? string.Empty,
-            PhotoUrl = photoUrl,
             Breed = breed,
             Size = size,
             BirthDate = birthDate,
@@ -161,7 +156,6 @@ public sealed class PetProfile : ValueObject
             PetSpeciesValues.ToWire(Species),
             SpeciesDescription,
             Name,
-            PhotoUrl,
             Breed,
             Size is { } size ? PetSizeValues.ToWire(size) : null,
             BirthDate?.ToString(DateFormat, CultureInfo.InvariantCulture),
@@ -282,28 +276,6 @@ public sealed class PetProfile : ValueObject
         return null;
     }
 
-    private static string? CheckPhotoUrl(string? value, List<Error> errors)
-    {
-        var url = Normalize(value);
-        if (url is null)
-            return null;
-
-        if (url.Length > PhotoUrlMaxLength)
-        {
-            errors.Add(PetsErrors.PhotoUrlTooLong);
-            return null;
-        }
-
-        // Recusa javascript:, data: e caminho relativo: o front usa isto como src de imagem.
-        var isWebAddress = Uri.TryCreate(url, UriKind.Absolute, out var uri)
-            && (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp);
-
-        if (!isWebAddress)
-            errors.Add(PetsErrors.PhotoUrlInvalid);
-
-        return url;
-    }
-
     private static DateOnly? CheckBirthDate(string? value, DateTimeOffset now, List<Error> errors)
     {
         var text = Normalize(value);
@@ -377,7 +349,6 @@ public sealed class PetProfile : ValueObject
         yield return Species;
         yield return SpeciesDescription;
         yield return Name;
-        yield return PhotoUrl;
         yield return Breed;
         yield return Size;
         yield return BirthDate;

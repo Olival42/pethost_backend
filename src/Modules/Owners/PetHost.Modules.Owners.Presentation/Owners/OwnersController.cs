@@ -2,12 +2,14 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using PetHost.Modules.Owners.Application.Owners.ChangeMyAvatar;
 using PetHost.Modules.Owners.Application.Owners.DeactivateMyOwner;
 using PetHost.Modules.Owners.Application.Owners.GetMyOwner;
 using PetHost.Modules.Owners.Application.Owners.GetOwnerById;
 using PetHost.Modules.Owners.Application.Owners.ListOwners;
 using PetHost.Modules.Owners.Application.Owners.ReactivateOwner;
 using PetHost.Modules.Owners.Application.Owners.RegisterOwnerAccount;
+using PetHost.Modules.Owners.Application.Owners.RemoveMyAvatar;
 using PetHost.Modules.Owners.Application.Owners.Responses;
 using PetHost.Modules.Owners.Application.Owners.SuspendOwner;
 using PetHost.Modules.Owners.Application.Owners.UpdateMyOwner;
@@ -27,6 +29,8 @@ namespace PetHost.Modules.Owners.Presentation.Owners;
 public sealed class OwnersController(
     ICommandHandler<RegisterOwnerAccountCommand, OwnerSessionResponse> registerOwnerAccount,
     ICommandHandler<UpdateMyOwnerCommand, OwnerResponse> updateMyOwner,
+    ICommandHandler<ChangeMyAvatarCommand, OwnerResponse> changeMyAvatar,
+    ICommandHandler<RemoveMyAvatarCommand, OwnerResponse> removeMyAvatar,
     ICommandHandler<DeactivateMyOwnerCommand, Unit> deactivateMyOwner,
     ICommandHandler<ReactivateOwnerCommand, OwnerSessionResponse> reactivateOwner,
     ICommandHandler<SuspendOwnerCommand, OwnerResponse> suspendOwner,
@@ -80,7 +84,7 @@ public sealed class OwnersController(
     /// <summary>Altera o tutor logado: dados da conta, nascimento e/ou CPF, num pedido só.</summary>
     /// <remarks>
     /// Só muda o que vier no corpo (PATCH); o endereço também pode vir pela metade. Para
-    /// limpar a foto ou o complemento, envie <c>""</c>. Valor igual ao atual não conta
+    /// limpar o complemento, envie <c>""</c>. A foto tem rota própria: <c>PUT /api/v1/owners/me/avatar</c>. Valor igual ao atual não conta
     /// como alteração. Todos os erros de formato voltam juntos num só 400. Trocar o CPF
     /// ou a data de nascimento pede <c>currentPassword</c> (400 se faltar ou estiver
     /// errada) e só vale até o primeiro pagamento (depois, 422 <c>OWNER_CPF_LOCKED</c> /
@@ -108,13 +112,56 @@ public sealed class OwnersController(
             User.GetUserId(),
             request.FullName,
             request.Phone,
-            request.AvatarUrl,
             request.Address,
             request.BirthDate,
             request.Cpf,
             request.CurrentPassword);
 
         var result = await updateMyOwner.HandleAsync(command, cancellationToken);
+
+        return result.ToActionResult();
+    }
+
+    /// <summary>Troca a foto de perfil do tutor logado.</summary>
+    /// <remarks>
+    /// <c>multipart/form-data</c> com a imagem na parte <c>file</c>: JPG/JPEG, PNG ou WebP, até
+    /// 5 MB (o formato é conferido pelo conteúdo, não pelo nome). A imagem vai para o bucket e
+    /// a URL pública fica em <c>user.avatarUrl</c>; a foto anterior é apagada. Arquivo inválido:
+    /// 400 no campo <c>file</c>.
+    /// </remarks>
+    [HttpPut("me/avatar")]
+    [EnableRateLimiting(RateLimitPolicies.AccountUpdate)]
+    [Authorize(Roles = Roles.Owner)]
+    [ImageUploadEndpoint]
+    [ProducesResponseType<ApiResponse<OwnerResponse>>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ApiResponse<OwnerResponse>>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ApiResponse<OwnerResponse>>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ApiResponse<OwnerResponse>>(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType<ApiResponse<OwnerResponse>>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ApiResponse<OwnerResponse>>(StatusCodes.Status413PayloadTooLarge)]
+    [ProducesResponseType<ApiResponse<OwnerResponse>>(StatusCodes.Status429TooManyRequests)]
+    public async Task<IActionResult> ChangeMyAvatarAsync(IFormFile? file, CancellationToken cancellationToken)
+    {
+        var result = await changeMyAvatar.HandleAsync(
+            new ChangeMyAvatarCommand(User.GetUserId(), file.ToImageUpload()),
+            cancellationToken);
+
+        return result.ToActionResult();
+    }
+
+    /// <summary>Tira a foto de perfil do tutor logado. Idempotente.</summary>
+    /// <remarks>A imagem é apagada do bucket.</remarks>
+    [HttpDelete("me/avatar")]
+    [EnableRateLimiting(RateLimitPolicies.AccountUpdate)]
+    [Authorize(Roles = Roles.Owner)]
+    [ProducesResponseType<ApiResponse<OwnerResponse>>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ApiResponse<OwnerResponse>>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ApiResponse<OwnerResponse>>(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType<ApiResponse<OwnerResponse>>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ApiResponse<OwnerResponse>>(StatusCodes.Status429TooManyRequests)]
+    public async Task<IActionResult> RemoveMyAvatarAsync(CancellationToken cancellationToken)
+    {
+        var result = await removeMyAvatar.HandleAsync(new RemoveMyAvatarCommand(User.GetUserId()), cancellationToken);
 
         return result.ToActionResult();
     }
@@ -272,7 +319,6 @@ public sealed class OwnersController(
 public sealed record UpdateMyOwnerRequest(
     string? FullName,
     string? Phone,
-    string? AvatarUrl,
     AddressData? Address,
     string? BirthDate,
     string? Cpf,

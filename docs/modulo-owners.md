@@ -52,6 +52,8 @@ Mesmas regras de camada do §4. `PetHost.ArchitectureTests` garante que Owners e
 | `POST` | `/api/v1/owners/register` | anônimo | Cadastro de tutor: conta + CPF, já com sessão | `201` |
 | `GET` | `/api/v1/owners/me` | token de tutor | Tutor da conta logada | `200` |
 | `PATCH` | `/api/v1/owners/me` | token de tutor | Altera conta, nascimento e/ou CPF — só o que vier | `200` |
+| `PUT` | `/api/v1/owners/me/avatar` | token de tutor | Troca a foto de perfil (upload `multipart/form-data`, parte `file`) | `200` |
+| `DELETE` | `/api/v1/owners/me/avatar` | token de tutor | Tira a foto de perfil | `200` |
 | `POST` | `/api/v1/owners/me/deactivate` | token de tutor | Inativa perfil e conta, juntos | `200` |
 | `POST` | `/api/v1/owners/reactivate` | anônimo | Reativa conta e perfil com e-mail e senha; já com sessão | `200` |
 | `GET` | `/api/v1/owners/{ownerId}` | admin | Um tutor, pelo **id do tutor** | `200` |
@@ -134,7 +136,8 @@ Sem `role`: é sempre `owner`.
 { "phone": "(44) 3222-1111", "address": { "number": "300" }, "birthDate": "1991-02-03", "cpf": "111.444.777-35", "currentPassword": "Tutora@123" }
 ```
 
-- `fullName`, `phone`, `avatarUrl`, `address`: regra do Auth (`ProfilePatch`, contrato `IAccountProfileEditor`) — ausente ou `null` não mexe; o endereço pode vir pela metade; texto vazio limpa a foto ou o complemento.
+- `fullName`, `phone`, `address`: regra do Auth (`ProfilePatch`, contrato `IAccountProfileEditor`) — ausente ou `null` não mexe; o endereço pode vir pela metade; texto vazio limpa o complemento.
+- **A foto não muda por aqui** (`avatarUrl` no corpo é ignorado): ela tem rota própria, a 3.4.
 - `cpf` e `birthDate` identificam o pagador (Stripe, verificação de documentos): trocar qualquer um pede **`currentPassword`** e só vale **até o primeiro pagamento**. A data segue as regras do cadastro (`yyyy-MM-dd`, não futura, 18+).
 - **Valor igual ao atual não é troca:** mandar o mesmo CPF, a mesma data ou o mesmo nome passa sem erro, sem pedir senha e sem esbarrar na trava — mesmo depois do pagamento. O front pode mandar o formulário inteiro.
 - E-mail e senha não mudam por aqui. Não existe `PATCH /users/me`: esta é a única rota que altera o perfil do tutor.
@@ -152,7 +155,20 @@ A ordem das recusas é: travado → senha → CPF de outro tutor. Assim quem nã
 
 Por dentro: tudo é conferido antes; a conta é gravada no Auth; o CPF é gravado aqui. Se gravar o CPF falhar, o perfil anterior da conta é aplicado de volta (compensação).
 
-### 3.4 Inativar e reativar
+### 3.4 `PUT` e `DELETE /api/v1/owners/me/avatar`
+
+Foto de perfil do tutor. O `PUT` recebe a imagem em `multipart/form-data`, na parte `file` (JPG/JPEG, PNG ou WebP, até 5 MB). A API envia a imagem ao bucket, grava a URL pública na conta (`user.avatarUrl`, no Auth, pelo `IAccountProfileEditor`) e apaga a foto anterior. O `DELETE` tira a foto e apaga a imagem; é idempotente. Os dois devolvem o tutor no formato da 3.1. A trilha fica com o Auth (`account.profile_updated`).
+
+| Status | Código | Quando |
+|---|---|---|
+| `200` | — | Foto trocada ou removida. |
+| `400` | `VALIDATION_ERROR` | Campo `file`: arquivo faltando, vazio, acima de 5 MB ou que não é JPEG/PNG/WebP (conferido pelo conteúdo). |
+| `404` | `OWNER_NOT_FOUND` | Conta de tutor sem perfil. Nada é enviado ao bucket. |
+| `413` | `PAYLOAD_TOO_LARGE` | Corpo acima de 8 MB. |
+
+Regras do arquivo, R2 e desenvolvimento local: [armazenamento-de-imagens.md](armazenamento-de-imagens.md).
+
+### 3.5 Inativar e reativar
 
 - `POST /api/v1/owners/me/deactivate` (token de tutor, sem corpo): inativa o **perfil de tutor e a conta**. Todas as sessões caem na hora (o access token já emitido passa a dar `401`); login responde `403 AUTH_ACCOUNT_DEACTIVATED`. A conta de anfitrião da mesma pessoa não é afetada. Idempotente.
 - `POST /api/v1/owners/reactivate` (anônimo): `{ "email", "password" }` da conta de tutor. Reativa conta e perfil e devolve a sessão no formato da 3.2 (`200`). Credenciais erradas: `401 AUTH_INVALID_CREDENTIALS`, e nada muda. Num tutor ativo, funciona como login.
@@ -161,11 +177,11 @@ Por dentro, os dois status nunca ficam diferentes: ao inativar, o perfil é grav
 
 Não existe inativar/reativar em `/users`: estas são as únicas rotas, e mudam conta e perfil juntos.
 
-### 3.5 Admin: `GET /api/v1/owners` e `GET /api/v1/owners/{ownerId}`
+### 3.6 Admin: `GET /api/v1/owners` e `GET /api/v1/owners/{ownerId}`
 
 Formato da 3.1 (a lista é um array dele). `{ownerId}` é o **id do tutor**, não o da conta. A lista vem do mais novo para o mais antigo, sem paginação nem filtro (lista administrativa, §13), e busca as contas no Auth numa consulta só. As duas leituras ficam na trilha.
 
-### 3.6 Admin: suspender, tirar a suspensão, liberar o CPF
+### 3.7 Admin: suspender, tirar a suspensão, liberar o CPF
 
 **Suspender ≠ inativar.** Inativar é decisão do tutor, e ele volta com a senha. Suspender é decisão do admin, e só o admin tira:
 
@@ -281,15 +297,15 @@ O `cus_...` volta para `owners.stripe_customer_id` (`Owner.LinkStripeCustomer`) 
 | Projeto | O que cobre | Resultado |
 |---|---|---|
 | `Owners.Domain.UnitTests` | `Cpf` (válidos, inválidos, máscara no `ToString`), `Owner` (id próprio, referência à conta, troca do CPF antes e depois do primeiro pagamento, inativar/reativar idempotentes, suspender, liberar CPF só de suspenso, suspensão que não sai depois do CPF liberado) | 28 ✅ |
-| `Owners.Application.UnitTests` | Cadastro unificado (sucesso, CPF de outro, e-mail de outro, **compensação**), PATCH (só conta, só CPF, data de nascimento, senha ausente/errada, travado, CPF de outro, valor igual sem senha nem trava, **compensação**), validadores que juntam erros do CPF e da conta, inativar/reativar (com **compensação** nos dois sentidos), suspender/tirar/liberar CPF (com **compensação**, motivo e CPF mascarado na trilha), consultas do admin | 39 ✅ |
-| `Owners.IntegrationTests` | Os fluxos pela API com Postgres e Redis em container: cadastro de anfitrião em `/users/register` (papel sempre `host`), cadastro unificado de tutor, PATCH parcial, com CPF e com data de nascimento (senha, trava no pagamento, reenvio do mesmo valor), `400` da data pelo `/users/me` para tutor, recusas sem gravar nada, inativar/reativar (sessões caem, login `403`, sessão nova vale), `/me` e rotas de admin. `OwnerAdminTests`: suspensão (sessões caem, login e reativação `403`), tirar a suspensão, disputa de CPF ponta a ponta, `422` das regras, `400` sem motivo, `403` para não admin, e a trilha (quem suspendeu e por quê, login recusado, leitura do admin, CPF mascarado) | 40 ✅ |
+| `Owners.Application.UnitTests` | Cadastro unificado (sucesso, CPF de outro, e-mail de outro, **compensação**), PATCH (só conta, só CPF, data de nascimento, senha ausente/errada, travado, CPF de outro, valor igual sem senha nem trava, **compensação**), validadores que juntam erros do CPF e da conta, inativar/reativar (com **compensação** nos dois sentidos), suspender/tirar/liberar CPF (com **compensação**, motivo e CPF mascarado na trilha), consultas do admin, trocar/tirar a foto (só a URL vai no patch, foto antiga apagada, imagem nova apagada se a conta recusar, nada enviado sem perfil de tutor) | 44 ✅ |
+| `Owners.IntegrationTests` | Os fluxos pela API com Postgres e Redis em container: cadastro de anfitrião em `/users/register` (papel sempre `host`), cadastro unificado de tutor, PATCH parcial, com CPF e com data de nascimento (senha, trava no pagamento, reenvio do mesmo valor), `400` da data pelo `/users/me` para tutor, recusas sem gravar nada, inativar/reativar (sessões caem, login `403`, sessão nova vale), `/me` e rotas de admin. `OwnerAdminTests`: suspensão (sessões caem, login e reativação `403`), tirar a suspensão, disputa de CPF ponta a ponta, `422` das regras, `400` sem motivo, `403` para não admin, e a trilha (quem suspendeu e por quê, login recusado, leitura do admin, CPF mascarado). `OwnerAvatarTests`: foto no bucket e link público, troca apaga a anterior, `400` sem arquivo ou com arquivo que não é imagem, remoção idempotente, `avatarUrl` do PATCH ignorado | 45 ✅ |
 
 ## 9. Decisões e pendências
 
 | Decisão | Por quê |
 |---|---|
 | Módulo próprio, schema `owner` | Decisão sua: o Auth fica com identidade e conta; pagamentos vão falar com o Owners. |
-| Tutor tratado inteiro pelo Owners (cadastro, PATCH, status) | Decisão sua. Custa a compensação entre módulos (seções 1, 3.3 e 3.4), coberta por teste. `/users/register` não cria conta de tutor, e não há inativar/reativar em `/users`. |
+| Tutor tratado inteiro pelo Owners (cadastro, PATCH, status) | Decisão sua. Custa a compensação entre módulos (seções 1, 3.3 e 3.5), coberta por teste. `/users/register` não cria conta de tutor, e não há inativar/reativar em `/users`. |
 | `PATCH` em vez de `PUT` | Pedido seu: o tutor manda só o que quer trocar. |
 | Troca de CPF e de data de nascimento pede a senha atual | Dados sensíveis (Stripe, verificação de documentos): exigem reautenticação. Senha errada é `400` no campo, não `401`. |
 | Data de nascimento travada no primeiro pagamento | Pedido seu: ela é usada para validar documentos, como o CPF. |
@@ -310,5 +326,5 @@ O `cus_...` volta para `owners.stripe_customer_id` (`Owner.LinkStripeCustomer`) 
 | 2 | Anfitrião sem perfil próprio. | O cantinho e o Stripe Connect farão esse papel no módulo do anfitrião. |
 | 3 | CPF único só entre tutores. | Alguém com outro e-mail pode usar o CPF de um anfitrião (ou de quem ainda não tem conta) para criar um tutor. Regra decidida (escopo, restrição 9): o mesmo CPF só pode estar num tutor e num anfitrião do **mesmo e-mail**. Entra junto com o CPF do anfitrião: o módulo do anfitrião guarda o CPF, e os dois lados conferem um ao outro por um contrato em `Shared.Contracts` antes de gravar. |
 | 4 | Titularidade do CPF do tutor não é verificada. | O dígito confere, mas não prova que o CPF é de quem digitou — e quem cadastra primeiro fica com ele. Opções (decisão de custo): Serpro Datavalid (CPF + nome + nascimento) no cadastro, ou Stripe Identity (documento + selfie) no primeiro pagamento. |
-| 5 | Disputa de CPF sem tela. | As rotas existem (seção 3.6) e tudo fica na trilha; falta a tela no admin e o canal de suporte por onde a pessoa abre o pedido. |
+| 5 | Disputa de CPF sem tela. | As rotas existem (seção 3.7) e tudo fica na trilha; falta a tela no admin e o canal de suporte por onde a pessoa abre o pedido. |
 | 6 | Suspender anfitrião. | Mesmo contrato (`IAccountStatusManager.SuspendAsync`); as rotas entram no módulo do anfitrião. |
