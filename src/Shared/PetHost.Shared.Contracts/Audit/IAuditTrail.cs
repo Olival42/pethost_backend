@@ -42,6 +42,9 @@ public static class AuditTargets
     /// <summary>Perfil de tutor (módulo Owners). O id é o do tutor.</summary>
     public const string Owner = "owner";
 
+    /// <summary>Pet (módulo Pets). O id é o do pet.</summary>
+    public const string Pet = "pet";
+
     /// <summary>A própria trilha (consulta do admin).</summary>
     public const string Audit = "audit";
 }
@@ -83,6 +86,12 @@ public static class AuditActions
 
     /// <summary>Admin listou os tutores (CPF completo de todos).</summary>
     public const string OwnersListed = "owner.listed";
+
+    // --- Pet (Pets) ---
+    public const string PetRegistered = "pet.registered";
+    public const string PetUpdated = "pet.updated";
+    public const string PetDeactivated = "pet.deactivated";
+    public const string PetReactivated = "pet.reactivated";
 
     // --- Auditoria ---
     public const string AuditSearched = "audit.searched";
