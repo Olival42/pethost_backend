@@ -791,6 +791,8 @@ test(booking): cover overlapping period rule
 
 **PR:** título em Conventional Commit · descrição com o que/por quê/como testar · CI verde (build + testes + cobertura + arquitetura) · ≥1 approve · alteração de contrato público (`Code`, formato de resposta, rota) exige nota explícita de *breaking change*.
 
+**CI** (`.github/workflows/ci.yml`, GitHub Actions): em todo push, em qualquer branch (o resultado aparece antes de abrir a PR), e em toda PR para `main` e `dev`. Faz restore, build em Release (aviso é erro) e roda **todos** os testes da solution: unitários, de integração (Postgres e Redis via Testcontainers, com o Docker do runner) e de arquitetura. Push novo na mesma branch cancela a execução anterior. `main` e `dev` são protegidas: o merge só é liberado com o check **`build-and-test`** verde e a branch atualizada com a base.
+
 ---
 
 ## 17. Definition of Done
