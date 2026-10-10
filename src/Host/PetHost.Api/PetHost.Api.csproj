@@ -10,6 +10,9 @@
     <ProjectReference Include="..\..\Modules\Owners\PetHost.Modules.Owners.Presentation\PetHost.Modules.Owners.Presentation.csproj" />
     <ProjectReference Include="..\..\Modules\Audit\PetHost.Modules.Audit.Infrastructure\PetHost.Modules.Audit.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Audit\PetHost.Modules.Audit.Presentation\PetHost.Modules.Audit.Presentation.csproj" />
+    <ProjectReference Include="..\..\Modules\Hosts\PetHost.Modules.Hosts.Infrastructure\PetHost.Modules.Hosts.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Pets\PetHost.Modules.Pets.Infrastructure\PetHost.Modules.Pets.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Pets\PetHost.Modules.Pets.Presentation\PetHost.Modules.Pets.Presentation.csproj" />
   </ItemGroup>
 
   <ItemGroup>

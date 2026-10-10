@@ -84,8 +84,8 @@ A ideia é que o produto não pareça um sistema genérico. Ele tem quatro princ
 | Funcionalidade          | Como fica (versão simples)                                                                                                                                                                                                         |
 |-----------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | **Contas separadas**        | Conta de **tutor** ou de **anfitrião**, escolhida no cadastro. Pode usar o mesmo e-mail nas duas e alternar entre elas; cada uma pode ser inativada sem afetar a outra. O cadastro de tutor cria a conta (dados comuns e endereço) e o perfil de tutor (CPF) num pedido só. Admin é criado direto no banco.                                                                                                      |
-| **Tipos de pet**            | Lista mantida pelo admin: Cachorro, Gato, Pequenos animais. Porte (P, M, G) só para cachorro.                                                                                                                                          |
-| **Cadastro de pet (ficha)** | Nome, foto, tipo, raça (texto livre), porte, idade, sexo, castrado, vacinas em dia, remédio e horário, alimentação, se dá bem com cães, gatos e crianças, veterinário e "coisas que só quem convive sabe".                             |
+| **Tipos de pet**            | Lista fixa: cachorro, gato, calopsita, papagaio, periquito, canário, coelho, hamster, porquinho-da-índia, peixe, tartaruga/jabuti e **exótico** (o tutor descreve o animal; o anfitrião decide se aceita no pedido e na conversa). Porte (P, M, G): obrigatório para cachorro, opcional para gato. |
+| **Cadastro de pet (ficha)** | Nome, foto, tipo, raça (texto livre), porte, idade, sexo, castrado, vacinas em dia, remédio e horário, alimentação, se dá bem com cães, gatos e crianças, veterinário, peso aproximado, microchip, alergias e "coisas que só quem convive sabe". O **anfitrião** também cadastra os pets que moram na casa dele: o tutor vê com quais animais o pet vai conviver. |
 | **Cantinho**                | Fotos (até 5), descrição, bairro e endereço, tipo de casa, tem quintal, tem cães, gatos ou crianças em casa, tipos e portes aceitos, capacidade (quantos pets ao mesmo tempo, de tutores diferentes), diária por pet, regras da casa.  |
 | **Agenda**                  | Tudo disponível por padrão. O anfitrião bloqueia datas. Estadias pagas bloqueiam sozinhas.                                                                                                                                             |
 | **Verificação**             | Cadastro de recebimento no Stripe (CPF, documento, banco) + ok do admin. Sem os dois, o cantinho não aparece na busca.                                                                                                                 |
@@ -97,7 +97,7 @@ A ideia é que o produto não pareça um sistema genérico. Ele tem quatro princ
 | **Selos automáticos**       | Calculados, não cadastrados: Vizinho, Responde rápido, Casa com quintal, Experiente, Bem avaliado (regras na seção 7).                                                                                                                 |
 | **"Combina com seu pet"**   | Ao ver um cantinho, o sistema cruza a ficha do pet com a casa e com os outros hóspedes do período: "A Pipoca não se dá com gatos e aqui tem gato" ou "Nessas datas a Dona Cida também recebe o Thor, cão grande". Avisa, não bloqueia. |
 | **Painel do anfitrião**     | Pedidos novos, próximas estadias e quanto recebeu no mês.                                                                                                                                                                              |
-| **Admin mínimo**            | Aprovar anfitriões e gerenciar tipos de pet. Duas telas. Suspender conta e liberar CPF em disputa; trilha de auditoria de tudo.                                                                                                                                                                               |
+| **Admin mínimo**            | Aprovar anfitriões. Uma tela (tipos de pet são uma lista fixa). Suspender conta e liberar CPF em disputa; trilha de auditoria de tudo.                                                                                                                                                                               |
 
 ### 3.2 Fica de fora
 
@@ -125,8 +125,8 @@ A ideia é que o produto não pareça um sistema genérico. Ele tem quatro princ
 | Conta     | Menu                                                                 | Pode                                                                                                           |
 |---------------|--------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------|
 | **Tutor**     | Buscar · Meus pets · Minhas estadias · Conversas · Perfil                | Cadastrar pets, puxar conversa, pedir e pagar estadia, cancelar, avaliar o anfitrião.                              |
-| **Anfitrião** | Meu cantinho · Agenda · Pedidos · Estadias · Conversas · Ganhos · Perfil | Montar o cantinho, conectar o Stripe, bloquear datas, aceitar ou recusar, marcar chegada e saída, avaliar o tutor. |
-| **Admin**     | Anfitriões aguardando · Tipos de pet                                     | Aprovar ou recusar anfitrião, manter a lista de tipos.                                                             |
+| **Anfitrião** | Meu cantinho · Meus pets · Agenda · Pedidos · Estadias · Conversas · Ganhos · Perfil | Montar o cantinho, cadastrar os pets da casa, conectar o Stripe, bloquear datas, aceitar ou recusar, marcar chegada e saída, avaliar o tutor. |
+| **Admin**     | Anfitriões aguardando                                                    | Aprovar ou recusar anfitrião.                                                                                      |
 
 **Login com o mesmo e-mail:** a tela de entrar tem a escolha "Sou tutor / Sou anfitrião". O e-mail é único **dentro de cada tipo**, então a Dona Cida pode ter as duas contas com o mesmo e-mail, cada uma com sua senha.
 
@@ -201,12 +201,12 @@ Notação pé-de-galinha (no Mermaid): `||` exatamente um · `o{` zero ou muitos
 ```mermaid
 erDiagram
     users ||--o| owners : "is owner"
-    users ||--o{ pets : "owns"
-    pet_types ||--o{ pets : "classifies"
-    users ||--o| listings : "hosts"
+    users ||--o| hosts : "is host"
+    owners ||--o{ pets : "owns"
+    hosts ||--o{ pets : "lives with"
+    hosts ||--o| listings : "hosts"
     listings ||--o{ listing_photos : "has"
-    listings ||--|{ listing_pet_types : "accepts"
-    pet_types ||--o{ listing_pet_types : ""
+    listings ||--|{ listing_species : "accepts"
     listings ||--o{ availability_blocks : "blocks"
     users ||--o{ bookings : "requests"
     listings ||--o{ bookings : "receives"
@@ -228,27 +228,31 @@ erDiagram
         uuid user_id FK, UK
         char cpf UK
     }
-    pet_types {
+    hosts {
         uuid id PK
-        varchar name UK
+        uuid user_id FK, UK
+        enum person_type
+        char cpf
+        char cnpj UK "nullable"
+        varchar stripe_account_id UK "nullable"
     }
     pets {
         uuid id PK
-        uuid owner_id FK
-        uuid pet_type_id FK
+        uuid owner_id FK "nullable"
+        uuid host_id FK "nullable"
+        enum species
     }
     listings {
         uuid id PK
         uuid host_id FK, UK
-        varchar stripe_account_id UK "nullable"
     }
     listing_photos {
         uuid id PK
         uuid listing_id FK
     }
-    listing_pet_types {
+    listing_species {
         uuid listing_id PK, FK
-        uuid pet_type_id PK, FK
+        enum species PK
     }
     availability_blocks {
         uuid id PK
@@ -298,11 +302,12 @@ _Aqui só as chaves. Todas as colunas estão no dicionário de dados e na versã
 | Relacionamento                 | Cardinalidade | Observação                                   |
 |------------------------------------|-------------------|--------------------------------------------------|
 | **users → owners**                 | 1 : 0..1          | Só contas owner. Criado junto no cadastro.       |
-| **users → pets**                   | 1 : N             | Só contas owner têm pets.                        |
-| **pet_types → pets**               | 1 : N             | size só é preenchido se has_size.                |
-| **users → listings**               | 1 : 0..1          | Uma conta host tem no máximo um cantinho.        |
+| **users → hosts**                  | 1 : 0..1          | Só contas host. Pessoa física ou jurídica.       |
+| **owners → pets**                  | 1 : N             | Pets do tutor.                                   |
+| **hosts → pets**                   | 1 : N             | Pets da casa do anfitrião. Cada pet tem um dono. |
+| **hosts → listings**               | 1 : 0..1          | Um anfitrião tem no máximo um cantinho.          |
 | **listings → listing_photos**      | 1 : N             | Até 5 fotos.                                     |
-| **listings → pet_types**           | N : N             | Com pet_types, via listing_pet_types.            |
+| **listings → listing_species**     | 1 : N             | Tipos de pet aceitos.                            |
 | **listings → availability_blocks** | 1 : N             | Períodos fechados pelo anfitrião.                |
 | **users → bookings**               | 1 : N             | O tutor faz várias reservas.                     |
 | **listings → bookings**            | 1 : N             | Várias no mesmo período, limitadas por capacity. |
@@ -316,8 +321,8 @@ _Aqui só as chaves. Todas as colunas estão no dicionário de dados e na versã
 
 ### Restrições que o modelo precisa garantir
 1. users: (email, role) único. O mesmo e-mail pode existir uma vez como owner e uma vez como host. owners: cpf único; só pode ser trocado até o primeiro pagamento.
-2. pets.owner_id, bookings.owner_id e conversations.owner_id apontam para users com role = owner; listings.host_id e conversations.host_id para role = host. Validado na aplicação.
-3. booking_pets: todo pet precisa ser do mesmo tutor da reserva, e de tipo e porte aceitos pelo cantinho.
+2. pets.owner_id aponta para owners.id e pets.host_id para hosts.id — exatamente um dos dois (CHECK). bookings.owner_id e conversations.owner_id apontam para users com role = owner; listings.host_id para hosts.id; conversations.host_id para role = host. FKs lógicas, validadas na aplicação.
+3. booking_pets: todo pet precisa ser do mesmo tutor da reserva (pet de anfitrião não se hospeda), e de tipo e porte aceitos pelo cantinho.
 4. bookings: check_out_date \> check_in_date; pet_count = linhas em booking_pets; nightly_rate_cents é cópia do preço no momento do pedido.
 5. Capacidade: em nenhum dia, a soma de pet_count das reservas confirmed ou in_progress do cantinho passa de listings.capacity.
 6. Dinheiro sempre em centavos inteiros (\*\_cents), como o Stripe. payments: platform_fee_cents + host_payout_cents = amount_cents − refunded_cents.
@@ -333,8 +338,8 @@ _Aqui só as chaves. Todas as colunas estão no dicionário de dados e na versã
 |---------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | **Todos**     | Entrar · Criar conta · Conversas · Conversa · Perfil                                                                                                                                             |
 | **Tutor**     | Buscar · Resultados · Cantinho (detalhe) · Meus pets · Ficha do pet · Pedir estadia · Pagar · Minhas estadias · Estadia · Avaliar                                                                |
-| **Anfitrião** | Montar meu cantinho (passo a passo, com simulação de quanto pode ganhar) · Conectar Stripe · Agenda · Pedidos · Pedido (com a ficha do pet) · Estadias · Estadia em andamento · Ganhos · Avaliar |
-| **Admin**     | Anfitriões aguardando · Tipos de pet                                                                                                                                                             |
+| **Anfitrião** | Montar meu cantinho (passo a passo, com simulação de quanto pode ganhar) · Pets da casa · Conectar Stripe · Agenda · Pedidos · Pedido (com a ficha do pet) · Estadias · Estadia em andamento · Ganhos · Avaliar |
+| **Admin**     | Anfitriões aguardando                                                                                                                                                                            |
 
 O protótipo HTML atual serve como **mapa de telas**, não como visual final. O visual deve seguir a seção 2: pouca coisa por tela, botões grandes (pensando na Dona Cida), textos com o nome do pet e a ficha do pet com cara de carteirinha.
 
@@ -342,7 +347,7 @@ O protótipo HTML atual serve como **mapa de telas**, não como visual final. O 
 
 | Semana | Entrega                                                                                                                                                              |
 |------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **1**      | Base: projeto .NET, banco, login com dois tipos de conta, tipos de pet, ficha do pet. Decidir o front. Teste isolado do Stripe (Pix em modo de teste + webhook local).   |
+| **1**      | Base: projeto .NET, banco, login com dois tipos de conta, ficha do pet (tutor e anfitrião). Decidir o front. Teste isolado do Stripe (Pix em modo de teste + webhook local).   |
 | **2**      | Cantinho + conexão com Stripe, ok do admin, agenda, busca, tela do cantinho com selos e "Combina com seu pet".                                                           |
 | **3**      | Reserva completa (pedir, aceitar, recusar, expirar), pagamento com Payment Element, webhook, chegada e saída, repasse, chat.                                             |
 | **4**      | Avaliação, cancelamento com reembolso, painel do anfitrião, revisão de todos os textos no tom da seção 2, dados de demonstração com bairros de Maringá, testes e ensaio. |

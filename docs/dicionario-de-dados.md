@@ -35,7 +35,7 @@ Este documento explica cada tabela e cada coluna do banco: o que guarda, por que
 | `\|{` | um ou muitos |
 | `o{` | zero ou muitos |
 
-Exemplo: `users ||--o{ pets` lê-se "um usuário tem zero ou muitos pets; cada pet tem exatamente um usuário".
+Exemplo: `owners ||--o{ pets` lê-se "um tutor tem zero ou muitos pets; cada pet desse lado tem exatamente um tutor".
 
 ### Tipos
 
@@ -84,7 +84,8 @@ Os nomes seguem o padrão mais comum em projetos atuais. A regra de ouro: **um j
 | Cantinho | `listings` | Mesmo termo usado pelo Airbnb para o anúncio. |
 | Reserva / estadia | `bookings` |  |
 | Ficha do pet | `pets` |  |
-| Tipo de pet | `pet_types` |  |
+| Anfitrião (perfil: PF/PJ, CPF/CNPJ, Stripe Connect) | `hosts` | 1:1 com a conta de role host. |
+| Tipo de pet | `pets.species` | Enum fixo; o que não está na lista é `exotic`, com a descrição em texto. |
 | Agenda bloqueada | `availability_blocks` |  |
 | Pagamento e repasse | `payments` | Repasse = payout; taxa da plataforma = platform fee. |
 | Conversa · Mensagem | `conversations` · `messages` |  |
@@ -95,12 +96,12 @@ Os nomes seguem o padrão mais comum em projetos atuais. A regra de ouro: **um j
 ```mermaid
 erDiagram
     users ||--o| owners : "is owner"
-    users ||--o{ pets : "owns"
-    pet_types ||--o{ pets : "classifies"
+    users ||--o| hosts : "is host"
+    owners ||--o{ pets : "owns"
+    hosts ||--o{ pets : "lives with"
     users ||--o| listings : "hosts"
     listings ||--o{ listing_photos : "has"
-    listings ||--|{ listing_pet_types : "accepts"
-    pet_types ||--o{ listing_pet_types : ""
+    listings ||--|{ listing_species : "accepts"
     listings ||--o{ availability_blocks : "blocks"
     users ||--o{ bookings : "requests"
     listings ||--o{ bookings : "receives"
@@ -146,16 +147,34 @@ erDiagram
         timestamp created_at
         timestamp updated_at
     }
-    pet_types {
+    hosts {
         uuid id PK
-        varchar name UK
-        boolean has_size
+        uuid user_id FK, UK
+        enum person_type
+        char cpf UK
+        char cnpj UK "nullable"
+        varchar legal_name "nullable"
+        varchar trade_name "nullable"
+        char company_zip_code "nullable"
+        varchar company_street "nullable"
+        varchar company_street_number "nullable"
+        varchar company_complement "nullable"
+        varchar company_neighborhood "nullable"
+        varchar company_city "nullable"
+        char company_state "nullable"
+        varchar stripe_account_id UK "nullable"
         boolean is_active
+        timestamp deactivated_at "nullable"
+        timestamp suspended_at "nullable"
+        timestamp created_at
+        timestamp updated_at
     }
     pets {
         uuid id PK
-        uuid owner_id FK
-        uuid pet_type_id FK
+        uuid owner_id FK "nullable"
+        uuid host_id FK "nullable"
+        enum species
+        varchar species_description "nullable"
         varchar name
         varchar photo_url "nullable"
         varchar breed "nullable"
@@ -171,7 +190,11 @@ erDiagram
         boolean good_with_kids
         varchar vet_contact "nullable"
         text notes "nullable"
+        decimal weight_kg "nullable"
+        char microchip "nullable"
+        text allergies "nullable"
         boolean is_active
+        timestamp deactivated_at "nullable"
         timestamp created_at
         timestamp updated_at
     }
@@ -200,7 +223,6 @@ erDiagram
         int capacity
         int nightly_rate_cents
         text house_rules "nullable"
-        varchar stripe_account_id UK "nullable"
         boolean payouts_enabled
         timestamp approved_at "nullable"
         enum status
@@ -214,9 +236,9 @@ erDiagram
         int position
         timestamp created_at
     }
-    listing_pet_types {
+    listing_species {
         uuid listing_id PK, FK
-        uuid pet_type_id PK, FK
+        enum species PK
     }
     availability_blocks {
         uuid id PK
@@ -366,46 +388,69 @@ O que só o tutor tem. 1:1 com `users` de role `owner`: tem id próprio e aponta
 >
 > O CPF do **anfitrião** também precisa ficar no banco, guardado pelo módulo do anfitrião e enviado ao Stripe Connect no onboarding (que confere CPF, nome e nascimento e coleta documento e conta bancária). Sem ele aqui não dá para aplicar a restrição 9: o Stripe não devolve o número completo do documento. Na hora de gravar o CPF de qualquer papel, a aplicação confere os dois lados: CPF de outro e-mail → `409`.
 
-### `pet_types` · Tipos de pet
+### `hosts` · Anfitriões
 
-Lista de tipos de animal aceitos na plataforma. Mantida pelo admin. Começa com Cachorro, Gato e Pequenos animais.
+O que só o anfitrião tem. 1:1 com `users` de role `host`: tem id próprio e aponta para a conta por `user_id`. Fica no schema `host` (módulo Hosts) — `user_id` é **FK lógica, sem constraint física**, como em `owners`. O anfitrião pode ser **pessoa física** ou **pessoa jurídica** (empresa de hospedagem): é o `business_type` da conta conectada no Stripe (`individual` ou `company`). Por enquanto só a tabela existe; cadastro, edição e status do anfitrião ainda não têm rota.
 
 | Coluna | Tipo | Chave | Nulo | Descrição |
 |---|---|---|---|---|
-| `id` | `uuid` | `PK` | não | Identificador do tipo. |
-| `name` | `varchar(40)` | `UK` | não | Nome exibido, ex.: Cachorro. |
-| `has_size` | `boolean` |  | não | Se true, o pet desse tipo informa porte (P, M, G). Só Cachorro no MVP. |
-| `is_active` | `boolean` |  | não | Tipos desativados somem do cadastro, mas pets antigos continuam válidos. |
+| `id` | `uuid` | `PK` | não | Identificador do anfitrião. É ele que os outros módulos guardam (ex.: `pets.host_id`), nunca o id da conta. |
+| `user_id` | `uuid` | `FK UK` | não | A conta do anfitrião → users.id (FK lógica). Única: um anfitrião por conta. |
+| `person_type` | `enum` |  | não | `individual` (pessoa física) ou `company` (pessoa jurídica). |
+| `cpf` | `char(11)` | `UK³` | não | Pessoa física: CPF do anfitrião. Pessoa jurídica: CPF do **representante legal**, que o Stripe exige de toda empresa. Só dígitos, dígitos verificadores conferidos. |
+| `cnpj` | `char(14)` | `UK` | sim | Só pessoa jurídica (obrigatório nela). Aceita o **CNPJ alfanumérico** (julho de 2026): 12 posições letra/dígito + 2 dígitos verificadores. Guardado sem máscara, em maiúsculas. |
+| `legal_name` | `varchar(160)` |  | sim | Razão social. Só pessoa jurídica (obrigatório nela). Stripe: `company.name`. |
+| `trade_name` | `varchar(120)` |  | sim | Nome fantasia: o nome que o tutor vê. Só pessoa jurídica (obrigatório nela). |
+| `company_zip_code` … `company_state` |  |  | sim | Endereço da empresa (CEP, rua, número, complemento, bairro, cidade, UF), mesmos tamanhos do endereço de `users`. Só pessoa jurídica (obrigatório nela, exceto o complemento). Stripe: `company.address`. |
+| `stripe_account_id` | `varchar(255)` | `UK` | sim | Conta conectada no Stripe (acct_...). Criada no onboarding. Fica no anfitrião, não no cantinho. |
+| `is_active` | `boolean` |  | não | Default `true`. Anda junto com `users.is_active`. |
+| `deactivated_at` | `timestamptz` |  | sim | Quando foi inativado pela última vez. |
+| `suspended_at` | `timestamptz` |  | sim | Quando o admin suspendeu. Anda junto com `users.suspended_at`. |
+| `created_at` | `timestamptz` |  | não | Quando o registro foi criado (UTC). |
+| `updated_at` | `timestamptz` |  | não | Última alteração do registro (UTC). |
+
+> ³ Único só entre pessoas físicas (índice parcial `WHERE person_type = 'individual'`): a mesma pessoa pode representar mais de uma empresa — nelas, quem é único é o CNPJ.
+>
+> CHECK `ck_hosts_company_data`: pessoa jurídica tem CNPJ, razão social, nome fantasia e endereço da empresa; pessoa física não tem nenhum deles.
+>
+> **Para o Stripe Connect:** pessoa física → `individual` com nome, nascimento, CPF (`id_number`), telefone e endereço (os da conta). Pessoa jurídica → `company` com razão social, CNPJ (`tax_id`), endereço da empresa e telefone; mais o **representante** (`relationship.representative`) com nome, nascimento, CPF, e-mail, telefone e endereço — os da conta. O que o Stripe pedir além disso (sócios com 25%+, cargo do representante, site/descrição do negócio, MCC, conta bancária e documentos) é coletado no onboarding hospedado do Stripe, não por nós.
 
 
 ### `pets` · Pets
 
-A ficha do animal. Pertence a um tutor e vai junto com cada reserva para o anfitrião ler antes de aceitar.
+A ficha do animal. Pertence a **um tutor** (pet que vai se hospedar; vai junto com cada reserva para o anfitrião ler antes de aceitar) **ou a um anfitrião** (pet que mora na casa dele; o tutor vê com quem o pet dele vai conviver). Fica no schema `pet` (módulo Pets); `owner_id` e `host_id` são **FKs lógicas, sem constraint física**.
 
 | Coluna | Tipo | Chave | Nulo | Descrição |
 |---|---|---|---|---|
 | `id` | `uuid` | `PK` | não | Identificador do pet. |
-| `owner_id` | `uuid` | `FK` | não | Tutor dono do pet → users.id (role = owner). |
-| `pet_type_id` | `uuid` | `FK` | não | Tipo do pet → pet_types.id. |
+| `owner_id` | `uuid` | `FK` | sim | Tutor dono do pet → owners.id (id do tutor, não da conta). Nulo quando o pet é de um anfitrião. |
+| `host_id` | `uuid` | `FK` | sim | Anfitrião dono do pet → hosts.id (id do anfitrião, não da conta). Nulo quando o pet é de um tutor. |
+| `species` | `enum` |  | não | Tipo do animal (seção 7). O que não está na lista é `exotic`. |
+| `species_description` | `varchar(60)` |  | sim | O que é o animal ("Iguana verde"). Obrigatório **só** quando `species = exotic`; nulo nos outros. |
 | `name` | `varchar(60)` |  | não | Nome do pet. O produto usa sempre o nome ("A Pipoca chegou!"). |
 | `photo_url` | `varchar(500)` |  | sim | Foto do pet. |
 | `breed` | `varchar(60)` |  | sim | Raça em texto livre. Vazio = sem raça definida. |
-| `size` | `enum` |  | sim | Porte: small, medium, large. Obrigatório quando pet_types.has_size. |
-| `birth_date` | `date` |  | sim | Nascimento aproximado. A idade é calculada. |
-| `sex` | `enum` |  | não | male ou female. |
+| `size` | `enum` |  | sim | Porte: small, medium, large. Obrigatório para `species = dog`, opcional para `cat`, nulo nos outros. |
+| `birth_date` | `date` |  | sim | Nascimento aproximado. A idade é calculada. Não pode ser no futuro. |
+| `sex` | `enum` |  | não | male, female ou unknown (aves, peixes e vários exóticos só se sexam com exame). |
 | `is_neutered` | `boolean` |  | não | Castrado. |
 | `is_vaccinated` | `boolean` |  | não | Vacinas em dia. |
-| `medication_notes` | `text` |  | sim | Remédio, dose e horário. Se preenchido, o tutor confirma que vai entregar o remédio. |
-| `feeding_notes` | `text` |  | sim | Rotina de alimentação. A ração é sempre levada pelo tutor. |
+| `medication_notes` | `text` |  | sim | Remédio, dose e horário (até 1000 caracteres). Se preenchido, o tutor confirma que vai entregar o remédio. |
+| `feeding_notes` | `text` |  | sim | Rotina de alimentação (até 1000 caracteres). A ração é sempre levada pelo tutor. |
 | `good_with_dogs` | `boolean` |  | não | Convive bem com cães. Usado no "Combina com seu pet". |
 | `good_with_cats` | `boolean` |  | não | Convive bem com gatos. |
 | `good_with_kids` | `boolean` |  | não | Convive bem com crianças. |
 | `vet_contact` | `varchar(160)` |  | sim | Veterinário de confiança (nome e telefone). |
-| `notes` | `text` |  | sim | "Coisas que só quem convive sabe": medos, manias, comandos. |
-| `is_active` | `boolean` |  | não | Pets com histórico são desativados, nunca apagados. |
+| `notes` | `text` |  | sim | "Coisas que só quem convive sabe": medos, manias, comandos (até 2000 caracteres). |
+| `weight_kg` | `decimal(6,3)` |  | sim | Peso aproximado em kg, com precisão de grama. Maior que 0 e até 150. Ajuda onde não há porte. |
+| `microchip` | `char(15)` |  | sim | Número do microchip (ISO 11784/11785), só dígitos. Único entre os pets ativos. |
+| `allergies` | `text` |  | sim | Alergias e restrições: alimentos, remédios, produtos (até 1000 caracteres). |
+| `is_active` | `boolean` |  | não | Pets com histórico são desativados, nunca apagados. Inativo só o dono vê. |
+| `deactivated_at` | `timestamptz` |  | sim | Quando foi desativado pela última vez. Nulo enquanto ativo. |
 | `created_at` | `timestamp` |  | não | Quando o registro foi criado (UTC). |
 | `updated_at` | `timestamp` |  | não | Última alteração do registro (UTC). |
 
+> CHECKs: `ck_pets_one_keeper` (`num_nonnulls(owner_id, host_id) = 1` — exatamente um dono), `ck_pets_size_required_for_dogs`, `ck_pets_size_only_for_dogs_and_cats`, `ck_pets_description_only_for_exotic`, e um por enum (`species`, `size`, `sex`). Índices `ix_pets_owner_id` e `ix_pets_host_id`; índice único parcial `uq_pets_microchip_active` (`microchip` `WHERE is_active AND microchip IS NOT NULL`): o microchip identifica um animal, então dois pets ativos não o repetem; o pet desativado libera o número (o animal mudou de tutor).
 
 ### `listings` · Cantinhos
 
@@ -414,7 +459,7 @@ O espaço que o anfitrião oferece (no app: "cantinho"). Um por conta de anfitri
 | Coluna | Tipo | Chave | Nulo | Descrição |
 |---|---|---|---|---|
 | `id` | `uuid` | `PK` | não | Identificador do cantinho. |
-| `host_id` | `uuid` | `FK UK` | não | Anfitrião dono → users.id (role = host). Único: um cantinho por conta. |
+| `host_id` | `uuid` | `FK UK` | não | Anfitrião dono → hosts.id (FK lógica). Único: um cantinho por anfitrião. |
 | `title` | `varchar(80)` |  | não | Título, ex.: "Casa com quintal no Jardim Alvorada". |
 | `description` | `text` |  | não | Descrição livre da casa e da rotina. |
 | `zip_code` | `char(8)` |  | não | CEP, só dígitos. Mesmo formato do endereço de `users`. |
@@ -437,8 +482,7 @@ O espaço que o anfitrião oferece (no app: "cantinho"). Um por conta de anfitri
 | `capacity` | `int` |  | não | Quantos pets ao mesmo tempo, somando todos os tutores. |
 | `nightly_rate_cents` | `int` |  | não | Diária por pet, em centavos (6000 = R$ 60,00). |
 | `house_rules` | `text` |  | sim | Regras da casa. |
-| `stripe_account_id` | `varchar(255)` | `UK` | sim | ID da conta conectada no Stripe (acct_...). |
-| `payouts_enabled` | `boolean` |  | não | Espelha o Stripe: true quando a conta pode receber repasses. |
+| `payouts_enabled` | `boolean` |  | não | Espelha o Stripe: true quando a conta conectada (`hosts.stripe_account_id`) pode receber repasses. |
 | `approved_at` | `timestamp` |  | sim | Quando o admin aprovou. Nulo = aguardando. |
 | `status` | `enum` |  | não | draft, active ou paused. Só active + payouts_enabled + approved_at aparece na busca. |
 | `created_at` | `timestamp` |  | não | Quando o registro foi criado (UTC). |
@@ -459,14 +503,14 @@ Fotos do cantinho, em ordem. Até 5 por cantinho.
 | `created_at` | `timestamp` |  | não | Quando o registro foi criado (UTC). |
 
 
-### `listing_pet_types` · Tipos aceitos
+### `listing_species` · Tipos aceitos
 
-Tabela associativa: quais tipos de pet cada cantinho aceita (N:N).
+Quais tipos de pet cada cantinho aceita: uma linha por tipo.
 
 | Coluna | Tipo | Chave | Nulo | Descrição |
 |---|---|---|---|---|
 | `listing_id` | `uuid` | `PK FK` | não | Cantinho → listings.id. |
-| `pet_type_id` | `uuid` | `PK FK` | não | Tipo aceito → pet_types.id. |
+| `species` | `enum` | `PK` | não | Tipo aceito: mesmos valores de `pets.species`. Aceitar `exotic` quer dizer "aceito conversar": o anfitrião lê a descrição e decide no pedido. |
 
 
 ### `availability_blocks` · Bloqueios de agenda
@@ -632,11 +676,12 @@ Avaliação feita depois da reserva concluída. Cada lado avalia o outro uma vez
 | De | Para | Cardinalidade | Observação |
 |---|---|---|---|
 | `users` | `owners` | 1 : 0..1 | Só contas owner. owners.user_id → users.id; schemas diferentes, sem FK física. |
-| `users` | `pets` | 1 : N | Só contas owner têm pets. |
-| `pet_types` | `pets` | 1 : N | size só é preenchido se has_size. |
+| `users` | `hosts` | 1 : 0..1 | Só contas host. hosts.user_id → users.id; schemas diferentes, sem FK física. |
+| `owners` | `pets` | 1 : N | Pets do tutor. pets.owner_id → owners.id, sem FK física. |
+| `hosts` | `pets` | 1 : N | Pets que moram na casa do anfitrião. pets.host_id → hosts.id, sem FK física. Cada pet tem exatamente um dono (tutor **ou** anfitrião). |
 | `users` | `listings` | 1 : 0..1 | Uma conta host tem no máximo um cantinho. |
 | `listings` | `listing_photos` | 1 : N | Até 5 fotos. |
-| `listings` | `pet_types` (via `listing_pet_types`) | N : N | Com pet_types, via listing_pet_types. |
+| `listings` | `listing_species` | 1 : N | Tipos de pet aceitos. |
 | `listings` | `availability_blocks` | 1 : N | Períodos fechados pelo anfitrião. |
 | `users` | `bookings` | 1 : N | O tutor faz várias reservas. |
 | `listings` | `bookings` | 1 : N | Várias no mesmo período, limitadas por capacity. |
@@ -653,8 +698,10 @@ Avaliação feita depois da reserva concluída. Cada lado avalia o outro uma vez
 | Coluna | Valores no banco | Na tela |
 |---|---|---|
 | `users.role` | `owner` · `host` · `admin` | Tutor · Anfitrião · Admin |
-| `pets.size` | `small` · `medium` · `large` | P · M · G |
-| `pets.sex` | `male` · `female` | Macho · Fêmea |
+| `hosts.person_type` | `individual` · `company` | Pessoa física · Pessoa jurídica |
+| `pets.species` | `dog` · `cat` · `cockatiel` · `parrot` · `parakeet` · `canary` · `rabbit` · `hamster` · `guinea_pig` · `fish` · `turtle` · `exotic` | Cachorro · Gato · Calopsita · Papagaio · Periquito · Canário · Coelho · Hamster · Porquinho-da-índia · Peixe · Tartaruga/jabuti · Exótico (com descrição) |
+| `pets.size` | `small` · `medium` · `large` | P · M · G (cachorro obrigatório, gato opcional) |
+| `pets.sex` | `male` · `female` · `unknown` | Macho · Fêmea · Não sei |
 | `listings.home_type` | `house` · `apartment` | Casa · Apartamento |
 | `listings.status` | `draft` · `active` · `paused` | Rascunho · Ativo · Pausado |
 | `bookings.status` | `requested` · `accepted` · `confirmed` · `in_progress` · `completed` · `declined` · `expired` · `cancelled` | Solicitada · Aceita · Confirmada · Em andamento · Concluída · Recusada · Expirada · Cancelada |

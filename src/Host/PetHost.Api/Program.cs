@@ -18,6 +18,10 @@ using PetHost.Modules.Auth.Presentation;
 using PetHost.Modules.Owners.Application;
 using PetHost.Modules.Owners.Infrastructure;
 using PetHost.Modules.Owners.Presentation;
+using PetHost.Modules.Hosts.Infrastructure;
+using PetHost.Modules.Pets.Application;
+using PetHost.Modules.Pets.Infrastructure;
+using PetHost.Modules.Pets.Presentation;
 using PetHost.Shared.Infrastructure.Email;
 using PetHost.Shared.Infrastructure.Http;
 using PetHost.Shared.Infrastructure.RateLimiting;
@@ -50,6 +54,7 @@ builder.Services
     .AddJsonOptions(json => ConfigureJson(json.JsonSerializerOptions))
     .AddAuthPresentation()
     .AddOwnersPresentation()
+    .AddPetsPresentation()
     .AddAuditPresentation();
 
 // O mesmo serializador vale para o que não passa pelo MVC — o handler global de
@@ -76,6 +81,13 @@ builder.Services.AddAuthInfrastructure(builder.Configuration);
 // --- Módulo Owners (tutores) ---
 builder.Services.AddOwnersApplication();
 builder.Services.AddOwnersInfrastructure(builder.Configuration);
+
+// --- Módulo Hosts (anfitriões): por enquanto só a tabela e o contrato de leitura ---
+builder.Services.AddHostsInfrastructure(builder.Configuration);
+
+// --- Módulo Pets ---
+builder.Services.AddPetsApplication();
+builder.Services.AddPetsInfrastructure(builder.Configuration);
 
 // --- Autenticação ---
 var jwtOptions = builder.Configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>()
@@ -148,6 +160,9 @@ if (trustForwardedHeaders)
     app.UseForwardedHeaders();
 
 app.UseExceptionHandler();
+
+// Erro sem corpo (rota inexistente, id fora do formato, método errado) sai no envelope.
+app.UseEmptyErrorEnvelope();
 app.UseSerilogRequestLogging();
 
 // Só fora de produção: o documento lista todas as rotas e o formato de cada uma.
@@ -188,6 +203,12 @@ await app.Services.InitializeOwnersModuleAsync(
     applyMigrations: app.Environment.IsDevelopment());
 
 await app.Services.InitializeAuditModuleAsync(
+    applyMigrations: app.Environment.IsDevelopment());
+
+await app.Services.InitializeHostsModuleAsync(
+    applyMigrations: app.Environment.IsDevelopment());
+
+await app.Services.InitializePetsModuleAsync(
     applyMigrations: app.Environment.IsDevelopment());
 
 await app.RunAsync();

@@ -10,5 +10,7 @@ public static class ErrorCodes
     public const string Forbidden = "FORBIDDEN";
     public const string BusinessRule = "BUSINESS_RULE_VIOLATION";
     public const string TooManyRequests = "TOO_MANY_REQUESTS";
+    public const string MethodNotAllowed = "METHOD_NOT_ALLOWED";
+    public const string UnsupportedMediaType = "UNSUPPORTED_MEDIA_TYPE";
     public const string Unexpected = "UNEXPECTED_ERROR";
 }

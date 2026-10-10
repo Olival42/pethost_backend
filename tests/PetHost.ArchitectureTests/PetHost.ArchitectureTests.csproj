@@ -27,6 +27,12 @@
     <ProjectReference Include="..\..\src\Modules\Audit\PetHost.Modules.Audit.Application\PetHost.Modules.Audit.Application.csproj" />
     <ProjectReference Include="..\..\src\Modules\Audit\PetHost.Modules.Audit.Infrastructure\PetHost.Modules.Audit.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Modules\Audit\PetHost.Modules.Audit.Presentation\PetHost.Modules.Audit.Presentation.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Pets\PetHost.Modules.Pets.Domain\PetHost.Modules.Pets.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Pets\PetHost.Modules.Pets.Application\PetHost.Modules.Pets.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Pets\PetHost.Modules.Pets.Infrastructure\PetHost.Modules.Pets.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Pets\PetHost.Modules.Pets.Presentation\PetHost.Modules.Pets.Presentation.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Hosts\PetHost.Modules.Hosts.Domain\PetHost.Modules.Hosts.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Hosts\PetHost.Modules.Hosts.Infrastructure\PetHost.Modules.Hosts.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

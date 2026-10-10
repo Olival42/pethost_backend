@@ -28,7 +28,7 @@ Por dentro, conta e tutor ficam em módulos diferentes, então não há uma tran
 2. O handler confere se o CPF está livre (`409`), pede ao Auth para criar a conta (`409` se o e-mail já é de outro tutor) e grava o tutor apontando para ela.
 3. Se gravar o tutor falhar, a conta recém-criada é **apagada** (compensação). Como tudo foi validado antes, isso só acontece em corrida rara ou queda do banco.
 
-O cadastro do primeiro pet é um passo à parte (módulo Pets), obrigatório só para pedir reserva.
+O cadastro do primeiro pet é um passo à parte (módulo Pets, [`modulo-pets.md`](modulo-pets.md)), obrigatório só para pedir reserva. O pet guarda o **id do tutor** (`owners.id`), não o da conta.
 
 ## 2. Estrutura
 
@@ -248,6 +248,14 @@ Pelo §5 (porta + adaptador), sem referência entre os módulos:
 | Conferir a senha (troca de CPF) | `VerifyPasswordAsync` | `IAccountProfileEditor.VerifyPasswordAsync` | `AccountProfileEditor` |
 | Inativar / reativar a conta | `DeactivateAsync` / `ReactivateAsync` | `IAccountStatusManager` | `AccountStatusManager` |
 | Suspender / tirar a suspensão (admin) | `SuspendAsync` / `LiftSuspensionAsync` | `IAccountStatusManager` | `AccountStatusManager` |
+
+O Owners também **oferece** um contrato de leitura, para quem guarda o id do tutor:
+
+| Outro módulo pede | Contrato (`Shared.Contracts`) | Implementação (Owners.Infrastructure) |
+|---|---|---|
+| O tutor da conta logada / tutores pelos ids (sem CPF) | `IOwnerDirectory` | `OwnerDirectory` |
+
+Hoje quem usa é o Pets, para ligar o pet ao tutor da conta logada e mostrar o dono.
 
 A trilha de auditoria é outro contrato (`IAuditTrail`, módulo Audit), usado direto pelos handlers do Owners.
 

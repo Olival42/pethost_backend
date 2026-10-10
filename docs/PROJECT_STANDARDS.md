@@ -3,7 +3,7 @@
 > Documento normativo. Tudo é obrigatório salvo onde marcado como *recomendado*.
 > Em conflito com o código existente, este documento vence.
 
-**Atualizado:** 2026-10-07 · **Escopo:** backend (API)
+**Atualizado:** 2026-10-09 · **Escopo:** backend (API)
 
 ---
 
@@ -34,7 +34,7 @@
 4. **Erro esperado não usa exceção.** Fluxo de negócio previsível retorna `Result`. Exceção só para bug ou infraestrutura fora.
 5. **Toda regra de negócio tem teste unitário.** Sem exceção.
 
-**Módulos** (bounded contexts): `Auth` (conta, sessão, perfil comum), `Owners` (perfil de tutor), `Audit` (trilha de auditoria de todos os módulos), `Pets`, `Booking`, `Availability`, `Payments`, `Reviews`, `Notifications`. Criar módulo novo é decisão de arquitetura — discutir antes do PR.
+**Módulos** (bounded contexts): `Auth` (conta, sessão, perfil comum), `Owners` (perfil de tutor), `Hosts` (perfil de anfitrião, PF/PJ — por enquanto só a tabela), `Audit` (trilha de auditoria de todos os módulos), `Pets` (ficha do pet, do tutor ou do anfitrião), `Booking`, `Availability`, `Payments`, `Reviews`, `Notifications`. Criar módulo novo é decisão de arquitetura — discutir antes do PR.
 
 ---
 
@@ -144,6 +144,8 @@ public static class ErrorCodes
     public const string Forbidden    = "FORBIDDEN";
     public const string BusinessRule = "BUSINESS_RULE_VIOLATION";
     public const string TooManyRequests = "TOO_MANY_REQUESTS";
+    public const string MethodNotAllowed = "METHOD_NOT_ALLOWED";
+    public const string UnsupportedMediaType = "UNSUPPORTED_MEDIA_TYPE";
     public const string Unexpected   = "UNEXPECTED_ERROR";
 }
 ```
@@ -320,6 +322,8 @@ builder.Services.ConfigureHttpJsonOptions(o =>
 });
 ```
 
+**Erro sem corpo também vai no envelope.** O ASP.NET Core responde sem corpo quando nenhuma rota casa — rota inexistente ou id fora do formato da rota (`/pets/abc` com `{petId:guid}`) —, quando o método não existe na rota (405) e quando o content-type é errado (415). `app.UseEmptyErrorEnvelope()` (em `Shared.Infrastructure/Http`, logo depois do `UseExceptionHandler`) completa essas respostas com o `ApiResponse`: `404 NOT_FOUND`, `405 METHOD_NOT_ALLOWED`, `415 UNSUPPORTED_MEDIA_TYPE`. Resposta que já tem corpo passa intacta. **Nenhuma** resposta de erro sai com corpo vazio.
+
 ### Payloads
 
 Sucesso `200` · validação `400` · regra de negócio `422` · inesperado `500`:
@@ -356,10 +360,14 @@ Sucesso `200` · validação `400` · regra de negócio `422` · inesperado `500
 | `NOT_FOUND` | 404 | Recurso inexistente |
 | `CONFLICT` | 409 | Duplicidade, concorrência otimista |
 | `BUSINESS_RULE_VIOLATION` | 422 | Payload válido, regra impede a operação |
+| `METHOD_NOT_ALLOWED` | 405 | A rota existe, mas não com esse método |
+| `UNSUPPORTED_MEDIA_TYPE` | 415 | Corpo num content-type que a rota não aceita (use `application/json`) |
 | `TOO_MANY_REQUESTS` | 429 | Rate limit estourado. Vem com o header `Retry-After` (segundos) |
 | `UNEXPECTED_ERROR` | 500 | Exceção não tratada |
 
-**Códigos de módulo:** `<MODULE>_<REASON>` em `SCREAMING_SNAKE_CASE` — `AUTH_INVALID_CREDENTIALS`, `AUTH_EMAIL_ALREADY_REGISTERED`, `BOOKING_NOT_FOUND`, `BOOKING_OVERLAPPING_PERIOD`, `BOOKING_ALREADY_CANCELLED`, `PET_NOT_OWNED_BY_REQUESTER`, `PAYMENT_GATEWAY_REJECTED`.
+**Códigos de módulo:** `<MODULE>_<REASON>` em `SCREAMING_SNAKE_CASE` — `AUTH_INVALID_CREDENTIALS`, `AUTH_EMAIL_ALREADY_REGISTERED`, `BOOKING_NOT_FOUND`, `BOOKING_OVERLAPPING_PERIOD`, `BOOKING_ALREADY_CANCELLED`, `PET_MICROCHIP_ALREADY_REGISTERED`, `PAYMENT_GATEWAY_REJECTED`.
+
+**Recurso de outra conta responde `404`, não `403`.** Ler ou alterar pelo id um recurso que pertence a outro usuário (pet, reserva, mensagem) devolve o mesmo `<MODULE>_NOT_FOUND` de um id inexistente: um `403` confirmaria que o id existe. O `403` fica para o que não depende do recurso — papel errado no token (`FORBIDDEN`), conta desativada ou suspensa. O sufixo `_NOT_OWNED_BY_REQUESTER` → 403 continua no mapeador, mas não deve ser usado para recurso que se busca pelo id.
 
 Toda constante em `<Module>Errors`. `Message` em inglês, frase completa, sem expor infraestrutura nem dado de outro usuário. Adicionar código é retrocompatível; **renomear ou remover é breaking change**.
 
@@ -490,7 +498,7 @@ public sealed class BookingsController(
 | Regra | Detalhe |
 |-------|---------|
 | Um `DbContext` por módulo | `BookingDbContext`, `AuthDbContext` |
-| Um schema por módulo | `booking`, `auth`, `pets` |
+| Um schema por módulo | `auth`, `owner`, `host`, `pet`, `audit` (singular) |
 | Migrations e histórico isolados | `Persistence/Migrations`, `__ef_migrations_history` no schema do módulo |
 | Sem `JOIN` entre schemas | Cruzar dado só pelo §5 |
 | `DbContext` nunca sai da `Infrastructure` | `Application` só conhece interfaces |
@@ -549,6 +557,8 @@ O time pensa em português, o código fala inglês. Esta é a tradução oficial
 | Usuário / perfil | `User` / `Profile` | Vacina | `Vaccination` |
 | Inativar (pela pessoa) | `Deactivate` | Suspender (pelo admin) | `Suspend` |
 | Trilha de auditoria | `AuditTrail` / `AuditEntry` | Motivo | `Reason` |
+| Dono do pet (tutor **ou** anfitrião) | `Keeper` *(❌ Owner, que é só o tutor)* | Animal fora da lista | `Exotic` (+ `SpeciesDescription`) |
+| Pessoa física / jurídica | `Individual` / `Company` (`PersonType`) | Razão social / nome fantasia | `LegalName` / `TradeName` |
 
 ---
 
@@ -569,6 +579,7 @@ Prefixo `/api` sempre · versão obrigatória desde o primeiro endpoint · recur
 | `POST /auth/refresh-token` | `POST /auth/sessions/refresh` |
 | `POST /users/create` | `POST /users/register` |
 | `POST /users/{id}/disable` (id vindo do cliente) | `POST /owners/me/deactivate` |
+| `POST /pets/{id}/deactivate` (recurso que não é a conta) | `POST /pets/{id}/deactivation` · reativar: `DELETE /pets/{id}/deactivation` |
 
 Verbos em uso: `register`, `login`, `refresh`, `logout`, `switch`, `deactivate`, `reactivate`, `forgot`, `reset`. Sub-recurso da conta: `POST /users/me/password` (troca de senha logada).
 
@@ -592,7 +603,9 @@ Verbos em uso: `register`, `login`, `refresh`, `logout`, `switch`, `deactivate`,
 ```
 POST   /api/v1/users/register      ·  GET  /api/v1/users/me
 POST   /api/v1/auth/sessions/login    ·  POST /api/v1/auth/sessions/refresh
-GET    /api/v1/pets?page=1&pageSize=20&species=Dog
+POST   /api/v1/pets               ·  GET  /api/v1/pets/me  ·  PATCH /api/v1/pets/{petId:guid}
+POST   /api/v1/pets/{petId:guid}/deactivation  ·  DELETE /api/v1/pets/{petId:guid}/deactivation
+GET    /api/v1/hosts/{hostId:guid}/pets
 POST   /api/v1/bookings               ·  GET  /api/v1/bookings/{bookingId:guid}
 POST   /api/v1/bookings/{bookingId:guid}/cancellation
 GET    /api/v1/hosts/{hostId:guid}/availability?from=2026-11-01&to=2026-11-30
@@ -600,7 +613,12 @@ GET    /api/v1/hosts/{hostId:guid}/availability?from=2026-11-01&to=2026-11-30
 
 **Paginação:** `?page=1&pageSize=20` — `page` inicia em 1, `pageSize` default 20 e máximo 100. Resposta em `Data` via `PagedResult<T>` (`items`, `page`, `pageSize`, `totalCount`, `totalPages`).
 
-Exceção: **lista administrativa** (só `admin`) pode sair sem paginação nem filtro enquanto o volume for pequeno — ex.: `GET /owners`. Lista que o usuário final vê é sempre paginada.
+Exceções, sem paginação nem filtro enquanto o volume for pequeno:
+
+- **Lista administrativa** (só `admin`) — ex.: `GET /owners`.
+- **Pets de uma pessoa** — `GET /pets/me` e `GET /hosts/{hostId}/pets`: poucos itens por definição (os pets de um tutor ou de uma casa). Pedido do produto. Como todos os itens são do mesmo dono, a resposta traz o dono **uma vez** no topo (`{ keeper, pets }`) em vez de repeti-lo em cada item — regra para qualquer lista "de uma pessoa".
+
+Fora isso, lista que o usuário final vê é sempre paginada.
 
 Todo endpoint tem `/// <summary>`, `[ProducesResponseType<ApiResponse<T>>]` para **cada** status possível e `[Authorize]`/`[AllowAnonymous]` explícito — é o que aparece no Swagger (`/swagger`, só em Development, documento do `Microsoft.AspNetCore.OpenApi` em `/openapi/v1.json`, com o JWT declarado para o botão Authorize). O `429` do limite geral vale para todos e não é repetido em cada um; endpoint com política própria declara o `429`.
 
@@ -772,6 +790,8 @@ test(booking): cover overlapping period rule
 ```
 
 **PR:** título em Conventional Commit · descrição com o que/por quê/como testar · CI verde (build + testes + cobertura + arquitetura) · ≥1 approve · alteração de contrato público (`Code`, formato de resposta, rota) exige nota explícita de *breaking change*.
+
+**CI** (`.github/workflows/ci.yml`, GitHub Actions): em todo push, em qualquer branch (o resultado aparece antes de abrir a PR), e em toda PR para `main` e `dev`. Faz restore, build em Release (aviso é erro) e roda **todos** os testes da solution: unitários, de integração (Postgres e Redis via Testcontainers, com o Docker do runner) e de arquitetura. Push novo na mesma branch cancela a execução anterior. `main` e `dev` são protegidas: o merge só é liberado com o check **`build-and-test`** verde e a branch atualizada com a base.
 
 ---
 

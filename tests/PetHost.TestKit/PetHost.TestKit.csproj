@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Modules\Auth\PetHost.Modules.Auth.Domain\PetHost.Modules.Auth.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Pets\PetHost.Modules.Pets.Domain\PetHost.Modules.Pets.Domain.csproj" />
   </ItemGroup>
 
   <ItemGroup>

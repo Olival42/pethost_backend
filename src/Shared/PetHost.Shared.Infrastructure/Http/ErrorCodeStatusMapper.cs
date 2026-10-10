@@ -53,6 +53,12 @@ public static class ErrorCodeStatusMapper
                 return StatusCodes.Status404NotFound;
             case ErrorCodes.Conflict:
                 return StatusCodes.Status409Conflict;
+            case ErrorCodes.MethodNotAllowed:
+                return StatusCodes.Status405MethodNotAllowed;
+            case ErrorCodes.UnsupportedMediaType:
+                return StatusCodes.Status415UnsupportedMediaType;
+            case ErrorCodes.TooManyRequests:
+                return StatusCodes.Status429TooManyRequests;
             case ErrorCodes.BusinessRule:
                 return StatusCodes.Status422UnprocessableEntity;
             case ErrorCodes.Unexpected:

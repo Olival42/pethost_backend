@@ -15,6 +15,7 @@ using PetHost.Modules.Owners.Domain.Owners;
 using PetHost.Modules.Owners.Infrastructure.Accounts;
 using PetHost.Modules.Owners.Infrastructure.Persistence;
 using PetHost.Modules.Owners.Infrastructure.Persistence.Repositories;
+using PetHost.Shared.Contracts.Owners;
 using PetHost.Shared.Infrastructure.Validation;
 using PetHost.Shared.Kernel.Messaging;
 using PetHost.Shared.Kernel.Primitives;
@@ -46,6 +47,9 @@ public static class DependencyInjection
         services.AddScoped<IOwnerRepository, OwnerRepository>();
         services.AddScoped<IOwnersUnitOfWork, OwnersUnitOfWork>();
         services.AddScoped<IOwnerAccounts, OwnerAccounts>();
+
+        // Contrato público de leitura: outros módulos acham o tutor só por aqui (§5).
+        services.AddScoped<IOwnerDirectory, OwnerDirectory>();
 
         services.AddValidatedCommandHandler<
             RegisterOwnerAccountCommandHandler, RegisterOwnerAccountCommand, OwnerSessionResponse>();
