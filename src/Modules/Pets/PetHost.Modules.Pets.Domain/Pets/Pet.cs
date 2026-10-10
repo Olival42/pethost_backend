@@ -1,9 +1,12 @@
+using PetHost.Modules.Pets.Domain.Errors;
 using PetHost.Shared.Kernel.Domain;
+using PetHost.Shared.Kernel.Results;
 
 namespace PetHost.Modules.Pets.Domain.Pets;
 
 /// <summary>
-/// O pet: a ficha (<see cref="Profile"/>) e de quem ele é. Espelha a tabela <c>pet.pets</c>.
+/// O pet: a ficha (<see cref="Profile"/>), as fotos (<see cref="Photos"/>) e de quem ele é.
+/// Espelha as tabelas <c>pet.pets</c> e <c>pet.pet_photos</c>.
 /// </summary>
 /// <remarks>
 /// Pertence a <b>um</b> tutor ou a <b>um</b> anfitrião — nunca aos dois, nunca a ninguém.
@@ -16,6 +19,11 @@ namespace PetHost.Modules.Pets.Domain.Pets;
 /// </remarks>
 public sealed class Pet : Entity<PetId>
 {
+    /// <summary>Quantas fotos um pet pode ter.</summary>
+    public const int MaxPhotos = 3;
+
+    private readonly List<PetPhoto> _photos = [];
+
     /// <summary>Construtor só para o EF Core materializar a entidade.</summary>
     private Pet()
     {
@@ -44,6 +52,12 @@ public sealed class Pet : Entity<PetId>
         OwnerId is { } ownerId ? new PetKeeper(KeeperType.Owner, ownerId) : new PetKeeper(KeeperType.Host, HostId ?? Guid.Empty);
 
     public PetProfile Profile { get; private set; }
+
+    /// <summary>Até <see cref="MaxPhotos"/> fotos, pela vaga: a primeira é a capa.</summary>
+    public IReadOnlyList<PetPhoto> Photos => [.. _photos.OrderBy(photo => photo.Position)];
+
+    /// <summary>Ainda cabe foto? Conferido antes de enviar a imagem ao bucket.</summary>
+    public bool CanAddPhoto => _photos.Count < MaxPhotos;
 
     /// <summary>Falso depois de desativado. Nasce ativo.</summary>
     public bool IsActive { get; private set; }
@@ -84,6 +98,72 @@ public sealed class Pet : Entity<PetId>
         UpdatedAt = now;
 
         return true;
+    }
+
+    /// <summary>
+    /// Põe uma foto na primeira vaga livre. A URL e o hash vêm do bucket de imagens, nunca do
+    /// cliente. Vale também para pet desativado. Sem vaga: <c>PET_PHOTO_LIMIT_REACHED</c>;
+    /// imagem que o pet já tem: <c>PET_PHOTO_ALREADY_EXISTS</c>.
+    /// </summary>
+    public Result<PetPhoto> AddPhoto(string url, string contentHash, DateTimeOffset now)
+    {
+        if (!CanAddPhoto)
+            return Result<PetPhoto>.Failure(PetsErrors.PhotoLimitReached);
+
+        if (HasImage(contentHash))
+            return Result<PetPhoto>.Failure(PetsErrors.PhotoAlreadyExists);
+
+        var position = Enumerable.Range(1, MaxPhotos).First(slot => _photos.TrueForAll(photo => photo.Position != slot));
+
+        var photo = PetPhoto.Create(Id, url, contentHash, position, now);
+        if (photo.IsFailure)
+            return photo;
+
+        _photos.Add(photo.Value!);
+        UpdatedAt = now;
+
+        return photo;
+    }
+
+    /// <summary>O pet já tem esta imagem (mesmo hash) em alguma foto?</summary>
+    public bool HasImage(string contentHash) =>
+        _photos.Exists(photo => string.Equals(photo.ContentHash, contentHash, StringComparison.Ordinal));
+
+    /// <summary>A foto <paramref name="photoId"/> é deste pet?</summary>
+    public bool HasPhoto(PetPhotoId photoId) => _photos.Exists(photo => photo.Id == photoId);
+
+    /// <summary>
+    /// Troca a imagem da foto <paramref name="photoId"/>, mantendo o id e a vaga. Devolve a
+    /// URL anterior (para apagar a imagem do bucket). Imagem que o pet já tem — nesta ou em
+    /// outra foto —: <c>PET_PHOTO_ALREADY_EXISTS</c>.
+    /// </summary>
+    public Result<string> ReplacePhoto(PetPhotoId photoId, string url, string contentHash, DateTimeOffset now)
+    {
+        var photo = _photos.Find(candidate => candidate.Id == photoId);
+        if (photo is null)
+            return Result<string>.Failure(PetsErrors.PhotoNotFound(photoId));
+
+        if (HasImage(contentHash))
+            return Result<string>.Failure(PetsErrors.PhotoAlreadyExists);
+
+        var previous = photo.ChangeImage(url, contentHash);
+        if (previous.IsSuccess)
+            UpdatedAt = now;
+
+        return previous;
+    }
+
+    /// <summary>Tira a foto <paramref name="photoId"/> e a devolve (para apagar a imagem do bucket).</summary>
+    public Result<PetPhoto> RemovePhoto(PetPhotoId photoId, DateTimeOffset now)
+    {
+        var photo = _photos.Find(candidate => candidate.Id == photoId);
+        if (photo is null)
+            return Result<PetPhoto>.Failure(PetsErrors.PhotoNotFound(photoId));
+
+        _photos.Remove(photo);
+        UpdatedAt = now;
+
+        return Result<PetPhoto>.Success(photo);
     }
 
     /// <summary>Desativa. Idempotente: desativar um pet inativo não muda nada.</summary>

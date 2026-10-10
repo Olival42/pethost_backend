@@ -25,6 +25,7 @@ using PetHost.Modules.Pets.Presentation;
 using PetHost.Shared.Infrastructure.Email;
 using PetHost.Shared.Infrastructure.Http;
 using PetHost.Shared.Infrastructure.RateLimiting;
+using PetHost.Shared.Infrastructure.Storage;
 using Serilog;
 using Serilog.Formatting.Json;
 
@@ -50,6 +51,10 @@ builder.Services
     {
         behavior.SuppressModelStateInvalidFilter = true;   // a validação é nossa
         behavior.SuppressMapClientErrors = true;
+
+        // Upload de imagem: o [ImageUploadEndpoint] confere o content-type e responde o 415
+        // dizendo o formato certo. Sem isto, o MVC barraria antes, com um 415 genérico.
+        behavior.SuppressConsumesConstraintForFormFileParameters = true;
     })
     .AddJsonOptions(json => ConfigureJson(json.JsonSerializerOptions))
     .AddAuthPresentation()
@@ -69,6 +74,9 @@ builder.Services.AddSingleton(TimeProvider.System);
 
 // --- E-mail: fila em memória + envio SMTP em segundo plano ---
 builder.Services.AddEmail(builder.Configuration);
+
+// --- Imagens: bucket S3 compatível (R2 em produção, RustFS em desenvolvimento) ---
+builder.Services.AddImageStorage(builder.Configuration);
 
 // --- Módulo Audit (trilha de auditoria, usada pelos outros módulos) ---
 builder.Services.AddAuditApplication();

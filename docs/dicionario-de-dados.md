@@ -101,6 +101,7 @@ erDiagram
     hosts ||--o{ pets : "lives with"
     users ||--o| listings : "hosts"
     listings ||--o{ listing_photos : "has"
+    pets ||--o{ pet_photos : "has"
     listings ||--|{ listing_species : "accepts"
     listings ||--o{ availability_blocks : "blocks"
     users ||--o{ bookings : "requests"
@@ -176,7 +177,6 @@ erDiagram
         enum species
         varchar species_description "nullable"
         varchar name
-        varchar photo_url "nullable"
         varchar breed "nullable"
         enum size "nullable"
         date birth_date "nullable"
@@ -228,6 +228,14 @@ erDiagram
         enum status
         timestamp created_at
         timestamp updated_at
+    }
+    pet_photos {
+        uuid id PK
+        uuid pet_id FK
+        varchar url
+        char content_hash "nullable"
+        smallint position
+        timestamp created_at
     }
     listing_photos {
         uuid id PK
@@ -345,7 +353,7 @@ Toda conta do sistema: tutores, anfitriões e administradores — os dados **com
 | `password_hash` | `varchar(255)` |  | não | Hash da senha (nunca a senha em texto). |
 | `role` | `enum` | `UK¹` | não | Tipo da conta: owner (tutor), host (anfitrião) ou admin. |
 | `phone` | `varchar(20)` |  | sim² | Telefone com DDD, só dígitos (ex.: 44999990000). Só é mostrado ao outro lado depois do pagamento. |
-| `avatar_url` | `varchar(500)` |  | sim | Foto de perfil. URL absoluta http/https. |
+| `avatar_url` | `varchar(500)` |  | sim | Foto de perfil. URL pública do bucket de imagens (pasta `avatars/`), gravada só pela rota de upload. |
 | `birth_date` | `date` |  | sim² | Data de nascimento. 18 anos ou mais. Usada na verificação de documentos: o tutor só troca até o primeiro pagamento, com a senha. |
 | `zip_code` | `char(8)` |  | sim² | CEP, só dígitos (ex.: 87020000). |
 | `street` | `varchar(120)` |  | sim² | Rua / logradouro. |
@@ -428,7 +436,6 @@ A ficha do animal. Pertence a **um tutor** (pet que vai se hospedar; vai junto c
 | `species` | `enum` |  | não | Tipo do animal (seção 7). O que não está na lista é `exotic`. |
 | `species_description` | `varchar(60)` |  | sim | O que é o animal ("Iguana verde"). Obrigatório **só** quando `species = exotic`; nulo nos outros. |
 | `name` | `varchar(60)` |  | não | Nome do pet. O produto usa sempre o nome ("A Pipoca chegou!"). |
-| `photo_url` | `varchar(500)` |  | sim | Foto do pet. |
 | `breed` | `varchar(60)` |  | sim | Raça em texto livre. Vazio = sem raça definida. |
 | `size` | `enum` |  | sim | Porte: small, medium, large. Obrigatório para `species = dog`, opcional para `cat`, nulo nos outros. |
 | `birth_date` | `date` |  | sim | Nascimento aproximado. A idade é calculada. Não pode ser no futuro. |
@@ -451,6 +458,21 @@ A ficha do animal. Pertence a **um tutor** (pet que vai se hospedar; vai junto c
 | `updated_at` | `timestamp` |  | não | Última alteração do registro (UTC). |
 
 > CHECKs: `ck_pets_one_keeper` (`num_nonnulls(owner_id, host_id) = 1` — exatamente um dono), `ck_pets_size_required_for_dogs`, `ck_pets_size_only_for_dogs_and_cats`, `ck_pets_description_only_for_exotic`, e um por enum (`species`, `size`, `sex`). Índices `ix_pets_owner_id` e `ix_pets_host_id`; índice único parcial `uq_pets_microchip_active` (`microchip` `WHERE is_active AND microchip IS NOT NULL`): o microchip identifica um animal, então dois pets ativos não o repetem; o pet desativado libera o número (o animal mudou de tutor).
+
+### `pet_photos` · Fotos do pet
+
+Até 3 fotos por pet, gravadas só pelas rotas de upload (`/pets/{petId}/photos`).
+
+| Coluna | Tipo | Chave | Nulo | Descrição |
+|---|---|---|---|---|
+| `id` | `uuid` | `PK` | não | Identificador da foto (usado para substituir ou tirar). |
+| `pet_id` | `uuid` | `FK` | não | Pet → pets.id. FK física (mesmo módulo), `ON DELETE CASCADE`. |
+| `url` | `varchar(500)` |  | não | URL pública da imagem no bucket (pasta `pets/`). |
+| `content_hash` | `char(64)` |  | sim | SHA-256 da imagem, em hexadecimal. Impede a mesma imagem duas vezes no mesmo pet. Nulo só nas fotos de antes da regra. |
+| `position` | `smallint` |  | não | Vaga de 1 a 3; a menor é a capa. Vaga liberada é a primeira a ser ocupada de novo. |
+| `created_at` | `timestamp` |  | não | Quando o registro foi criado (UTC). |
+
+> `ck_pet_photos_position` (`position BETWEEN 1 AND 3`) e índice único `uq_pet_photos_pet_id_position` (`pet_id`, `position`): o limite de 3 fotos vale também no banco. Índice único parcial `uq_pet_photos_pet_id_content_hash` (`pet_id`, `content_hash` `WHERE content_hash IS NOT NULL`): sem imagem repetida no mesmo pet.
 
 ### `listings` · Cantinhos
 

@@ -177,29 +177,6 @@ public sealed class PetProfileTests
     }
 
     [Theory]
-    [InlineData("javascript:alert(1)")]
-    [InlineData("/fotos/pipoca.png")]
-    [InlineData("ftp://cdn.pethost.com/pipoca.png")]
-    public void Create_Should_RejectPhotoUrl_When_ItIsNotAWebAddress(string url)
-    {
-        // Act
-        var result = PetProfile.Create(Valid with { PhotoUrl = url }, Now);
-
-        // Assert
-        result.Errors!.Should().ContainSingle(e => e.Field == "photoUrl");
-    }
-
-    [Fact]
-    public void Create_Should_RejectPhotoUrl_When_ItIsTooLong()
-    {
-        // Act
-        var result = PetProfile.Create(Valid with { PhotoUrl = "https://cdn.pethost.com/" + new string('a', 500) }, Now);
-
-        // Assert
-        result.Errors!.Should().ContainSingle(e => e.Field == "photoUrl" && e.Message.Contains("500", StringComparison.Ordinal));
-    }
-
-    [Theory]
     [InlineData("15/03/2022", "Birth date must be a valid date in the format yyyy-MM-dd.")]
     [InlineData("2026-10-10", "Birth date cannot be in the future.")]
     public void Create_Should_RejectBirthDate_When_ItIsInvalid(string birthDate, string message)
@@ -246,12 +223,11 @@ public sealed class PetProfileTests
     {
         // Act
         var result = PetProfile.Create(
-            Valid with { PhotoUrl = "", Breed = " ", BirthDate = "", FeedingNotes = "", VetContact = "", Notes = "", MedicationNotes = "" },
+            Valid with { Breed = " ", BirthDate = "", FeedingNotes = "", VetContact = "", Notes = "", MedicationNotes = "" },
             Now);
 
         // Assert
         var profile = result.Value!;
-        profile.PhotoUrl.Should().BeNull();
         profile.Breed.Should().BeNull();
         profile.BirthDate.Should().BeNull();
         profile.FeedingNotes.Should().BeNull();

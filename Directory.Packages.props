@@ -32,6 +32,11 @@
     <PackageVersion Include="MailKit" Version="4.17.0" />
   </ItemGroup>
 
+  <ItemGroup Label="Armazenamento de imagens">
+    <!-- S3 compativel: Cloudflare R2 em producao, RustFS em desenvolvimento e nos testes. -->
+    <PackageVersion Include="AWSSDK.S3" Version="4.0.104" />
+  </ItemGroup>
+
   <ItemGroup Label="Cache / sessao">
     <PackageVersion Include="StackExchange.Redis" Version="3.3.1" />
   </ItemGroup>
@@ -56,6 +61,7 @@
     <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.12" />
     <PackageVersion Include="Testcontainers.PostgreSql" Version="4.15.0" />
     <PackageVersion Include="Testcontainers.Redis" Version="4.15.0" />
+    <PackageVersion Include="Testcontainers" Version="4.15.0" />
     <PackageVersion Include="Respawn" Version="7.0.0" />
   </ItemGroup>
 

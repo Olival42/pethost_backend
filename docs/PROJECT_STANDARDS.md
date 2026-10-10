@@ -19,6 +19,7 @@
 | Validação | FluentValidation (via decorator) |
 | Testes | **xUnit** + **Moq** + **FluentAssertions 7.x** + Testcontainers |
 | Logs | Serilog (JSON estruturado) |
+| Imagens | Bucket **S3 compatível** via `AWSSDK.S3`: **Cloudflare R2** em produção, **RustFS** no compose e nos testes |
 
 > ⚠️ `FluentAssertions` 8+ exige licença paga. Fixado em **7.x** (Apache-2.0) via `Directory.Packages.props`. Subir de versão exige decisão de licenciamento.
 
@@ -50,8 +51,8 @@ pethost_backend/
 │   ├── Host/PetHost.Api/                     ← único executável (composition root)
 │   ├── Shared/
 │   │   ├── PetHost.Shared.Kernel/            ← Result, Error, Entity, ValueObject, abstrações
-│   │   ├── PetHost.Shared.Contracts/         ← ApiResponse, ErrorResponse, integration events
-│   │   └── PetHost.Shared.Infrastructure/    ← cross-cutting: EF base, outbox, decorators
+│   │   ├── PetHost.Shared.Contracts/         ← ApiResponse, ErrorResponse, integration events, IImageStorage
+│   │   └── PetHost.Shared.Infrastructure/    ← cross-cutting: EF base, outbox, decorators, storage S3
 │   └── Modules/<Module>/
 │       ├── PetHost.Modules.<Module>.Domain/
 │       ├── PetHost.Modules.<Module>.Application/
@@ -146,6 +147,7 @@ public static class ErrorCodes
     public const string TooManyRequests = "TOO_MANY_REQUESTS";
     public const string MethodNotAllowed = "METHOD_NOT_ALLOWED";
     public const string UnsupportedMediaType = "UNSUPPORTED_MEDIA_TYPE";
+    public const string PayloadTooLarge = "PAYLOAD_TOO_LARGE";
     public const string Unexpected   = "UNEXPECTED_ERROR";
 }
 ```
@@ -361,6 +363,7 @@ Sucesso `200` · validação `400` · regra de negócio `422` · inesperado `500
 | `CONFLICT` | 409 | Duplicidade, concorrência otimista |
 | `BUSINESS_RULE_VIOLATION` | 422 | Payload válido, regra impede a operação |
 | `METHOD_NOT_ALLOWED` | 405 | A rota existe, mas não com esse método |
+| `PAYLOAD_TOO_LARGE` | 413 | Corpo acima do teto da rota (upload de imagem: 8 MB) |
 | `UNSUPPORTED_MEDIA_TYPE` | 415 | Corpo num content-type que a rota não aceita (use `application/json`) |
 | `TOO_MANY_REQUESTS` | 429 | Rate limit estourado. Vem com o header `Retry-After` (segundos) |
 | `UNEXPECTED_ERROR` | 500 | Exceção não tratada |
@@ -647,11 +650,23 @@ Rate limiting nativo do ASP.NET Core (`AddPetHostRateLimiting`, em `Shared.Infra
 
 ---
 
+### Imagens
+
+Toda foto (avatar, pet, anfitrião, cantinho) vai para o **bucket S3 compatível** — Cloudflare R2 em produção, RustFS no compose e nos testes — pelas peças genéricas do `Shared` (`IImageStorage`, `ImageReplacement`, `[ImageUploadEndpoint]`). Detalhes e configuração em [armazenamento-de-imagens.md](armazenamento-de-imagens.md).
+
+- **Rota própria de upload** por entidade, com `multipart/form-data` e a imagem na parte `file`; a resposta é a entidade, no formato de sempre.
+  - **Uma foto** (avatar): `PUT /<recurso>/me/avatar` troca, `DELETE` na mesma rota tira.
+  - **Várias fotos** (pet, cantinho): tabela própria (`<recurso>_photos`) com vaga única por dono. `POST /<recurso>/{id}/photos` adiciona, `PATCH /<recurso>/{id}/photos/{photoId}` só substitui (mesmo id e posição) e `DELETE` na mesma rota tira.
+- **URL de imagem nunca vem no JSON.** Cadastro e PATCH não aceitam `photoUrl`/`photos`/`avatarUrl`: só existe no banco URL que a API gerou no bucket.
+- **Posse antes do upload.** O handler confere se quem pede é dono da entidade antes de enviar qualquer coisa ao bucket; recurso de outra conta é `404`, como nas outras rotas.
+- **O formato é conferido pelo conteúdo** (JPEG, PNG, WebP; até 5 MB), nunca pelo nome ou pelo `Content-Type` declarado. Erros no campo `file`.
+- **Trocar apaga a anterior; falhar desfaz.** Use `ImageReplacement`, que envia, grava e apaga a antiga, ou apaga a nova se gravar falhar. Não reimplemente o fluxo no módulo.
+
 ## 14. Testes
 
 > **Nenhum PR é aprovado sem teste.** Todo arquivo com lógica tem teste unitário; todo arquivo que cruza fronteira de processo tem teste de integração.
 
-**Stack:** `xunit.v3` · `Moq` · `FluentAssertions 7.x` · `Microsoft.Extensions.TimeProvider.Testing` · `Testcontainers.PostgreSql` · `Microsoft.AspNetCore.Mvc.Testing` · `Bogus` · `NetArchTest` · `coverlet.collector`.
+**Stack:** `xunit.v3` · `Moq` · `FluentAssertions 7.x` · `Microsoft.Extensions.TimeProvider.Testing` · `Testcontainers.PostgreSql` · `Testcontainers` (RustFS, em `TestImageBucket` do TestKit) · `Microsoft.AspNetCore.Mvc.Testing` · `Bogus` · `NetArchTest` · `coverlet.collector`.
 
 ### Exige teste unitário
 
@@ -791,7 +806,7 @@ test(booking): cover overlapping period rule
 
 **PR:** título em Conventional Commit · descrição com o que/por quê/como testar · CI verde (build + testes + cobertura + arquitetura) · ≥1 approve · alteração de contrato público (`Code`, formato de resposta, rota) exige nota explícita de *breaking change*.
 
-**CI** (`.github/workflows/ci.yml`, GitHub Actions): em todo push, em qualquer branch (o resultado aparece antes de abrir a PR), e em toda PR para `main` e `dev`. Faz restore, build em Release (aviso é erro) e roda **todos** os testes da solution: unitários, de integração (Postgres e Redis via Testcontainers, com o Docker do runner) e de arquitetura. Push novo na mesma branch cancela a execução anterior. `main` e `dev` são protegidas: o merge só é liberado com o check **`build-and-test`** verde e a branch atualizada com a base.
+**CI** (`.github/workflows/ci.yml`, GitHub Actions): em todo push, em qualquer branch (o resultado aparece antes de abrir a PR), e em toda PR para `main` e `dev`. Faz restore, build em Release (aviso é erro) e roda **todos** os testes da solution: unitários, de integração (Postgres, Redis e RustFS via Testcontainers, com o Docker do runner) e de arquitetura. Push novo na mesma branch cancela a execução anterior. `main` e `dev` são protegidas: o merge só é liberado com o check **`build-and-test`** verde e a branch atualizada com a base.
 
 ---
 

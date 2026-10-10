@@ -15,11 +15,11 @@ public sealed record UpdateMyOwnerCommand(
     Guid UserId,
     string? FullName,
     string? Phone,
-    string? AvatarUrl,
     AddressData? Address,
     string? BirthDate,
     string? Cpf,
     string? CurrentPassword) : ICommand<OwnerResponse>
 {
-    public AccountProfilePatch ToProfilePatch() => new(FullName, Phone, AvatarUrl, Address, BirthDate);
+    /// <summary>A foto não muda por aqui: tem rota própria (<c>PUT</c>/<c>DELETE /owners/me/avatar</c>).</summary>
+    public AccountProfilePatch ToProfilePatch() => new(FullName, Phone, AvatarUrl: null, Address, BirthDate);
 }

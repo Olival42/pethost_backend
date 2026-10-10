@@ -16,7 +16,6 @@ public sealed record PetProfileData(
     string? Species,
     string? SpeciesDescription,
     string? Name,
-    string? PhotoUrl,
     string? Breed,
     string? Size,
     string? BirthDate,

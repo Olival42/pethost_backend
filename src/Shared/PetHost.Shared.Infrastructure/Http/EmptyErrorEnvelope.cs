@@ -38,6 +38,7 @@ public static class EmptyErrorEnvelope
         StatusCodes.Status403Forbidden => (ErrorCodes.Forbidden, "You do not have permission to access this resource."),
         StatusCodes.Status404NotFound => (ErrorCodes.NotFound, "The requested resource was not found."),
         StatusCodes.Status405MethodNotAllowed => (ErrorCodes.MethodNotAllowed, "This HTTP method is not allowed for this resource."),
+        StatusCodes.Status413PayloadTooLarge => (ErrorCodes.PayloadTooLarge, "The request body is too large."),
         StatusCodes.Status415UnsupportedMediaType => (ErrorCodes.UnsupportedMediaType, "Unsupported content type. Send application/json."),
         StatusCodes.Status429TooManyRequests => (ErrorCodes.TooManyRequests, "Too many requests. Try again later."),
         >= StatusCodes.Status500InternalServerError => (ErrorCodes.Unexpected, "An unexpected error occurred."),

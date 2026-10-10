@@ -16,6 +16,7 @@ using PetHost.Modules.Pets.Infrastructure.Persistence;
 using PetHost.Shared.Infrastructure.Email;
 using Respawn;
 using Respawn.Graph;
+using PetHost.TestKit;
 using Testcontainers.PostgreSql;
 using Testcontainers.Redis;
 using Xunit;
@@ -42,6 +43,8 @@ public sealed class PetsApiFixture : IAsyncLifetime
 
     private readonly RedisContainer _redis = new RedisBuilder("redis:8-alpine").Build();
 
+    private readonly TestImageBucket _bucket = new();
+
     private WebApplicationFactory<Program>? _factory;
     private Respawner? _respawner;
     private DbConnection? _connection;
@@ -50,6 +53,9 @@ public sealed class PetsApiFixture : IAsyncLifetime
 
     public IServiceProvider Services => Factory.Services;
 
+    /// <summary>O bucket de imagens (MinIO) que a API usa.</summary>
+    public TestImageBucket Bucket => _bucket;
+
     private WebApplicationFactory<Program> Factory =>
         _factory ?? throw new InvalidOperationException("Fixture was not initialized.");
 
@@ -57,6 +63,7 @@ public sealed class PetsApiFixture : IAsyncLifetime
     {
         await _postgres.StartAsync();
         await _redis.StartAsync();
+        await _bucket.StartAsync();
 
         _factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
@@ -82,6 +89,9 @@ public sealed class PetsApiFixture : IAsyncLifetime
 
             builder.UseSetting("Email:Host", "smtp.invalid");
             builder.UseSetting("Email:FromAddress", "no-reply@pethost.test");
+
+            foreach (var (key, value) in _bucket.Settings)
+                builder.UseSetting(key, value);
 
             builder.ConfigureTestServices(services =>
                 services.AddSingleton<IEmailSender, NoOpEmailSender>());
@@ -128,6 +138,7 @@ public sealed class PetsApiFixture : IAsyncLifetime
         _factory?.Dispose();
 
         await _redis.DisposeAsync();
+        await _bucket.DisposeAsync();
         await _postgres.DisposeAsync();
     }
 

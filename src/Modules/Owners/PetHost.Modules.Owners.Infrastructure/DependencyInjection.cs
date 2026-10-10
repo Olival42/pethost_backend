@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using PetHost.Modules.Owners.Application.Abstractions;
+using PetHost.Modules.Owners.Application.Owners.ChangeMyAvatar;
 using PetHost.Modules.Owners.Application.Owners.DeactivateMyOwner;
 using PetHost.Modules.Owners.Application.Owners.GetMyOwner;
 using PetHost.Modules.Owners.Application.Owners.GetOwnerById;
@@ -9,6 +10,7 @@ using PetHost.Modules.Owners.Application.Owners.ListOwners;
 using PetHost.Modules.Owners.Application.Owners.ReactivateOwner;
 using PetHost.Modules.Owners.Application.Owners.SuspendOwner;
 using PetHost.Modules.Owners.Application.Owners.RegisterOwnerAccount;
+using PetHost.Modules.Owners.Application.Owners.RemoveMyAvatar;
 using PetHost.Modules.Owners.Application.Owners.Responses;
 using PetHost.Modules.Owners.Application.Owners.UpdateMyOwner;
 using PetHost.Modules.Owners.Domain.Owners;
@@ -72,6 +74,12 @@ public static class DependencyInjection
 
         services.AddValidatedCommandHandler<
             UpdateMyOwnerCommandHandler, UpdateMyOwnerCommand, OwnerResponse>();
+
+        services.AddValidatedCommandHandler<
+            ChangeMyAvatarCommandHandler, ChangeMyAvatarCommand, OwnerResponse>();
+
+        services.AddValidatedCommandHandler<
+            RemoveMyAvatarCommandHandler, RemoveMyAvatarCommand, OwnerResponse>();
 
         services.AddScoped<IQueryHandler<GetMyOwnerQuery, OwnerResponse>, GetMyOwnerQueryHandler>();
         services.AddScoped<IQueryHandler<GetOwnerByIdQuery, OwnerResponse>, GetOwnerByIdQueryHandler>();

@@ -156,7 +156,7 @@ public sealed class UpdateMyOwnerCommandHandlerTests
     public async Task HandleAsync_Should_ReturnNotFound_When_ProfileDoesNotExist()
     {
         var result = await _sut.HandleAsync(
-            new UpdateMyOwnerCommand(Guid.CreateVersion7(), null, null, null, null, null, "111.444.777-35", Password),
+            new UpdateMyOwnerCommand(Guid.CreateVersion7(), null, null, null, null, "111.444.777-35", Password),
             CancellationToken.None);
 
         result.FirstError!.Code.Should().Be("OWNER_NOT_FOUND");
@@ -224,7 +224,7 @@ public sealed class UpdateMyOwnerCommandHandlerTests
         string? cpf = null,
         string? currentPassword = null,
         string? birthDate = null) =>
-        new(Id, fullName, null, null, null, birthDate, cpf, currentPassword);
+        new(Id, fullName, null, null, birthDate, cpf, currentPassword);
 }
 
 public sealed class UpdateMyOwnerCommandValidatorTests
@@ -250,7 +250,7 @@ public sealed class UpdateMyOwnerCommandValidatorTests
             .ReturnsAsync(Result.Failure([Error.Validation("phone", "Phone is invalid."), Error.Validation("address.zipCode", "CEP.")]));
 
         var result = await _sut.ValidateAsync(
-            new UpdateMyOwnerCommand(Guid.CreateVersion7(), null, "abc", null, null, null, "111.111.111-11", null),
+            new UpdateMyOwnerCommand(Guid.CreateVersion7(), null, "abc", null, null, "111.111.111-11", null),
             TestContext.Current.CancellationToken);
 
         result.Errors.Select(e => e.PropertyName).Should().BeEquivalentTo(["Cpf", "phone", "address.zipCode"]);
@@ -260,7 +260,7 @@ public sealed class UpdateMyOwnerCommandValidatorTests
     public async Task Validate_Should_SkipAccount_When_OnlyCpfIsSent()
     {
         var result = await _sut.ValidateAsync(
-            new UpdateMyOwnerCommand(Guid.CreateVersion7(), null, null, null, null, null, "529.982.247-25", null),
+            new UpdateMyOwnerCommand(Guid.CreateVersion7(), null, null, null, null, "529.982.247-25", null),
             TestContext.Current.CancellationToken);
 
         result.IsValid.Should().BeTrue();
@@ -273,7 +273,7 @@ public sealed class UpdateMyOwnerCommandValidatorTests
     public async Task Validate_Should_Pass_When_NothingIsSent()
     {
         (await _sut.ValidateAsync(
-            new UpdateMyOwnerCommand(Guid.CreateVersion7(), null, null, null, null, null, null, null),
+            new UpdateMyOwnerCommand(Guid.CreateVersion7(), null, null, null, null, null, null),
             TestContext.Current.CancellationToken)).IsValid.Should().BeTrue();
     }
 }

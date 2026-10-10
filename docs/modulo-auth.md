@@ -239,14 +239,14 @@ Vale só para a conta do token: a outra conta da mesma pessoa tem senha própria
 
 ### 2.10 Inativar e reativar
 
-**Não há rota em `/users`.** O Auth oferece inativar e reativar só pelo contrato `IAccountStatusManager`, que o módulo do papel usa para mudar conta e perfil juntos — hoje, o tutor em `POST /api/v1/owners/me/deactivate` e `POST /api/v1/owners/reactivate` ([`modulo-owners.md`](modulo-owners.md) seção 3.4). O anfitrião ainda não inativa a conta (pendência 8).
+**Não há rota em `/users`.** O Auth oferece inativar e reativar só pelo contrato `IAccountStatusManager`, que o módulo do papel usa para mudar conta e perfil juntos — hoje, o tutor em `POST /api/v1/owners/me/deactivate` e `POST /api/v1/owners/reactivate` ([`modulo-owners.md`](modulo-owners.md) seção 3.5). O anfitrião ainda não inativa a conta (pendência 8).
 
 O que a inativação faz na conta, venha de onde vier:
 
 - Vale **só para aquela conta**: a outra conta da mesma pessoa continua ativa. Derruba todas as sessões: login passa a responder `403 AUTH_ACCOUNT_DEACTIVATED`; refresh, `401`; e o access token já emitido é recusado **na hora** com `401` (seção 6.6.1). Idempotente. O admin não pode ser inativado (`AUTH_ADMIN_DEACTIVATION_FORBIDDEN`).
 - A reativação pede as credenciais do login (e-mail, senha, papel) — conta inativa não consegue entrar para pedir isso logada — e já abre a sessão. Credenciais erradas: `401 AUTH_INVALID_CREDENTIALS`. Numa conta ativa, funciona como login. Conta **suspensa** não reativa: `403 AUTH_ACCOUNT_SUSPENDED`.
 
-**Suspensão (admin).** Também só pelo contrato (`IAccountStatusManager.SuspendAsync` / `LiftSuspensionAsync`); hoje o tutor é suspenso em `POST /api/v1/owners/{ownerId}/suspension` ([`modulo-owners.md`](modulo-owners.md) seção 3.6).
+**Suspensão (admin).** Também só pelo contrato (`IAccountStatusManager.SuspendAsync` / `LiftSuspensionAsync`); hoje o tutor é suspenso em `POST /api/v1/owners/{ownerId}/suspension` ([`modulo-owners.md`](modulo-owners.md) seção 3.7).
 
 - Grava `suspended_at`, `suspension_reason` (obrigatório, até 500 caracteres) e `suspended_by` (o admin) e derruba as sessões na hora.
 - Recusa, sempre depois da senha conferida: login (`403 AUTH_ACCOUNT_SUSPENDED`, antes de "inativa"), refresh (`401`), troca de conta (`404`, como conta inexistente), reativação (`403`), troca de senha (`403`). "Esqueci a senha" responde `200` mas não manda e-mail.
@@ -381,7 +381,7 @@ Cada atributo do usuário com regra própria é um value object: só existe se f
 | `PasswordHash` | `password_hash` | Hash PHC já calculado, ≤ 255. Nunca recebe senha em texto. |
 | `FullName` | `full_name` | Obrigatório, ≤ 120, aparado. |
 | `PhoneNumber` | `phone` | Telefone com DDD, guardado **só com dígitos** (`44999990000`). Aceita entrada formatada (`(44) 99999-0000`, `+55 ...`); 10 a 13 dígitos; letra é erro. |
-| `AvatarUrl` | `avatar_url` | URL absoluta `http`/`https`, ≤ 500. Recusa `javascript:`, `data:` e caminho relativo. |
+| `AvatarUrl` | `avatar_url` | URL absoluta `http`/`https`, ≤ 500. Recusa `javascript:`, `data:` e caminho relativo. Na prática vem do bucket de imagens: quem grava é a rota de upload do papel (`PUT /owners/me/avatar`), nunca um corpo JSON. |
 | `StateCode` | `state` | Uma das 27 UFs, em maiúsculas (`pr` → `PR`). |
 | `ZipCode` | `zip_code` | CEP com 8 dígitos, guardado **só com dígitos** (`87020-000` → `87020000`). Não confere se existe — o front pode usar o ViaCEP para preencher o resto. |
 | `Address` | `zip_code`, `street`, `street_number`, `complement`, `neighborhood`, `city`, `state` | Endereço completo: CEP, rua (≤ 120), número (texto, ≤ 10, aceita "S/N"), complemento (opcional, ≤ 60), bairro (≤ 80), cidade (≤ 80) e UF. Devolve **todos** os campos inválidos, cada um como `address.<campo>`. Mapeado como tipo complexo do EF: colunas na própria `users`. Bate com o endereço de cobrança do Stripe. |

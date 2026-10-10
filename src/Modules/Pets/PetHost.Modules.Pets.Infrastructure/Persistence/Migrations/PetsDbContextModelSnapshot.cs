@@ -115,11 +115,6 @@ namespace PetHost.Modules.Pets.Infrastructure.Persistence.Migrations
                                 .HasColumnType("text")
                                 .HasColumnName("notes");
 
-                            b1.Property<string>("PhotoUrl")
-                                .HasMaxLength(500)
-                                .HasColumnType("character varying(500)")
-                                .HasColumnName("photo_url");
-
                             b1.Property<string>("Sex")
                                 .IsRequired()
                                 .HasMaxLength(10)
@@ -178,6 +173,67 @@ namespace PetHost.Modules.Pets.Infrastructure.Persistence.Migrations
 
                             t.HasCheckConstraint("ck_pets_species", "species IN ('dog', 'cat', 'cockatiel', 'parrot', 'parakeet', 'canary', 'rabbit', 'hamster', 'guinea_pig', 'fish', 'turtle', 'exotic')");
                         });
+                });
+
+            modelBuilder.Entity("PetHost.Modules.Pets.Domain.Pets.PetPhoto", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ContentHash")
+                        .HasColumnType("char(64)")
+                        .HasColumnName("content_hash");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("PetId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("pet_id");
+
+                    b.Property<short>("Position")
+                        .HasColumnType("smallint")
+                        .HasColumnName("position");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("url");
+
+                    b.HasKey("Id")
+                        .HasName("pk_pet_photos");
+
+                    b.HasIndex("PetId", "ContentHash")
+                        .IsUnique()
+                        .HasDatabaseName("uq_pet_photos_pet_id_content_hash")
+                        .HasFilter("content_hash IS NOT NULL");
+
+                    b.HasIndex("PetId", "Position")
+                        .IsUnique()
+                        .HasDatabaseName("uq_pet_photos_pet_id_position");
+
+                    b.ToTable("pet_photos", "pet", t =>
+                        {
+                            t.HasCheckConstraint("ck_pet_photos_position", "position BETWEEN 1 AND 3");
+                        });
+                });
+
+            modelBuilder.Entity("PetHost.Modules.Pets.Domain.Pets.PetPhoto", b =>
+                {
+                    b.HasOne("PetHost.Modules.Pets.Domain.Pets.Pet", null)
+                        .WithMany("_photos")
+                        .HasForeignKey("PetId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_pet_photos_pets");
+                });
+
+            modelBuilder.Entity("PetHost.Modules.Pets.Domain.Pets.Pet", b =>
+                {
+                    b.Navigation("_photos");
                 });
 #pragma warning restore 612, 618
         }

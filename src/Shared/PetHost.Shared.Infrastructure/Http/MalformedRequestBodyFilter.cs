@@ -41,6 +41,11 @@ public sealed class MalformedRequestBodyFilter : IActionFilter
         if (context.ModelState.IsValid)
             return;
 
+        // Upload de imagem não tem corpo JSON: form sem a parte "file" (ou ilegível) chega ao
+        // caso de uso sem arquivo, que responde o erro do campo "file".
+        if (context.ActionDescriptor.EndpointMetadata.OfType<ImageUploadEndpointAttribute>().Any())
+            return;
+
         // Campo só quando o JSON é válido e o problema é o tipo do valor. JSON cortado
         // ou com sintaxe errada também vem com caminho, mas aí o culpado é o corpo.
         var fieldErrors = context.ModelState

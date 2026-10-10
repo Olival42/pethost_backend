@@ -142,10 +142,10 @@ public sealed class UpdatePetCommandHandlerTests
     public async Task HandleAsync_Should_ReturnEveryValidationError_When_MergedProfileIsInvalid()
     {
         // Act
-        var result = await _sut.HandleAsync(Patch() with { Species = "exotic", Name = " ", PhotoUrl = "ftp://x" }, CancellationToken.None);
+        var result = await _sut.HandleAsync(Patch() with { Species = "exotic", Name = " ", Breed = new string('x', 61) }, CancellationToken.None);
 
         // Assert
-        result.Errors!.Select(e => e.Field).Should().BeEquivalentTo(["speciesDescription", "name", "photoUrl"]);
+        result.Errors!.Select(e => e.Field).Should().BeEquivalentTo(["speciesDescription", "name", "breed"]);
         _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
@@ -207,11 +207,11 @@ public sealed class PetPatchTests
     public void Apply_Should_PassEmptyTextAlong_When_ClientClearsAField()
     {
         // Act
-        var merged = PetPatch.Apply(Dog, Empty() with { Notes = "", PhotoUrl = "" });
+        var merged = PetPatch.Apply(Dog, Empty() with { Notes = "", Breed = "" });
 
         // Assert
         merged.Notes.Should().Be("");
-        merged.PhotoUrl.Should().Be("");
+        merged.Breed.Should().Be("");
         merged.Name.Should().Be(Dog.Name);
     }
 

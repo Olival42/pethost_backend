@@ -5,7 +5,8 @@ namespace PetHost.Modules.Pets.Application.Pets.UpdatePet;
 
 /// <summary>
 /// Altera a ficha de um pet da conta logada (PATCH): só muda o que vier. <c>null</c> mantém
-/// o valor atual; texto vazio (<c>""</c>) limpa um campo opcional.
+/// o valor atual; texto vazio (<c>""</c>) limpa um campo opcional. As fotos não mudam por
+/// aqui: têm rotas próprias (<c>/pets/{petId}/photos</c>).
 /// </summary>
 /// <param name="UserId">Vem do access token, nunca do corpo.</param>
 /// <param name="Role">Papel do token: <c>owner</c> ou <c>host</c>.</param>
@@ -17,7 +18,6 @@ public sealed record UpdatePetCommand(
     string? Species,
     string? SpeciesDescription,
     string? Name,
-    string? PhotoUrl,
     string? Breed,
     string? Size,
     string? BirthDate,

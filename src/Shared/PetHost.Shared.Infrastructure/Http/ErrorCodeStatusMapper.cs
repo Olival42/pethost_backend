@@ -55,6 +55,8 @@ public static class ErrorCodeStatusMapper
                 return StatusCodes.Status409Conflict;
             case ErrorCodes.MethodNotAllowed:
                 return StatusCodes.Status405MethodNotAllowed;
+            case ErrorCodes.PayloadTooLarge:
+                return StatusCodes.Status413PayloadTooLarge;
             case ErrorCodes.UnsupportedMediaType:
                 return StatusCodes.Status415UnsupportedMediaType;
             case ErrorCodes.TooManyRequests:

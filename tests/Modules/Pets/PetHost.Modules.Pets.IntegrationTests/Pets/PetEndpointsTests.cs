@@ -226,11 +226,11 @@ public sealed class PetEndpointsTests(PetsApiFixture fixture) : IAsyncLifetime
             name = "",
             size = "giant",
             birthDate = "2099-01-01",
-            photoUrl = "javascript:alert(1)",
+            breed = new string('x', 61),
         });
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        Fields(await ReadAsync(response)).Should().BeEquivalentTo(["name", "size", "birthDate", "photoUrl"]);
+        Fields(await ReadAsync(response)).Should().BeEquivalentTo(["name", "size", "birthDate", "breed"]);
     }
 
     [Fact]
@@ -587,7 +587,6 @@ public sealed class PetEndpointsTests(PetsApiFixture fixture) : IAsyncLifetime
             species,
             speciesDescription,
             name,
-            photoUrl = "https://cdn.pethost.com/pipoca.png",
             breed = "SRD",
             size,
             birthDate = "2022-03-15",

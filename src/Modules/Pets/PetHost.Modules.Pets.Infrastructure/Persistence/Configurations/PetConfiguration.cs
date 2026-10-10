@@ -66,10 +66,6 @@ internal sealed class PetConfiguration : IEntityTypeConfiguration<Pet>
                 .HasMaxLength(PetProfile.NameMaxLength)
                 .IsRequired();
 
-            profile.Property(f => f.PhotoUrl)
-                .HasColumnName("photo_url")
-                .HasMaxLength(PetProfile.PhotoUrlMaxLength);
-
             profile.Property(f => f.Breed)
                 .HasColumnName("breed")
                 .HasMaxLength(PetProfile.BreedMaxLength);
@@ -152,6 +148,15 @@ internal sealed class PetConfiguration : IEntityTypeConfiguration<Pet>
         // Microchip único entre os pets ativos: índice parcial uq_pets_microchip_active, criado
         // em SQL na migration AddUniqueMicrochipToPets (o EF não indexa coluna de tipo complexo).
 
+        // Fotos: a coleção é o campo _photos (a propriedade Photos é uma cópia ordenada).
+        builder.HasMany<PetPhoto>(PetsDbContext.PhotosField)
+            .WithOne()
+            .HasForeignKey(photo => photo.PetId)
+            .HasConstraintName("fk_pet_photos_pets")
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder.Ignore(p => p.Photos);
+        builder.Ignore(p => p.CanAddPhoto);
         builder.Ignore(p => p.Keeper);
         builder.Ignore(p => p.DomainEvents);
     }

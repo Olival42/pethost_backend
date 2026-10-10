@@ -2,7 +2,8 @@ namespace PetHost.Modules.Pets.Presentation.Pets;
 
 /// <summary>
 /// Corpo do cadastro (<c>POST /pets</c>) e da alteração (<c>PATCH /pets/{petId}</c>) do pet.
-/// O dono vem do token, não daqui. No PATCH, só o que vier muda.
+/// O dono vem do token, não daqui. No PATCH, só o que vier muda. A foto não vem aqui: é
+/// enviada como arquivo em <c>POST /pets/{petId}/photos</c> (até 3).
 /// </summary>
 /// <param name="Species">
 /// <c>dog</c>, <c>cat</c>, <c>cockatiel</c>, <c>parrot</c>, <c>parakeet</c>, <c>canary</c>,
@@ -19,7 +20,6 @@ public sealed record PetRequest(
     string? Species,
     string? SpeciesDescription,
     string? Name,
-    string? PhotoUrl,
     string? Breed,
     string? Size,
     string? BirthDate,
