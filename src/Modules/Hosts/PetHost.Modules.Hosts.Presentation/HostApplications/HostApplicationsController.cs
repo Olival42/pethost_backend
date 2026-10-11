@@ -24,7 +24,7 @@ namespace PetHost.Modules.Hosts.Presentation.HostApplications;
 public sealed class HostApplicationsController(
     IQueryHandler<ListHostApplicationsQuery, IReadOnlyList<HostApplicationReviewResponse>> listApplications,
     IQueryHandler<GetHostApplicationByIdQuery, HostApplicationReviewResponse> getApplication,
-    IQueryHandler<GetHostApplicationDocumentQuery, HostApplicationDocumentFile> getDocument,
+    IQueryHandler<GetHostApplicationDocumentQuery, HostApplicationDocumentLinkResponse> getDocument,
     ICommandHandler<ApproveHostApplicationCommand, HostApplicationReviewResponse> approveApplication,
     ICommandHandler<RejectHostApplicationCommand, HostApplicationReviewResponse> rejectApplication) : ControllerBase
 {
@@ -55,29 +55,27 @@ public sealed class HostApplicationsController(
         return result.ToActionResult();
     }
 
-    /// <summary>A imagem de uma foto da solicitação: <c>front</c>, <c>back</c> ou <c>selfie</c>.</summary>
+    /// <summary>Link temporário de uma foto da solicitação: <c>front</c>, <c>back</c> ou <c>selfie</c>.</summary>
     /// <remarks>
-    /// Devolve a imagem crua (<c>image/jpeg</c>, <c>image/png</c> ou <c>image/webp</c>), sem cache.
-    /// Erro vem no envelope de sempre. Foto já apagada pelo prazo de guarda: 404
-    /// <c>HOST_APPLICATION_DOCUMENT_NOT_FOUND</c>.
+    /// Devolve uma URL assinada direto no bucket privado (<c>url</c>) e quando ela vence
+    /// (<c>expiresAt</c>, em Unix time em segundos; padrão 5 minutos). O front põe a URL no <c>src</c> da imagem, sem token;
+    /// vencida, o bucket responde 403 e é só pedir outro link. Cada link emitido vai para a
+    /// trilha. Foto já apagada pelo prazo de guarda: 404 <c>HOST_APPLICATION_DOCUMENT_NOT_FOUND</c>.
     /// </remarks>
     [HttpGet("{applicationId:guid}/documents/{kind}")]
-    [ProducesResponseType<FileStreamResult>(StatusCodes.Status200OK, "image/jpeg", "image/png", "image/webp")]
-    [ProducesResponseType<ApiResponse<HostApplicationDocumentFile>>(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType<ApiResponse<HostApplicationDocumentFile>>(StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType<ApiResponse<HostApplicationDocumentFile>>(StatusCodes.Status403Forbidden)]
-    [ProducesResponseType<ApiResponse<HostApplicationDocumentFile>>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ApiResponse<HostApplicationDocumentLinkResponse>>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ApiResponse<HostApplicationDocumentLinkResponse>>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ApiResponse<HostApplicationDocumentLinkResponse>>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ApiResponse<HostApplicationDocumentLinkResponse>>(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType<ApiResponse<HostApplicationDocumentLinkResponse>>(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetDocumentAsync(Guid applicationId, string kind, CancellationToken cancellationToken)
     {
         var result = await getDocument.HandleAsync(new GetHostApplicationDocumentQuery(applicationId, kind), cancellationToken);
-        if (result.IsFailure)
-            return result.ToActionResult();
 
-        // Documento de identidade: nenhum cache (navegador, proxy) guarda a imagem.
+        // A URL assinada é uma credencial temporária: nenhum cache (navegador, proxy) guarda a resposta.
         Response.Headers.CacheControl = "no-store";
 
-        var file = result.Value!;
-        return File(file.Content, file.ContentType);
+        return result.ToActionResult();
     }
 
     /// <summary>Aprova a solicitação: o perfil de anfitrião é criado. Com motivo.</summary>

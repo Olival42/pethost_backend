@@ -1,6 +1,7 @@
 using System.Net;
 using Amazon.S3;
 using Amazon.S3.Model;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using PetHost.Shared.Contracts.Storage;
@@ -11,15 +12,19 @@ namespace PetHost.Shared.Infrastructure.Storage;
 /// <summary>
 /// <see cref="IPrivateImageStorage"/> sobre a API S3, no bucket <b>privado</b>
 /// (<see cref="StorageOptions.PrivateBucketName"/>): mesmas credenciais e endpoint do bucket
-/// público, mas sem política de leitura pública. Só a API, com a chave do servidor, lê.
+/// público, mas sem política de leitura pública. Ninguém abre por link fixo: quem tem permissão
+/// recebe uma URL assinada, que vence em <see cref="StorageOptions.SignedUrlLifetimeMinutes"/>.
 /// </summary>
 /// <remarks>
 /// A chave é <c>&lt;pasta&gt;/&lt;guid&gt;.&lt;ext&gt;</c>, como no bucket público. O arquivo vai
-/// com <c>Cache-Control: private, no-store</c>: nenhum cache intermediário guarda documento.
+/// com <c>Cache-Control: private, no-store</c>: nenhum cache intermediário guarda documento, e o
+/// navegador não reaproveita a imagem depois que a URL vence.
 /// </remarks>
 internal sealed partial class S3PrivateImageStorage(
     IAmazonS3 s3,
+    [FromKeyedServices(StorageServiceCollectionExtensions.UrlSignerKey)] IAmazonS3 urlSigner,
     IOptions<StorageOptions> options,
+    TimeProvider timeProvider,
     ILogger<S3PrivateImageStorage> logger) : IPrivateImageStorage
 {
     private const string CacheControl = "private, no-store";
@@ -44,7 +49,7 @@ internal sealed partial class S3PrivateImageStorage(
             InputStream = upload.Buffer,
             AutoCloseStream = false,
             ContentType = upload.Format.ContentType,
-            DisablePayloadSigning = IsHttps,
+            DisablePayloadSigning = UsesHttps,
         };
         request.Headers.CacheControl = CacheControl;
 
@@ -55,21 +60,39 @@ internal sealed partial class S3PrivateImageStorage(
         return Result<StoredPrivateImage>.Success(new StoredPrivateImage(key, upload.ContentHash(), upload.Length));
     }
 
-    public async Task<PrivateImageContent?> OpenAsync(string key, CancellationToken cancellationToken)
+    public async Task<SignedImageUrl?> GetSignedUrlAsync(string key, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
 
+        // Assinar não consulta o bucket: sem esta conferência, um arquivo já apagado ganharia
+        // um link que só falha quando aberto.
         try
         {
-            var response = await s3.GetObjectAsync(_options.PrivateBucketName, key, cancellationToken).ConfigureAwait(false);
-
-            // O stream de resposta do SDK fica com a conexão: quem recebe o conteúdo fecha.
-            return new PrivateImageContent(response.ResponseStream, response.Headers.ContentType ?? "application/octet-stream");
+            await s3.GetObjectMetadataAsync(_options.PrivateBucketName, key, cancellationToken).ConfigureAwait(false);
         }
         catch (AmazonS3Exception exception) when (exception.StatusCode == HttpStatusCode.NotFound)
         {
             return null;
         }
+
+        var expiresAt = timeProvider.GetUtcNow().AddMinutes(_options.SignedUrlLifetimeMinutes);
+
+        var url = await urlSigner
+            .GetPreSignedURLAsync(new GetPreSignedUrlRequest
+            {
+                BucketName = _options.PrivateBucketName,
+                Key = key,
+                Verb = HttpVerb.GET,
+                Expires = expiresAt.UtcDateTime,
+
+                // Sem isto o SDK assina como HTTPS mesmo com endpoint HTTP (RustFS local).
+                Protocol = IsHttps(_options.SigningServiceUrl) ? Protocol.HTTPS : Protocol.HTTP,
+            })
+            .ConfigureAwait(false);
+
+        LogSigned(logger, key, expiresAt);
+
+        return new SignedImageUrl(url, expiresAt);
     }
 
     public async Task DeleteAsync(string? key, CancellationToken cancellationToken)
@@ -90,10 +113,15 @@ internal sealed partial class S3PrivateImageStorage(
         }
     }
 
-    private bool IsHttps => _options.ServiceUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+    private bool UsesHttps => IsHttps(_options.ServiceUrl);
+
+    private static bool IsHttps(string url) => url.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
 
     [LoggerMessage(EventId = 6010, Level = LogLevel.Information, Message = "Private image stored at {Key} ({Bytes} bytes).")]
     private static partial void LogStored(ILogger logger, string key, long bytes);
+
+    [LoggerMessage(EventId = 6013, Level = LogLevel.Information, Message = "Signed URL issued for private image {Key}, valid until {ExpiresAt}.")]
+    private static partial void LogSigned(ILogger logger, string key, DateTimeOffset expiresAt);
 
     [LoggerMessage(EventId = 6011, Level = LogLevel.Information, Message = "Private image {Key} deleted.")]
     private static partial void LogDeleted(ILogger logger, string key);

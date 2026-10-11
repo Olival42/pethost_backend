@@ -8,10 +8,10 @@ namespace PetHost.Shared.Contracts.Storage;
 /// <see cref="IImageStorage"/> (§5).
 /// </summary>
 /// <remarks>
-/// Aqui não existe URL pública: o banco guarda a <b>chave</b> do arquivo, e só a API lê o
-/// conteúdo (com as credenciais do servidor) para repassar a quem tem permissão — o admin,
-/// numa rota auditada. As regras do arquivo são as mesmas das fotos públicas
-/// (<see cref="ImageRules"/>, erros de <see cref="ImageErrors"/>).
+/// Aqui não existe URL pública: o banco guarda a <b>chave</b> do arquivo. Para alguém ver a
+/// imagem, a API confere a permissão (o admin, numa rota auditada) e gera uma <b>URL assinada</b>
+/// que vale por poucos minutos (<see cref="GetSignedUrlAsync"/>). As regras do arquivo são as
+/// mesmas das fotos públicas (<see cref="ImageRules"/>, erros de <see cref="ImageErrors"/>).
 /// </remarks>
 public interface IPrivateImageStorage
 {
@@ -23,10 +23,12 @@ public interface IPrivateImageStorage
     Task<Result<StoredPrivateImage>> SaveAsync(ImageUpload? image, string folder, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Abre a imagem para leitura, ou <c>null</c> se ela não existe mais (já apagada). Quem
-    /// recebe é dono do stream.
+    /// URL assinada para ler a imagem direto do bucket, válida até
+    /// <see cref="SignedImageUrl.ExpiresAt"/>; ou <c>null</c> se a imagem não existe mais (já
+    /// apagada). Quem tem a URL abre a imagem sem token até ela vencer: só gere para quem já
+    /// passou pela checagem de permissão, e registre na trilha.
     /// </summary>
-    Task<PrivateImageContent?> OpenAsync(string key, CancellationToken cancellationToken);
+    Task<SignedImageUrl?> GetSignedUrlAsync(string key, CancellationToken cancellationToken);
 
     /// <summary>
     /// Apaga a imagem dessa chave. Ignora <c>null</c>. Nunca lança: falha vai para o log — um
@@ -41,10 +43,10 @@ public interface IPrivateImageStorage
 /// <param name="SizeBytes">Tamanho do arquivo.</param>
 public sealed record StoredPrivateImage(string Key, string ContentHash, long SizeBytes);
 
-/// <summary>O conteúdo de uma imagem privada, pronto para repassar.</summary>
-/// <param name="Content">Os bytes. Quem recebe fecha o stream.</param>
-/// <param name="ContentType">O formato real, gravado no upload (ex.: <c>image/jpeg</c>).</param>
-public sealed record PrivateImageContent(Stream Content, string ContentType);
+/// <summary>Link temporário para uma imagem privada.</summary>
+/// <param name="Url">URL assinada (S3 pre-signed): abre a imagem sem token até vencer.</param>
+/// <param name="ExpiresAt">A partir de quando o bucket recusa a URL (403).</param>
+public sealed record SignedImageUrl(string Url, DateTimeOffset ExpiresAt);
 
 /// <summary>Pastas do bucket privado.</summary>
 public static class PrivateImageFolders

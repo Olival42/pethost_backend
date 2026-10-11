@@ -139,6 +139,12 @@ services:
       Storage__PrivateBucketName: ${STORAGE_PRIVATE_BUCKET_NAME:-pethost-documents}
       Storage__PublicBaseUrl: ${STORAGE_PUBLIC_BASE_URL:-http://localhost:9000/pethost-images}
       Storage__ForcePathStyle: ${STORAGE_FORCE_PATH_STYLE:-true}
+      # URLs assinadas dos documentos (bucket privado): o endereco que o NAVEGADOR alcanca.
+      # Vazio = o mesmo de STORAGE_SERVICE_URL (Supabase, R2). So o RustFS precisa
+      # (http://localhost:9000), porque a API fala com ele por http://rustfs:9000.
+      Storage__SignedUrlServiceUrl: ${STORAGE_SIGNED_URL_SERVICE_URL:-}
+      # Validade de cada link de documento, em minutos (1 a 60).
+      Storage__SignedUrlLifetimeMinutes: ${STORAGE_SIGNED_URL_LIFETIME_MINUTES:-5}
 
       # --- verificacao do anfitriao ---
       # Dias que as fotos (documento e selfie) ficam depois da decisao. 0 = apaga na hora.

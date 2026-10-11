@@ -72,7 +72,8 @@ public sealed record MyHostApplicationResponse(
 
 /// <summary>
 /// A solicitação como o admin vê para decidir: tudo o que a pessoa enviou, os dados da conta
-/// para comparar com o documento, a nota do admin e o caminho de cada foto (rota auditada).
+/// para comparar com o documento, a nota do admin e o caminho de cada foto (rota auditada que
+/// devolve o link assinado).
 /// </summary>
 /// <param name="User">Dados da conta (nome, nascimento, endereço) para comparar com o documento.</param>
 public sealed record HostApplicationReviewResponse(
@@ -98,7 +99,7 @@ public sealed record HostApplicationReviewResponse(
     DateTimeOffset CreatedAt,
     AccountSummary? User)
 {
-    /// <summary>Onde o admin abre a foto: <c>GET</c> com o token de admin (rota auditada).</summary>
+    /// <summary>Onde o admin pede o link da foto: <c>GET</c> com o token de admin (rota auditada).</summary>
     public static string DocumentPath(Guid applicationId, DocumentKind kind) =>
         $"/api/v1/host-applications/{applicationId}/documents/{DocumentKindValues.ToWire(kind)}";
 
@@ -137,14 +138,21 @@ public sealed record HostApplicationReviewResponse(
     }
 }
 
-/// <summary>Uma foto para o admin: qual é, quando chegou, tamanho e a rota para abrir.</summary>
-/// <param name="Path">Rota da API que devolve a imagem. Só admin; cada abertura vai para a trilha.</param>
+/// <summary>Uma foto para o admin: qual é, quando chegou, tamanho e a rota para pedir o link.</summary>
+/// <param name="Path">Rota da API que devolve a URL assinada da imagem. Só admin; cada link vai para a trilha.</param>
 public sealed record HostApplicationReviewDocumentResponse(string Kind, DateTimeOffset UploadedAt, long SizeBytes, string Path);
 
-/// <summary>Uma foto do bucket privado, pronta para o admin ver.</summary>
-/// <param name="Content">Os bytes. Quem recebe (o controller) fecha o stream.</param>
-/// <param name="FileName">Nome sugerido: <c>&lt;solicitação&gt;-&lt;foto&gt;</c>, sem nada da pessoa.</param>
-public sealed record HostApplicationDocumentFile(Stream Content, string ContentType, string FileName);
+/// <summary>Link temporário para o admin abrir uma foto da solicitação.</summary>
+/// <param name="Kind"><c>front</c>, <c>back</c> ou <c>selfie</c>.</param>
+/// <param name="Url">
+/// URL assinada direto no bucket privado: vai no <c>src</c> da imagem, sem token. Depois de
+/// <paramref name="ExpiresAt"/> o bucket responde 403 e é preciso pedir outro link.
+/// </param>
+/// <param name="ExpiresAt">
+/// Quando a URL vence, em Unix time (segundos, UTC) — como o <c>expiresAt</c> da sessão. Use
+/// para pedir outro link antes de vencer.
+/// </param>
+public sealed record HostApplicationDocumentLinkResponse(string Kind, string Url, long ExpiresAt);
 
 /// <summary>O que a tarefa de limpeza fez numa rodada.</summary>
 /// <param name="ExpiredDrafts">Rascunhos abandonados que foram fechados.</param>

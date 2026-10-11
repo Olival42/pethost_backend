@@ -79,10 +79,17 @@ public sealed class HostApplicationFlowTests(HostsApiFixture fixture) : IAsyncLi
         detail.GetProperty("user").GetProperty("fullName").GetString().Should().Be("Dona Cida");
         detail.GetProperty("documents").EnumerateArray().Should().HaveCount(3);
 
-        var selfie = await SendAsync(HttpMethod.Get, $"{ReviewRoute}/{applicationId}/documents/selfie", admin);
+        // A API devolve um link assinado; a imagem vem direto do bucket, sem token.
+        var selfieLink = await SendAsync(HttpMethod.Get, $"{ReviewRoute}/{applicationId}/documents/selfie", admin);
+        selfieLink.StatusCode.Should().Be(HttpStatusCode.OK);
+        selfieLink.Headers.CacheControl!.NoStore.Should().BeTrue();
+        var link = Data(selfieLink);
+        link.GetProperty("kind").GetString().Should().Be("selfie");
+
+        using var browser = new HttpClient();
+        var selfie = await browser.GetAsync(new Uri(link.GetProperty("url").GetString()!), Ct);
         selfie.StatusCode.Should().Be(HttpStatusCode.OK);
         selfie.Content.Headers.ContentType!.MediaType.Should().Be("image/png");
-        selfie.Headers.CacheControl!.NoStore.Should().BeTrue();
         (await selfie.Content.ReadAsByteArrayAsync(Ct)).Should().Equal(TestImages.PngVariant(3));
 
         // Aprova: nasce o anfitrião e as fotos somem (prazo de guarda zero).
@@ -119,6 +126,30 @@ public sealed class HostApplicationFlowTests(HostsApiFixture fixture) : IAsyncLi
         var response = await anonymous.GetAsync(fixture.Bucket.PrivateObjectUrl(keys[^1]), Ct);
 
         response.StatusCode.Should().NotBe(HttpStatusCode.OK, "o bucket de documentos não tem leitura pública");
+    }
+
+    [Fact]
+    public async Task DocumentLink_Should_ExpireInFiveMinutes_And_StopWorking_When_Tampered()
+    {
+        var host = await RegisterHostAccountAsync("cida@exemplo.com");
+        await StartAsync(host);
+        await UploadAllAsync(host);
+        var applicationId = Data(await SendAsync(HttpMethod.Post, $"{ApplicationRoute}/submission", host)).GetProperty("id").GetGuid();
+        var admin = await AdminTokenAsync();
+
+        var before = DateTimeOffset.UtcNow;
+        var link = Data(await SendAsync(HttpMethod.Get, $"{ReviewRoute}/{applicationId}/documents/front", admin));
+        var url = link.GetProperty("url").GetString()!;
+
+        // Prazo de 5 minutos (padrão), na resposta e na própria assinatura.
+        DateTimeOffset.FromUnixTimeSeconds(link.GetProperty("expiresAt").GetInt64())
+            .Should().BeCloseTo(before.AddMinutes(5), TimeSpan.FromSeconds(30), "expiresAt vem em Unix time (segundos)");
+        url.Should().Contain("X-Amz-Expires=300").And.Contain("X-Amz-Signature=");
+
+        // Esticar o prazo na URL (7 dias) invalida a assinatura.
+        using var browser = new HttpClient();
+        var tampered = await browser.GetAsync(new Uri(url.Replace("X-Amz-Expires=300", "X-Amz-Expires=604800", StringComparison.Ordinal)), Ct);
+        tampered.StatusCode.Should().Be(HttpStatusCode.Forbidden, "alterar o prazo invalida a assinatura");
     }
 
     [Fact]

@@ -7,6 +7,7 @@ using PetHost.Modules.Hosts.Application.HostApplications.GetHostApplicationById;
 using PetHost.Modules.Hosts.Application.HostApplications.GetHostApplicationDocument;
 using PetHost.Modules.Hosts.Application.HostApplications.ListHostApplications;
 using PetHost.Modules.Hosts.Application.HostApplications.RejectHostApplication;
+using PetHost.Modules.Hosts.Application.HostApplications.Responses;
 using PetHost.Modules.Hosts.Application.Hosts.GetMyHost;
 using PetHost.Modules.Hosts.Domain.HostApplications;
 using PetHost.Modules.Hosts.Domain.Hosts;
@@ -271,20 +272,18 @@ public sealed class HostApplicationReviewTests
     }
 
     [Fact]
-    public async Task GetDocument_Should_StreamThePhotoAndRecordTheView_When_ItExists()
+    public async Task GetDocument_Should_ReturnASignedLinkAndRecordTheView_When_ItExists()
     {
         // Arrange
-        var content = new MemoryStream([9, 9, 9]);
-        _storage.Setup(s => s.OpenAsync("host-applications/selfie.jpg", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new PrivateImageContent(content, "image/jpeg"));
+        var link = new SignedImageUrl("https://bucket.test/host-applications/selfie.jpg?X-Amz-Signature=abc", Now.AddMinutes(5));
+        _storage.Setup(s => s.GetSignedUrlAsync("host-applications/selfie.jpg", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(link);
 
         // Act
         var result = await Document().HandleAsync(new GetHostApplicationDocumentQuery(_application.Id.Value, "selfie"), CancellationToken.None);
 
         // Assert
-        result.Value!.Content.Should().BeSameAs(content);
-        result.Value.ContentType.Should().Be("image/jpeg");
-        result.Value.FileName.Should().Be($"{_application.Id.Value}-selfie");
+        result.Value.Should().Be(new HostApplicationDocumentLinkResponse("selfie", link.Url, link.ExpiresAt.ToUnixTimeSeconds()));
         _auditTrail.Verify(a => a.RecordAsync(
             It.Is<AuditRecord>(r => r.Action == AuditActions.HostApplicationDocumentViewed && r.Details!["kind"] == "selfie"),
             It.IsAny<CancellationToken>()), Times.Once);

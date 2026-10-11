@@ -10,34 +10,34 @@ namespace PetHost.Modules.Hosts.Application.HostApplications.GetHostApplicationD
 
 /// <summary>Uma foto da solicitação (documento ou selfie), para o admin ver.</summary>
 /// <param name="Kind"><c>front</c>, <c>back</c> ou <c>selfie</c> (vem da rota).</param>
-public sealed record GetHostApplicationDocumentQuery(Guid ApplicationId, string? Kind) : IQuery<HostApplicationDocumentFile>;
+public sealed record GetHostApplicationDocumentQuery(Guid ApplicationId, string? Kind) : IQuery<HostApplicationDocumentLinkResponse>;
 
 /// <summary>
-/// Lê a foto do bucket privado com a chave do servidor e devolve o conteúdo. Cada abertura
-/// vai para a trilha: é dado pessoal sensível (selfie, documento).
+/// Gera a URL assinada da foto no bucket privado, que vence em poucos minutos. Cada link
+/// emitido vai para a trilha: é dado pessoal sensível (selfie, documento).
 /// </summary>
 public sealed class GetHostApplicationDocumentQueryHandler(
     IHostApplicationRepository applicationRepository,
     IPrivateImageStorage storage,
-    IAuditTrail auditTrail) : IQueryHandler<GetHostApplicationDocumentQuery, HostApplicationDocumentFile>
+    IAuditTrail auditTrail) : IQueryHandler<GetHostApplicationDocumentQuery, HostApplicationDocumentLinkResponse>
 {
-    public async Task<Result<HostApplicationDocumentFile>> HandleAsync(GetHostApplicationDocumentQuery query, CancellationToken cancellationToken)
+    public async Task<Result<HostApplicationDocumentLinkResponse>> HandleAsync(GetHostApplicationDocumentQuery query, CancellationToken cancellationToken)
     {
         if (!DocumentKindValues.TryParse(query.Kind, out var kind))
-            return Result<HostApplicationDocumentFile>.Failure(HostsErrors.DocumentKindInvalid);
+            return Result<HostApplicationDocumentLinkResponse>.Failure(HostsErrors.DocumentKindInvalid);
 
         var id = new HostApplicationId(query.ApplicationId);
         var application = await applicationRepository.GetByIdAsync(id, cancellationToken).ConfigureAwait(false);
         if (application is null)
-            return Result<HostApplicationDocumentFile>.Failure(HostsErrors.ApplicationNotFound(id));
+            return Result<HostApplicationDocumentLinkResponse>.Failure(HostsErrors.ApplicationNotFound(id));
 
         var document = application.Documents.FirstOrDefault(d => d.Kind == kind);
         if (document is null)
-            return Result<HostApplicationDocumentFile>.Failure(HostsErrors.DocumentNotFound);
+            return Result<HostApplicationDocumentLinkResponse>.Failure(HostsErrors.DocumentNotFound);
 
-        var content = await storage.OpenAsync(document.StorageKey, cancellationToken).ConfigureAwait(false);
-        if (content is null)
-            return Result<HostApplicationDocumentFile>.Failure(HostsErrors.DocumentNotFound);
+        var link = await storage.GetSignedUrlAsync(document.StorageKey, cancellationToken).ConfigureAwait(false);
+        if (link is null)
+            return Result<HostApplicationDocumentLinkResponse>.Failure(HostsErrors.DocumentNotFound);
 
         var wireKind = DocumentKindValues.ToWire(kind);
 
@@ -51,7 +51,7 @@ public sealed class GetHostApplicationDocumentQueryHandler(
                 cancellationToken)
             .ConfigureAwait(false);
 
-        return Result<HostApplicationDocumentFile>.Success(
-            new HostApplicationDocumentFile(content.Content, content.ContentType, $"{application.Id.Value}-{wireKind}"));
+        return Result<HostApplicationDocumentLinkResponse>.Success(
+            new HostApplicationDocumentLinkResponse(wireKind, link.Url, link.ExpiresAt.ToUnixTimeSeconds()));
     }
 }

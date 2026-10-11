@@ -543,7 +543,7 @@ dotnet ef migrations add CreateBookingsTable \
 
 **Estilo obrigatório:** `namespace` file-scoped · um tipo público por arquivo · `sealed` por padrão · `record` para DTO/Command/VO/evento, `class` para entidade e serviço · sem `#region` · `using` fora do namespace · nunca `!` para silenciar warning (exceto após checar `IsSuccess`) · `async`/`await` ponta a ponta, nunca `.Result`/`.Wait()`.
 
-**JSON:** propriedade `camelCase` · nulo omitido · data ISO 8601 (`DateOnly` → `"2026-11-02"`) · `enum` como string.
+**JSON:** propriedade `camelCase` · nulo omitido · data ISO 8601 (`DateOnly` → `"2026-11-02"`) · **expiração de credencial** (`expiresAt` do access token e de URL assinada) em **Unix time, segundos, UTC** (`long`, igual ao `exp` do JWT) · `enum` como string.
 
 ### Glossário do domínio
 
@@ -679,7 +679,7 @@ Toda foto (avatar, pet, anfitrião, cantinho) vai para o **bucket S3 compatível
 
 - Usa `IPrivateImageStorage` — bucket **privado** (`Storage:PrivateBucketName`, sem leitura pública, obrigatoriamente diferente do público). Mesmas regras de arquivo.
 - O banco guarda a **chave** do arquivo, nunca uma URL. Quem enviou não recebe link nem a imagem de volta.
-- Só o admin lê, por uma rota da API que repassa o arquivo com `Cache-Control: no-store`; **cada leitura vai para a trilha** (`<alvo>.document_viewed`).
+- Só o admin lê: uma rota da API confere a permissão e devolve uma **URL assinada** (S3 pre-signed, `IPrivateImageStorage.GetSignedUrlAsync`) que **vence** em `Storage:SignedUrlLifetimeMinutes` (padrão 5, no máximo 60), com `Cache-Control: no-store` na resposta. **Cada link emitido vai para a trilha** (`<alvo>.document_viewed`). Nunca devolva URL assinada em listagem ou em resposta de quem enviou.
 - Tem **prazo de guarda**: apagar quando a finalidade acabar (padrão: na decisão), com uma tarefa de limpeza para o que ficar. Detalhes em [`modulo-hosts.md`](modulo-hosts.md) seção 5.
 
 ## 14. Testes

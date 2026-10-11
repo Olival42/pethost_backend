@@ -133,7 +133,7 @@ public static class DependencyInjection
             IQueryHandler<ListHostApplicationsQuery, IReadOnlyList<HostApplicationReviewResponse>>,
             ListHostApplicationsQueryHandler>();
         services.AddScoped<IQueryHandler<GetHostApplicationByIdQuery, HostApplicationReviewResponse>, GetHostApplicationByIdQueryHandler>();
-        services.AddScoped<IQueryHandler<GetHostApplicationDocumentQuery, HostApplicationDocumentFile>, GetHostApplicationDocumentQueryHandler>();
+        services.AddScoped<IQueryHandler<GetHostApplicationDocumentQuery, HostApplicationDocumentLinkResponse>, GetHostApplicationDocumentQueryHandler>();
         services.AddScoped<IQueryHandler<GetMyHostQuery, HostResponse>, GetMyHostQueryHandler>();
 
         return services;

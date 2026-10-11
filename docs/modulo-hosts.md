@@ -94,7 +94,7 @@ Mesmas regras de camada do §4. `PetHost.ArchitectureTests` (`HostsModuleBoundar
 | `DELETE` | `/api/v1/hosts/me/application` | anfitrião | Desiste (rascunho ou em análise); fotos apagadas | `200` |
 | `GET` | `/api/v1/host-applications?status=submitted` | admin | Fila (padrão `submitted`, as mais antigas primeiro) | `200` |
 | `GET` | `/api/v1/host-applications/{applicationId}` | admin | Detalhe, com os dados da conta para comparar e a rota de cada foto | `200` |
-| `GET` | `/api/v1/host-applications/{applicationId}/documents/{kind}` | admin | A imagem crua da foto, `Cache-Control: no-store` | `200` |
+| `GET` | `/api/v1/host-applications/{applicationId}/documents/{kind}` | admin | Link assinado da foto (`url`, `expiresAt` em Unix time em segundos; vale 5 min), `Cache-Control: no-store` | `200` |
 | `POST` | `/api/v1/host-applications/{applicationId}/approval` | admin | Aprova (com `reason`) e cria o anfitrião | `200` |
 | `POST` | `/api/v1/host-applications/{applicationId}/rejection` | admin | Recusa (`rejectionReason` + `reason`) | `200` |
 
@@ -270,9 +270,9 @@ Mesmo molde do tutor ([`modulo-owners.md`](modulo-owners.md) seções 3.3 a 3.7)
 | Medida | Como |
 |---|---|
 | Bucket separado e **privado** | `Storage:PrivateBucketName` (sem política de leitura pública). A API se recusa a subir se for o mesmo bucket das fotos públicas. |
-| Sem URL | O banco guarda a **chave** (`storage_key`), nunca uma URL. A pessoa não recebe link; o admin vê pela rota da API. |
-| Acesso auditado | Cada abertura de foto pelo admin vira `host_application.document_viewed`, com o tipo da foto. Ler a solicitação vira `.viewed`. |
-| Sem cache | Arquivo gravado com `Cache-Control: private, no-store`; a rota do admin responde `no-store`. |
+| Sem URL fixa | O banco guarda a **chave** (`storage_key`), nunca uma URL. A pessoa não recebe link. O admin pede, foto a foto, uma **URL assinada que vence** em 5 min (`Storage:SignedUrlLifetimeMinutes`) e abre a imagem direto do bucket ([`armazenamento-de-imagens.md`](armazenamento-de-imagens.md) seção 8.1). |
+| Acesso auditado | Cada link de foto emitido para o admin vira `host_application.document_viewed`, com o tipo da foto. Ler a solicitação vira `.viewed`. |
+| Sem cache | Arquivo gravado com `Cache-Control: private, no-store` (o navegador não reaproveita a imagem depois que o link vence); a rota do admin responde `no-store`. |
 | Prazo de guarda curto | `HostVerification:DocumentRetentionDays` (padrão **0 = apagar na decisão**). Desistência e rascunho expirado também apagam. |
 | Limpeza automática | `HostApplicationsPurgeService` roda a cada `PurgeIntervalMinutes` (padrão 60): expira rascunhos com mais de `DraftLifetimeDays` (7) e apaga fotos com prazo vencido. A linha da solicitação fica, sem imagem (`documents_purged_at`), para a trilha. |
 | Transparência | Aviso versionado (`HostVerificationNotice.CurrentVersion`), aceito antes de começar (`acceptNotice`), guardado com data e IP. |
@@ -392,7 +392,7 @@ Ordem: **verificação (admin) → onboarding do Stripe Connect → cantinho**. 
 |---|---|---|
 | `Hosts.Domain.UnitTests` | `HostApplication` (abrir com histórico, tentativas, bloqueio, rascunho, fotos, foto repetida, enviar, aprovar criando o `Host`, recusar comum/definitiva, desistir, expirar, apagar fotos), valores dos enums, `Host` (verificação, `LinkStripeAccount`), `Cpf`, `Cnpj`, `CompanyAddress`, `CompanyDetails`; solicitação de empresa (abrir, corrigir os dados, recusar dados de empresa em pessoa física, aprovar criando o anfitrião empresa); ciclo do `Host` (inativar/reativar idempotentes, suspender, liberar CPF/CNPJ só de suspenso, suspensão que não sai depois da liberação, contato da empresa) | 126 ✅ |
 | `Hosts.Application.UnitTests` | Todos os casos de uso: abrir (CPF em uso, já anfitriã, corrida), corrigir, fotos (posse antes do upload, troca apaga a anterior, compensação quando gravar falha ou lança), enviar, desistir (prazo de guarda), fila/detalhe/foto do admin com trilha, aprovar (cria o host, apaga fotos, e-mail, conflito), recusar (pode ou não tentar de novo), limpeza, validadores, pessoa jurídica (CNPJ em uso, campos de empresa todos juntos na abertura, correção parcial da empresa completada com o rascunho, dado de empresa em pessoa física), CPF de outra pessoa pelo `ICpfOwnership`; perfil com a identidade travada (valor igual passa), contato da empresa, compensação, foto, inativar/reativar (com e sem perfil), suspender/tirar/liberar com compensação e trilha, leitura do admin | 96 ✅ |
-| `Hosts.IntegrationTests` | Ponta a ponta com Postgres, Redis e RustFS: fluxo completo até a aprovação, fotos no bucket privado e não no público, bucket privado sem leitura anônima, resposta da pessoa sem link, `no-store` na foto do admin, 403 para não admin, 400/409/422 das regras, recusa e nova tentativa, bloqueio por fraude, desistência apagando fotos, limpeza de rascunho abandonado, trilha, seed de demonstração (verificado, com Stripe, idempotente), empresa ponta a ponta até o anfitrião PJ, 400/409 de empresa, restrição 9 nos dois sentidos (tutor e anfitrião: mesmo e-mail pode, outro e-mail não), e o ciclo do anfitrião (PATCH com trava, foto no bucket, inativar e reativar, suspensão que a senha não desfaz, liberação do CPF para a dona verdadeira, 403 para não admin, trilha) | 38 ✅ |
+| `Hosts.IntegrationTests` | Ponta a ponta com Postgres, Redis e RustFS: fluxo completo até a aprovação, fotos no bucket privado e não no público, bucket privado sem leitura anônima, resposta da pessoa sem link, link assinado do admin abrindo a foto direto do bucket (`no-store`, vence em 5 min, URL adulterada dá 403), 403 para não admin, 400/409/422 das regras, recusa e nova tentativa, bloqueio por fraude, desistência apagando fotos, limpeza de rascunho abandonado, trilha, seed de demonstração (verificado, com Stripe, idempotente), empresa ponta a ponta até o anfitrião PJ, 400/409 de empresa, restrição 9 nos dois sentidos (tutor e anfitrião: mesmo e-mail pode, outro e-mail não), e o ciclo do anfitrião (PATCH com trava, foto no bucket, inativar e reativar, suspensão que a senha não desfaz, liberação do CPF para a dona verdadeira, 403 para não admin, trilha) | 38 ✅ |
 
 ## 11. Decisões e pendências
 
@@ -418,5 +418,4 @@ Ordem: **verificação (admin) → onboarding do Stripe Connect → cantinho**. 
 | 3 | ~~Pessoa jurídica.~~ | Feito: seção 3.1. Falta só o anfitrião de demonstração em versão empresa (o seed cria pessoa física). |
 | 4 | ~~Trava de identidade depois da aprovação.~~ | Feito: seção 4.2. Falta corrigir nome/nascimento **antes** da aprovação (a conta ainda não tem rota de edição; hoje é cancelar e falar com o suporte). |
 | 5 | ~~Inativar, reativar e suspender anfitrião.~~ | Feito: seção 4.2 (também liberar CPF/CNPJ, foto e listagem do admin). Ao montar o cantinho: anfitrião inativo ou suspenso some da busca. |
-| 6 | Mudar o tipo de documento mantém as fotos já enviadas. | O admin vê a divergência e recusa com `missing_document`; dá para limpar as fotos na troca se virar problema. |
-| 7 | Onboarding do Stripe e webhook `account.updated`. | Módulo de pagamentos. |
+| 6 | Onboarding do Stripe e webhook `account.updated`. | Módulo de pagamentos. |
