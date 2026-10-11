@@ -282,7 +282,7 @@ Mesmo molde do tutor ([`modulo-owners.md`](modulo-owners.md) seções 3.3 a 3.7)
 
 > **Projeto acadêmico:** em desenvolvimento e na apresentação use **só documentos fictícios**. Para produção ficariam pendentes: política de privacidade, canal do titular, relatório de impacto (RIPD), DPA com o provedor do bucket (Supabase/R2) e avaliar a exigência de encarregado (DPO) por envolver dado sensível.
 >
-> A API não remove o EXIF das imagens (pendência 2): foto de celular pode levar a localização.
+> Os metadados (EXIF com GPS, aparelho, data) das fotos saem antes de irem para o bucket privado ([`armazenamento-de-imagens.md`](armazenamento-de-imagens.md) seção 3.1).
 
 ## 6. Banco
 
@@ -414,7 +414,7 @@ Ordem: **verificação (admin) → onboarding do Stripe Connect → cantinho**. 
 | # | Pendência | Impacto |
 |---|---|---|
 | 1 | ~~CPF entre papéis (restrição 9).~~ | Feito: seção 4.1. |
-| 2 | EXIF das fotos não é removido. | Foto de celular pode levar GPS. Resolver no front ou com uma biblioteca de imagem na API. |
+| 2 | ~~EXIF das fotos não é removido.~~ | Feito: metadados removidos em todo upload ([`armazenamento-de-imagens.md`](armazenamento-de-imagens.md) seção 3.1). |
 | 3 | ~~Pessoa jurídica.~~ | Feito: seção 3.1. Falta só o anfitrião de demonstração em versão empresa (o seed cria pessoa física). |
 | 4 | ~~Trava de identidade depois da aprovação.~~ | Feito: seção 4.2. Falta corrigir nome/nascimento **antes** da aprovação (a conta ainda não tem rota de edição; hoje é cancelar e falar com o suporte). |
 | 5 | ~~Inativar, reativar e suspender anfitrião.~~ | Feito: seção 4.2 (também liberar CPF/CNPJ, foto e listagem do admin). Ao montar o cantinho: anfitrião inativo ou suspenso some da busca. |

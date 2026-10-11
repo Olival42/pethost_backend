@@ -12,6 +12,7 @@ using PetHost.Modules.Hosts.Infrastructure.Persistence;
 using PetHost.Modules.Owners.Infrastructure;
 using PetHost.Modules.Owners.Infrastructure.Persistence;
 using PetHost.Shared.Infrastructure.Email;
+using PetHost.Shared.Infrastructure.Email.Persistence;
 using PetHost.TestKit;
 using Respawn;
 using Respawn.Graph;
@@ -110,6 +111,7 @@ public sealed class HostsApiFixture : IAsyncLifetime
                 services.AddSingleton<IEmailSender, NoOpEmailSender>());
         });
 
+        await Services.InitializeEmailAsync(applyMigrations: true);
         await Services.InitializeAuthModuleAsync(applyMigrations: true);
         await Services.InitializeAuditModuleAsync(applyMigrations: true);
         await Services.InitializeOwnersModuleAsync(applyMigrations: true);
@@ -121,13 +123,14 @@ public sealed class HostsApiFixture : IAsyncLifetime
         _respawner = await Respawner.CreateAsync(_connection, new RespawnerOptions
         {
             DbAdapter = DbAdapter.Postgres,
-            SchemasToInclude = [AuthDbContext.Schema, AuditDbContext.Schema, OwnersDbContext.Schema, HostsDbContext.Schema],
+            SchemasToInclude = [AuthDbContext.Schema, AuditDbContext.Schema, OwnersDbContext.Schema, HostsDbContext.Schema, EmailDbContext.Schema],
             TablesToIgnore =
             [
                 new Table(AuthDbContext.Schema, AuthDbContext.MigrationsHistoryTable),
                 new Table(AuditDbContext.Schema, AuditDbContext.MigrationsHistoryTable),
                 new Table(OwnersDbContext.Schema, OwnersDbContext.MigrationsHistoryTable),
                 new Table(HostsDbContext.Schema, HostsDbContext.MigrationsHistoryTable),
+                new Table(EmailDbContext.Schema, EmailDbContext.MigrationsHistoryTable),
             ],
         });
     }

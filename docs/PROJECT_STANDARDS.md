@@ -503,7 +503,7 @@ public sealed class BookingsController(
 | Regra | Detalhe |
 |-------|---------|
 | Um `DbContext` por módulo | `BookingDbContext`, `AuthDbContext` |
-| Um schema por módulo | `auth`, `owner`, `host`, `pet`, `audit` (singular) |
+| Um schema por módulo | `auth`, `owner`, `host`, `pet`, `audit` (singular). Infraestrutura compartilhada que precisa de tabela também ganha schema e `DbContext` próprios em `Shared.Infrastructure`: `email` (caixa de saída de e-mails) |
 | Migrations e histórico isolados | `Persistence/Migrations`, `__ef_migrations_history` no schema do módulo |
 | Sem `JOIN` entre schemas | Cruzar dado só pelo §5 |
 | `DbContext` nunca sai da `Infrastructure` | `Application` só conhece interfaces |
@@ -656,6 +656,12 @@ Rate limiting nativo do ASP.NET Core (`AddPetHostRateLimiting`, em `Shared.Infra
 
 ---
 
+### E-mails
+
+Todo e-mail sai pela **caixa de saída persistente** (`IEmailOutbox`, tabela `email.outbox_emails`), nunca chamando o SMTP no request. O despachante em segundo plano entrega com novas tentativas (até 8, espera dobrando até 1 h); e-mail enfileirado sobrevive a restart da API e a SMTP fora do ar. Entregue, a linha é apagada. Detalhes em [`modulo-auth.md`](modulo-auth.md) seção 6.4.
+
+---
+
 ### Imagens
 
 Toda foto (avatar, pet, anfitrião, cantinho) vai para o **bucket S3 compatível** — Cloudflare R2 em produção, RustFS no compose e nos testes — pelas peças genéricas do `Shared` (`IImageStorage`, `ImageReplacement`, `[ImageUploadEndpoint]`). Detalhes e configuração em [armazenamento-de-imagens.md](armazenamento-de-imagens.md).
@@ -666,6 +672,7 @@ Toda foto (avatar, pet, anfitrião, cantinho) vai para o **bucket S3 compatível
 - **URL de imagem nunca vem no JSON.** Cadastro e PATCH não aceitam `photoUrl`/`photos`/`avatarUrl`: só existe no banco URL que a API gerou no bucket.
 - **Posse antes do upload.** O handler confere se quem pede é dono da entidade antes de enviar qualquer coisa ao bucket; recurso de outra conta é `404`, como nas outras rotas.
 - **O formato é conferido pelo conteúdo** (JPEG, PNG, WebP; até 5 MB), nunca pelo nome ou pelo `Content-Type` declarado. Erros no campo `file`.
+- **Metadados saem antes de gravar.** EXIF (GPS, aparelho, data), XMP, IPTC, comentários e o que vem depois do fim da imagem são removidos no `ImageUploadReader`, em todo upload, público ou privado; fica só a orientação do JPEG. Arquivo com estrutura quebrada é recusado. Não grave imagem no bucket por outro caminho.
 - **Trocar apaga a anterior; falhar desfaz.** Use `ImageReplacement`, que envia, grava e apaga a antiga, ou apaga a nova se gravar falhar. Não reimplemente o fluxo no módulo.
 
 **Imagem com dado pessoal sensível** (documento de identidade, selfie de verificação) **nunca** vai para o bucket público:

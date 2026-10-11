@@ -779,6 +779,26 @@ Quem fez o quê, sobre o quê, quando e de onde. Schema `audit` (módulo Audit, 
 
 > Índices: (`target_type`, `target_id`, `occurred_at`), (`actor_id`, `occurred_at`), (`action`, `occurred_at`), (`occurred_at`).
 
+### `outbox_emails` · Caixa de saída de e-mails
+
+E-mails esperando envio. Schema `email` (infraestrutura compartilhada, `Shared.Infrastructure/Email`; [`modulo-auth.md`](modulo-auth.md) seção 6.4). A linha nasce quando um caso de uso pede o envio e é **apagada** quando o SMTP aceita — o corpo pode ter token de troca de senha. O que falha fica com a próxima tentativa agendada; esgotadas as 8 tentativas, recebe `failed_at` e é apagado 7 dias depois. Sem FK: o destinatário é só um endereço.
+
+| Coluna | Tipo | Chave | Nulo | Descrição |
+|---|---|---|---|---|
+| `id` | `uuid` | `PK` | não | UUID v7. |
+| `to_address` | `varchar(320)` |  | não | E-mail do destinatário. |
+| `to_name` | `varchar(200)` |  | sim | Nome do destinatário. |
+| `subject` | `varchar(300)` |  | não | Assunto. |
+| `text_body` | `text` |  | não | Corpo em texto puro. |
+| `html_body` | `text` |  | não | Corpo em HTML. |
+| `created_at` | `timestamptz` |  | não | Quando foi enfileirado (UTC). |
+| `attempts` | `integer` |  | não | Tentativas iniciadas (conta quando o despachante pega o e-mail). |
+| `next_attempt_at` | `timestamptz` |  | não | Quando pode ser pego. Durante um envio fica 5 min no futuro (reserva): se a API cair, o e-mail volta para a fila quando ela vence. |
+| `last_error` | `varchar(2000)` |  | sim | Erro da última tentativa que falhou. |
+| `failed_at` | `timestamptz` |  | sim | Tentativas esgotadas: saiu da fila. Nulo = pendente. |
+
+> Índice: (`next_attempt_at`) `WHERE failed_at IS NULL`, para a busca do despachante.
+
 ### `reviews` · Avaliações
 
 Avaliação feita depois da reserva concluída. Cada lado avalia o outro uma vez.

@@ -1,17 +1,17 @@
 using System.Security.Cryptography;
 using PetHost.Shared.Contracts.Storage;
-using PetHost.Shared.Kernel.Errors;
 using PetHost.Shared.Kernel.Results;
 
 namespace PetHost.Shared.Infrastructure.Storage;
 
 /// <summary>
 /// Lê e confere a imagem enviada, igual para o bucket público e para o privado: tamanho,
-/// arquivo vazio e formato pelos primeiros bytes (<see cref="ImageSignature"/>).
+/// arquivo vazio e formato pelos primeiros bytes (<see cref="ImageSignature"/>). Depois tira os
+/// metadados (<see cref="ImageMetadataStripper"/>): é essa versão que vai para o bucket.
 /// </summary>
 internal static class ImageUploadReader
 {
-    /// <summary>A imagem inteira na memória, já conferida, ou o erro do campo <c>file</c>.</summary>
+    /// <summary>A imagem inteira na memória, já conferida e sem metadados, ou o erro do campo <c>file</c>.</summary>
     public static async Task<Result<ReadImage>> ReadAsync(ImageUpload? image, CancellationToken cancellationToken)
     {
         if (image is null)
@@ -22,29 +22,34 @@ internal static class ImageUploadReader
         var buffer = new MemoryStream();
         var tooLarge = await CopyUpToAsync(image.Content, buffer, ImageRules.MaxBytes, cancellationToken).ConfigureAwait(false);
 
-        Error? error = null;
-        ImageFormat? format = null;
-
-        if (tooLarge)
-            error = ImageErrors.FileTooLarge;
-        else if (buffer.Length == 0)
-            error = ImageErrors.FileEmpty;
-        else
+        try
         {
-            var header = buffer.GetBuffer().AsSpan(0, (int)Math.Min(buffer.Length, ImageSignature.HeaderLength));
-            format = ImageSignature.Detect(header);
-            if (format is null)
-                error = ImageErrors.UnsupportedFormat;
-        }
+            if (tooLarge)
+                return Result<ReadImage>.Failure(ImageErrors.FileTooLarge);
+            if (buffer.Length == 0)
+                return Result<ReadImage>.Failure(ImageErrors.FileEmpty);
 
-        if (error is not null)
+            return Clean(buffer.GetBuffer().AsSpan(0, (int)buffer.Length));
+        }
+        finally
         {
             await buffer.DisposeAsync().ConfigureAwait(false);
-            return Result<ReadImage>.Failure(error);
         }
+    }
 
-        buffer.Position = 0;
-        return Result<ReadImage>.Success(new ReadImage(buffer, format!));
+    /// <summary>Confere o formato e devolve uma cópia sem metadados: GPS e afins não chegam ao bucket.</summary>
+    private static Result<ReadImage> Clean(ReadOnlySpan<byte> bytes)
+    {
+        var format = ImageSignature.Detect(bytes[..Math.Min(bytes.Length, ImageSignature.HeaderLength)]);
+        if (format is null)
+            return Result<ReadImage>.Failure(ImageErrors.UnsupportedFormat);
+
+        var stripped = ImageMetadataStripper.Strip(bytes, format);
+        if (stripped is null)
+            return Result<ReadImage>.Failure(ImageErrors.FileCorrupted);
+
+        stripped.Position = 0;
+        return Result<ReadImage>.Success(new ReadImage(stripped, format));
     }
 
     /// <summary>Copia até <paramref name="limit"/> bytes. Devolve <c>true</c> se a origem tinha mais.</summary>

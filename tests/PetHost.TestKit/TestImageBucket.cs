@@ -166,14 +166,55 @@ public static class TestImages
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==");
 
     /// <summary>
-    /// Um PNG diferente para cada <paramref name="variant"/>: o mesmo PNG com um byte a mais no
-    /// fim, depois do bloco final (o arquivo continua sendo PNG). Para enviar várias fotos que
-    /// não contem como repetidas.
+    /// Um PNG diferente para cada <paramref name="variant"/>: o mesmo PNG com um chunk privado
+    /// (<c>vaRi</c>) antes do bloco final. Para enviar várias fotos que não contem como
+    /// repetidas. Não pode ser byte solto depois do fim: a API descarta o que vem depois do
+    /// <c>IEND</c> ao tirar os metadados, e as variantes virariam a mesma foto.
     /// </summary>
-    public static byte[] PngVariant(int variant) => [.. Png, (byte)variant];
+    public static byte[] PngVariant(int variant)
+    {
+        const int iendLength = 12;
+        byte[] chunk = [0x00, 0x00, 0x00, 0x01, .. "vaRi"u8, (byte)variant];
+        var crc = Crc32(chunk.AsSpan(4));
 
-    /// <summary>Começo de um JPEG (a assinatura é o que importa).</summary>
-    public static byte[] Jpeg { get; } = [0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01];
+        return
+        [
+            .. Png.AsSpan(0, Png.Length - iendLength),
+            .. chunk,
+            (byte)(crc >> 24), (byte)(crc >> 16), (byte)(crc >> 8), (byte)crc,
+            .. Png.AsSpan(Png.Length - iendLength),
+        ];
+    }
+
+    /// <summary>
+    /// JPEG pequeno com a estrutura inteira (início, JFIF, tabelas, cabeçalho do quadro, scan e
+    /// fim): a API confere a estrutura ao tirar os metadados e recusa JPEG cortado.
+    /// </summary>
+    public static byte[] Jpeg { get; } =
+    [
+        0xFF, 0xD8,
+        0xFF, 0xE0, 0x00, 0x10, .. "JFIF\0"u8, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00,
+        0xFF, 0xDB, 0x00, 0x43, 0x00, .. Enumerable.Repeat((byte)0x01, 64),
+        0xFF, 0xC0, 0x00, 0x0B, 0x08, 0x00, 0x01, 0x00, 0x01, 0x01, 0x01, 0x11, 0x00,
+        0xFF, 0xC4, 0x00, 0x14, 0x00, 0x01, .. new byte[15], 0x00,
+        0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3F, 0x00,
+        0x00,
+        0xFF, 0xD9,
+    ];
+
+    /// <summary>CRC-32 do PNG (tipo + dados do chunk).</summary>
+    private static uint Crc32(ReadOnlySpan<byte> data)
+    {
+        var crc = 0xFFFFFFFFu;
+        foreach (var b in data)
+        {
+            crc ^= b;
+            for (var bit = 0; bit < 8; bit++)
+                crc = (crc & 1) != 0 ? (crc >> 1) ^ 0xEDB88320u : crc >> 1;
+        }
+
+        return ~crc;
+    }
 
     /// <summary>Texto qualquer fingindo ser imagem.</summary>
     public static byte[] NotAnImage { get; } = "isto nao e uma imagem"u8.ToArray();

@@ -1,32 +1,42 @@
 using System.Threading.Channels;
+using Microsoft.EntityFrameworkCore;
+using PetHost.Shared.Infrastructure.Email.Persistence;
 
 namespace PetHost.Shared.Infrastructure.Email;
 
 /// <summary>
-/// Caixa de saída em memória (uma fila por processo). Um e-mail ainda não enviado se perde se a API
-/// reiniciar; para o "esqueci a senha" isso é aceitável — a pessoa pede de novo.
+/// Caixa de saída persistente: cada e-mail vira uma linha em <c>email.outbox_emails</c> antes
+/// de o request seguir. Se a API reiniciar ou o SMTP estiver fora, o e-mail continua lá e o
+/// <see cref="EmailDispatcher"/> entrega quando der.
 /// </summary>
-internal sealed class EmailOutbox : IEmailOutbox
+/// <remarks>
+/// Grava num contexto próprio, fora da transação do módulo que pediu o envio: o e-mail é
+/// gravado depois que o caso de uso já salvou o que tinha de salvar.
+/// </remarks>
+internal sealed class EmailOutbox(
+    IDbContextFactory<EmailDbContext> contextFactory,
+    TimeProvider timeProvider) : IEmailOutbox
 {
     /// <summary>
-    /// Limite para a fila não crescer sem fim se o SMTP cair. Cheia, o enfileiramento
-    /// espera — melhor segurar o request do que estourar a memória.
+    /// Aviso ao despachante de que chegou e-mail, para não esperar a próxima varredura.
+    /// Um aviso pendente basta: o despachante sempre esvazia tudo o que está na vez.
     /// </summary>
-    private const int Capacity = 1_000;
+    private readonly Channel<bool> _wakeUp = Channel.CreateBounded<bool>(
+        new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropWrite });
 
-    private readonly Channel<EmailMessage> _channel = Channel.CreateBounded<EmailMessage>(
-        new BoundedChannelOptions(Capacity)
-        {
-            SingleReader = true,
-            FullMode = BoundedChannelFullMode.Wait,
-        });
+    public ChannelReader<bool> WakeUp => _wakeUp.Reader;
 
-    public ChannelReader<EmailMessage> Reader => _channel.Reader;
-
-    public ValueTask EnqueueAsync(EmailMessage message, CancellationToken cancellationToken)
+    public async ValueTask EnqueueAsync(EmailMessage message, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(message);
 
-        return _channel.Writer.WriteAsync(message, cancellationToken);
+        var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        await using (context.ConfigureAwait(false))
+        {
+            context.Outbox.Add(OutboxEmail.From(message, Guid.CreateVersion7(), timeProvider.GetUtcNow()));
+            await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        _wakeUp.Writer.TryWrite(true);
     }
 }

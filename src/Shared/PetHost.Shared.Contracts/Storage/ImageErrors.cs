@@ -21,4 +21,8 @@ public static class ImageErrors
 
     public static readonly Error UnsupportedFormat =
         Error.Validation(Field, "The image must be a JPG/JPEG, PNG or WebP file.");
+
+    /// <summary>O formato bate, mas a estrutura do arquivo está quebrada (cortado, blocos inválidos).</summary>
+    public static readonly Error FileCorrupted =
+        Error.Validation(Field, "The image file is corrupted and could not be read.");
 }

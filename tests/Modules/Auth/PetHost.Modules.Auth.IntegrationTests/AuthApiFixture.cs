@@ -8,6 +8,7 @@ using PetHost.Modules.Audit.Infrastructure.Persistence;
 using PetHost.Modules.Auth.Infrastructure;
 using PetHost.Modules.Auth.Infrastructure.Persistence;
 using PetHost.Shared.Infrastructure.Email;
+using PetHost.Shared.Infrastructure.Email.Persistence;
 using PetHost.TestKit;
 using Respawn;
 using Testcontainers.PostgreSql;
@@ -112,6 +113,7 @@ public sealed class AuthApiFixture : IAsyncLifetime
 
         // A WebApplicationFactory para o host no `builder.Build()`, então o
         // trecho final do Program.cs (migrations + seed) não roda sozinho aqui.
+        await Services.InitializeEmailAsync(applyMigrations: true);
         await Services.InitializeAuthModuleAsync(applyMigrations: true);
         await Services.InitializeAuditModuleAsync(applyMigrations: true);
 
@@ -121,11 +123,12 @@ public sealed class AuthApiFixture : IAsyncLifetime
         _respawner = await Respawner.CreateAsync(_connection, new RespawnerOptions
         {
             DbAdapter = DbAdapter.Postgres,
-            SchemasToInclude = [AuthDbContext.Schema, AuditDbContext.Schema],
+            SchemasToInclude = [AuthDbContext.Schema, AuditDbContext.Schema, EmailDbContext.Schema],
             TablesToIgnore =
             [
                 new Respawn.Graph.Table(AuthDbContext.Schema, AuthDbContext.MigrationsHistoryTable),
                 new Respawn.Graph.Table(AuditDbContext.Schema, AuditDbContext.MigrationsHistoryTable),
+                new Respawn.Graph.Table(EmailDbContext.Schema, EmailDbContext.MigrationsHistoryTable),
             ],
         });
     }

@@ -76,7 +76,7 @@ builder.Services.AddOpenApi(openApi => openApi.AddDocumentTransformer<BearerSecu
 // --- TimeProvider injetado: nenhum DateTime.UtcNow no domínio (§9) ---
 builder.Services.AddSingleton(TimeProvider.System);
 
-// --- E-mail: fila em memória + envio SMTP em segundo plano ---
+// --- E-mail: caixa de saída no Postgres + envio SMTP em segundo plano (com novas tentativas) ---
 builder.Services.AddEmail(builder.Configuration);
 
 // --- Imagens: bucket S3 compatível (R2 em produção, RustFS em desenvolvimento) ---
@@ -212,6 +212,9 @@ app.MapHealthChecks("/health/ready", new() { Predicate = check => check.Tags.Con
 
 // Migrations no startup só fora de produção; em produção é step do pipeline (§11).
 // O seed do admin é idempotente e roda sempre que estiver habilitado.
+await app.Services.InitializeEmailAsync(
+    applyMigrations: app.Environment.IsDevelopment());
+
 await app.Services.InitializeAuthModuleAsync(
     applyMigrations: app.Environment.IsDevelopment());
 

@@ -35,7 +35,7 @@ src/
 ├── Shared/
 │   ├── PetHost.Shared.Kernel/              Result, Error, ICommand/handlers, Entity, ValueObject, Unit
 │   ├── PetHost.Shared.Contracts/           ApiResponse, ErrorResponse, ApiResponseMapper, Roles, IUserDirectory (contrato de leitura do Auth)
-│   └── PetHost.Shared.Infrastructure/      ToActionResult, status HTTP, decorator de validação, handler global de exceção, e-mail (fila + SMTP), GetUserId()
+│   └── PetHost.Shared.Infrastructure/      ToActionResult, status HTTP, decorator de validação, handler global de exceção, e-mail (caixa de saída no Postgres + SMTP), GetUserId()
 └── Modules/Auth/
     ├── Domain/                             User, UserId, UserRole, AuthErrors, IUserRepository + value objects (seção 5.1)
     ├── Application/                        RegisterAccount, GetCurrentUser, ChangePassword, SuspendAccount, ProfilePatch,
@@ -416,7 +416,7 @@ Login e reativação conferem e-mail + senha + papel pelo mesmo helper (`UserCre
 ### 6.2 Esqueci a senha
 1. Normaliza o e-mail e busca a conta por **(e-mail, role)**. E-mail inválido ou conta inexistente → `200` sem fazer nada.
 2. Emite um token opaco de 32 bytes (Base64Url) e guarda no Redis só o **SHA-256** dele, com TTL = `PasswordReset:TokenLifetimeMinutes`.
-3. Monta o e-mail (texto + HTML, em português) e deixa na **caixa de saída**. O envio por SMTP roda em segundo plano (`EmailDispatcher`), então o tempo de resposta não muda conforme a conta existe ou não, e o request não fica preso a um SMTP lento ou fora do ar.
+3. Monta o e-mail (texto + HTML, em português) e deixa na **caixa de saída** (uma linha no Postgres). O envio por SMTP roda em segundo plano (`EmailDispatcher`), então o tempo de resposta não depende do SMTP, e o request não fica preso a um SMTP lento ou fora do ar.
 
 Chaves no Redis: `pethost:auth:password-reset:<hash>` → id do usuário, e `pethost:auth:password-reset:user:<id>` → hash do token vigente. Um pedido novo troca esse ponteiro e apaga o token anterior.
 
@@ -431,10 +431,19 @@ Chaves no Redis: `pethost:auth:password-reset:<hash>` → id do usuário, e `pet
 
 Fica em `Shared.Infrastructure/Email`, para outros módulos reaproveitarem:
 
-- `IEmailOutbox` → caixa de saída em memória (`Channel`, até 1.000 mensagens).
-- `EmailDispatcher` (`BackgroundService`) → envia um por vez. Falha de SMTP é registrada no log e o e-mail é descartado; a pessoa pede de novo. Um e-mail ainda na fila se perde se a API reiniciar.
+- `IEmailOutbox` → caixa de saída **persistente**: cada e-mail vira uma linha em `email.outbox_emails` (schema e `EmailDbContext` próprios, em `Shared.Infrastructure/Email/Persistence`). Gravado num contexto próprio, depois que o caso de uso salvou o dele. Se a API reiniciar ou o SMTP cair, o e-mail continua lá.
+- `EmailDispatcher` (`BackgroundService`) → acorda quando um e-mail é enfileirado e, de qualquer forma, a cada 10 s (novas tentativas e o que ficou de uma subida anterior). Pega um lote de até 20 com um único `UPDATE ... FOR UPDATE SKIP LOCKED`, que conta a tentativa e **reserva** o e-mail por 5 min: duas instâncias da API nunca pegam o mesmo, e se a API cair no meio do envio a reserva vence e ele é tentado de novo.
+  - Entregou → a linha é **apagada** (o corpo pode ter token de troca de senha; não fica no banco).
+  - Falhou → nova tentativa em 30 s, 1 min, 2 min… dobrando até 1 h, com o erro em `last_error`. Depois de **8 tentativas** (~2 h) o e-mail recebe `failed_at`, sai da fila e é apagado 7 dias depois.
+  - A garantia é "pelo menos uma vez": se a API cair entre o SMTP aceitar e a linha ser apagada, aquele e-mail sai de novo.
 - `SmtpEmailSender` → MailKit (o `System.Net.Mail.SmtpClient` é marcado como não recomendado pela Microsoft). TLS negociado sozinho.
 - Configuração inválida (sem `Email:Host` ou `Email:FromAddress`) **derruba a subida**.
+
+Migration da caixa de saída (`CreateOutboxEmailsTable`, schema `email`):
+
+```bash
+dotnet dotnet-ef migrations add <Nome> --project src/Shared/PetHost.Shared.Infrastructure --startup-project src/Host/PetHost.Api --context EmailDbContext --output-dir Email/Persistence/Migrations
+```
 
 Em desenvolvimento, o compose sobe o **Mailpit**, que recebe tudo e não entrega a ninguém: os e-mails aparecem em `http://localhost:8025`.
 
@@ -603,16 +612,16 @@ dotnet run --project src/Host/PetHost.Api
 |---|---|---|
 | `Shared.Kernel.UnitTests` | `Result`, `Map`, `BindAsync`, propagação de erros | 14 ✅ |
 | `Shared.Contracts.UnitTests` | Montagem do envelope e agrupamento de validação | 6 ✅ |
-| `Shared.Infrastructure.UnitTests` | Decorator de validação, código → status HTTP, `ToActionResult` | 25 ✅ |
+| `Shared.Infrastructure.UnitTests` | Decorator de validação, código → status HTTP, `ToActionResult`, imagens (formato, remoção de metadados, troca), espera entre tentativas de e-mail | 66 ✅ |
 | `Auth.Domain.UnitTests` | `User` (cadastro, 18+, inativar/reativar, perfil sem tocar `updatedAt` quando nada muda, troca da data de nascimento, suspensão com motivo e admin, sem suspender admin), `UserRoleValues` e todos os value objects (`Email`, `Password`, `PasswordHash`, `FullName`, `PhoneNumber`, `AvatarUrl`, `StateCode`, `ZipCode`, `Address`) | 130 ✅ |
 | `Auth.Application.UnitTests` | Handlers de sessão, senha, troca de senha logada e cadastro, a regra do PATCH de perfil (`ProfilePatch`) e os validadores, incluindo senha forte, endereço aninhado e data de nascimento no PATCH; login de conta suspensa, aviso por e-mail ao tirar a suspensão (conta ativa ou inativa, nada se não estava suspensa) e o que vai para a trilha (com Moq e `FakeTimeProvider`) | 83 ✅ |
 | `Auth.Infrastructure.UnitTests` | Argon2id (hash, verificação, PHC, entrada inválida) e geração de JWT | 32 ✅ |
 | `ArchitectureTests` | Regras de dependência do §4 nos dois módulos, fronteira do §5 (Auth, Owners e Audit não se referenciam), `sealed`, sincronia `Roles` ↔ `UserRoleValues` | 27 ✅ |
-| `Auth.IntegrationTests` | Corpo malformado, fluxo HTTP completo com Postgres e Redis reais em container (Testcontainers), banco limpo com Respawn, seed, rotação e concorrência do refresh, validação do JWT pelo host. Esqueci a senha e troca de senha ponta a ponta, com o SMTP trocado por um coletor que guarda os e-mails. PATCH do perfil, troca de senha logada (sessões antigas caem, a nova vale), inativar/reativar, contas da mesma pessoa, troca de conta, revogação imediata do access token, `Location` do cadastro, validação do cadastro com todos os campos. Rate limit numa instância com limites baixos (`429` no envelope com `Retry-After`, política própria por endpoint, limite geral por usuário, health check de fora). Data de nascimento no PATCH do anfitrião. Inativar/reativar pelo contrato `IAccountStatusManager` | 67 ✅ |
+| `Auth.IntegrationTests` | Corpo malformado, fluxo HTTP completo com Postgres e Redis reais em container (Testcontainers), banco limpo com Respawn, seed, rotação e concorrência do refresh, validação do JWT pelo host. Esqueci a senha e troca de senha ponta a ponta, com o SMTP trocado por um coletor que guarda os e-mails. PATCH do perfil, troca de senha logada (sessões antigas caem, a nova vale), inativar/reativar, contas da mesma pessoa, troca de conta, revogação imediata do access token, `Location` do cadastro, validação do cadastro com todos os campos. Rate limit numa instância com limites baixos (`429` no envelope com `Retry-After`, política própria por endpoint, limite geral por usuário, health check de fora). Data de nascimento no PATCH do anfitrião. Inativar/reativar pelo contrato `IAccountStatusManager`. Caixa de saída de e-mail: entregue sai da tabela, e-mail que sobrou de outra subida é entregue, SMTP fora deixa o e-mail na fila com a próxima tentativa agendada | 65 ✅ |
 | `Owners.*` | Ver [`modulo-owners.md`](modulo-owners.md) | 107 ✅ |
 | `Audit.*` | Ver [`modulo-audit.md`](modulo-audit.md) | 8 ✅ |
 
-**496 testes passando** nos 13 projetos, build com 0 avisos. Nomes no padrão `MethodName_Should_X_When_Y` (§14).
+**1003 testes passando** na solução (última execução), build com 0 avisos. Nomes no padrão `MethodName_Should_X_When_Y` (§14).
 
 Como rodar (os de integração precisam do Docker Desktop ligado):
 
@@ -652,7 +661,7 @@ Bugs encontrados durante o desenvolvimento:
 | Access token revogável por usuário | Pedido seu: inativar e trocar a senha cortam o acesso na hora, sem esperar o token expirar. |
 | Contratos `IUserDirectory`, `IAccountRegistrar`, `IAccountProfileEditor` e `IAccountStatusManager` em `Shared.Contracts` | Portas do §5: o Owners lê a conta para as respostas, cria/desfaz a conta no cadastro, altera o perfil (com compensação) e inativa/reativa a conta junto com o perfil de tutor — sem referenciar o Auth nem fazer JOIN entre schemas. |
 | Ids `uuid` v7 em vez de `int` identity | Decisão sua, vale para todas as tabelas. Gerado no domínio (`UserId.New()`), ordenado por tempo para não fragmentar o índice. A migration inicial `CreateUsersTable` foi recriada já com `uuid`. |
-| "Esqueci a senha" responde `200` sempre | Não vira oráculo de quem tem cadastro. Pelo mesmo motivo o e-mail sai por fila em segundo plano: o tempo de resposta não muda com o envio. |
+| "Esqueci a senha" responde `200` sempre | Não vira oráculo de quem tem cadastro. Pelo mesmo motivo o e-mail sai pela caixa de saída em segundo plano: o tempo de resposta não depende do SMTP. |
 | Token de troca no Redis, opaco, só o hash guardado | Mesmo molde do refresh token; o TTL faz a expiração. Uso único e um pedido novo invalida o anterior. |
 | `AUTH_PASSWORD_RESET_TOKEN_INVALID` responde `401` | Segue o sufixo `_TOKEN_INVALID` do `ErrorCodeStatusMapper`, igual ao refresh token. |
 | Troca de senha encerra todas as sessões | Se a senha vazou, quem a usou perde o acesso na hora. |
@@ -684,7 +693,7 @@ Bugs encontrados durante o desenvolvimento:
 | 4 | E-mail não é verificado. | É o que obriga a troca de conta a pedir senha. A verificação seria: token por e-mail no cadastro (mesmo molde do "esqueci a senha"), `email_verified_at` em `users`, e só contas verificadas trocariam sem senha. |
 | 5 | Logout não revoga o access token da sessão. | Ele vale até expirar (15 min). Dá para revogar por `jti` se for preciso. |
 | 2 | Rate limit só por IP/usuário, em memória. | Feito: limite geral e políticas por endpoint crítico (`PROJECT_STANDARDS` §13). Falta: limite por e-mail no login e no "esqueci a senha" (ataque distribuído em muitos IPs contra uma conta) e contadores no Redis quando houver mais de uma instância. |
-| 3 | E-mail na fila se perde se a API reiniciar. | Aceitável para troca de senha (a pessoa pede de novo). Para e-mails que não podem se perder, trocar a fila em memória por uma persistente. |
+| 3 | ~~E-mail na fila se perde se a API reiniciar.~~ | Feito: a caixa de saída é a tabela `email.outbox_emails`, com novas tentativas (seção 6.4). |
 | 6 | Seed dos tipos de pet (Cachorro, Gato, Pequenos animais). | É do módulo Pets, fora do escopo do Auth. |
 | 8 | ~~Anfitrião não inativa nem reativa a conta.~~ | Feito no módulo Hosts: `POST /hosts/me/deactivate`, `POST /hosts/reactivate`, e a suspensão pelo admin, pelo contrato `IAccountStatusManager` ([`modulo-hosts.md`](modulo-hosts.md) seção 4.2). |
 | 7 | ~~Data de nascimento do anfitrião sem trava.~~ | Feito: no `PATCH /hosts/me` nome, nascimento, CPF, CNPJ e razão social ficam travados depois da verificação (`422 HOST_IDENTITY_LOCKED`) ([`modulo-hosts.md`](modulo-hosts.md) seção 4.2). |

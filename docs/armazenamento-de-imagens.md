@@ -57,6 +57,7 @@ As peças genéricas, que servem a qualquer módulo:
 | `ImageFolders` | `Shared.Contracts/Storage` | Pastas: `avatars`, `pets`, `hosts`, `listings` (as duas últimas já reservadas). |
 | `ImageRules` / `ImageErrors` | `Shared.Contracts/Storage` | Limites e erros do arquivo, iguais em todo endpoint. |
 | `S3ImageStorage` | `Shared.Infrastructure/Storage` | Implementação S3 (AWS SDK), com a checagem do formato pelo conteúdo. |
+| `ImageMetadataStripper` | `Shared.Infrastructure/Storage` | Tira EXIF/XMP/IPTC e afins antes de gravar (seção 3.1). Usado pelos dois buckets. |
 | `[ImageUploadEndpoint]` + `IFormFile.ToImageUpload()` | `Shared.Infrastructure/Http` | Marca a action de upload (multipart, limite de corpo, 413) e converte o arquivo. |
 
 ## 2. Endpoints
@@ -99,10 +100,25 @@ Pet de outra conta responde `404 PET_NOT_FOUND`, e nada é enviado ao bucket, po
 | `400` | `VALIDATION_ERROR` | `file` | `The image file is empty.` |
 | `400` | `VALIDATION_ERROR` | `file` | `The image must be at most 5 MB.` |
 | `400` | `VALIDATION_ERROR` | `file` | `The image must be a JPG/JPEG, PNG or WebP file.` |
+| `400` | `VALIDATION_ERROR` | `file` | `The image file is corrupted and could not be read.` Formato certo, estrutura quebrada (arquivo cortado, bloco com tamanho inválido). |
 | `413` | `PAYLOAD_TOO_LARGE` | — | `The request body must be at most 8 MB. Images up to 5 MB are accepted.` |
 | `415` | `UNSUPPORTED_MEDIA_TYPE` | — | `Unsupported content type. Send multipart/form-data, with the image in the 'file' field.` Corpo em JSON ou imagem crua (`Content-Type: image/jpeg`). |
 
-> A API não redimensiona nem limpa metadados (EXIF) da imagem. Foto tirada pelo celular pode levar a localização GPS no arquivo; vale tirar o EXIF no front antes de enviar, ou fazer isso na API quando houver uma biblioteca de imagem no projeto.
+### 3.1 Metadados (EXIF) removidos
+
+Foto de celular costuma levar a **localização GPS** de onde foi tirada (muitas vezes a casa de quem enviou), além de modelo do aparelho, data e hora. Antes de gravar — no bucket público e no privado — a API tira os metadados (`ImageMetadataStripper`, chamado pelo `ImageUploadReader`):
+
+| Formato | Sai | Fica |
+|---|---|---|
+| JPEG | APP1 (EXIF, XMP), APP2 que não é perfil de cor (FlashPix, MPF), APP3–APP13 e APP15 (dados de fabricante, IPTC), comentários, miniatura JFXX e **tudo depois do fim da imagem** (imagens extras que alguns celulares anexam, cada uma com o próprio EXIF). | JFIF, perfil de cor (ICC), bloco Adobe, tabelas e dados da imagem — e a **orientação**, regravada num EXIF mínimo só com ela (senão foto em pé apareceria deitada). |
+| PNG | `eXIf`, `tEXt`, `zTXt`, `iTXt`, `tIME` e o que vier depois do `IEND`. | Os demais blocos (incluindo perfil de cor). A orientação de PNG não é mantida — câmera e celular gravam JPEG. |
+| WebP | Chunks `EXIF` e `XMP ` (e as flags deles no `VP8X`). | Os demais (incluindo `ICCP`). |
+
+A imagem **não é decodificada nem recomprimida**: só os blocos de metadados saem, o resto é copiado byte a byte. Não perde qualidade, não gasta CPU e o hash de foto repetida continua estável (a mesma foto com EXIF diferente dá o mesmo hash). Sem biblioteca de imagem nova no projeto.
+
+Arquivo com a estrutura quebrada (cortado antes do fim, bloco com tamanho maior que o arquivo) é recusado com `The image file is corrupted and could not be read.` — gravar como veio poderia deixar o EXIF passar.
+
+> A API não redimensiona a imagem.
 
 ## 4. Cloudflare R2: custo e configuração
 
@@ -211,7 +227,7 @@ Exemplo: foto do anfitrião (`hosts`) ou fotos do cantinho (`listing_photos`). N
 
 ## 7. Testes
 
-- **Unitários:** `ImageSignatureTests` (formatos aceitos e recusados), `ImageReplacementTests` (ordem do fluxo e compensação), e os handlers de foto do Pets e do Owners, com `IImageStorage` simulado.
+- **Unitários:** `ImageSignatureTests` (formatos aceitos e recusados), `ImageMetadataStripperTests` (EXIF com GPS removido e orientação mantida em big e little-endian, ICC e Adobe mantidos, XMP/IPTC/comentários/MPF fora, JPEG progressivo, lixo depois do fim descartado, chunks de PNG e WebP com flags do `VP8X` ajustadas, arquivo cortado recusado), `ImageReplacementTests` (ordem do fluxo e compensação), e os handlers de foto do Pets e do Owners, com `IImageStorage` simulado.
 - **Integração:** `PetPhotoTests` e `OwnerAvatarTests` sobem o RustFS via `TestImageBucket` e conferem:
   - a imagem no bucket e o link público abrindo sem token;
   - a foto anterior apagada na troca;
@@ -220,6 +236,8 @@ Exemplo: foto do anfitrião (`hosts`) ou fotos do cantinho (`listing_photos`). N
   - URL de foto no JSON ignorada.
 
 Um fixture que suba a API sem mexer com imagem usa `TestImageBucket.UnusedSettings`, como o do Auth.
+
+`TestImages.PngVariant(n)` gera PNGs diferentes com um chunk privado (`vaRi`) antes do `IEND` — byte solto depois do fim não serve, porque a limpeza de metadados o descarta e as variantes virariam a mesma foto. `TestImages.Jpeg` é um JPEG com a estrutura inteira: JPEG cortado agora é recusado.
 
 ## 8. Bucket privado (documentos)
 
