@@ -5,6 +5,7 @@ using PetHost.Modules.Owners.Domain.Errors;
 using PetHost.Modules.Owners.Domain.Owners;
 using PetHost.Shared.Contracts.Accounts;
 using PetHost.Shared.Contracts.Audit;
+using PetHost.Shared.Contracts.Identity;
 using PetHost.Shared.Kernel.Messaging;
 using PetHost.Shared.Kernel.Results;
 
@@ -26,6 +27,7 @@ public sealed class UpdateMyOwnerCommandHandler(
     IOwnersUnitOfWork unitOfWork,
     IOwnerAccounts ownerAccounts,
     IAuditTrail auditTrail,
+    ICpfOwnership cpfOwnership,
     TimeProvider timeProvider) : ICommandHandler<UpdateMyOwnerCommand, OwnerResponse>
 {
     public async Task<Result<OwnerResponse>> HandleAsync(
@@ -155,6 +157,11 @@ public sealed class UpdateMyOwnerCommandHandler(
             return Result.Failure(OwnersErrors.CurrentPasswordIncorrect);
 
         if (newCpf is not null && await ownerRepository.ExistsByCpfAsync(newCpf, cancellationToken).ConfigureAwait(false))
+            return Result.Failure(OwnersErrors.CpfAlreadyRegistered);
+
+        // Restrição 9: o CPF novo pode ser o do anfitrião da mesma pessoa, nunca o de outro e-mail.
+        if (newCpf is not null
+            && await cpfOwnership.IsHeldByAnotherPersonAsync(newCpf.Value, command.UserId, cancellationToken).ConfigureAwait(false))
             return Result.Failure(OwnersErrors.CpfAlreadyRegistered);
 
         return Result.Success();

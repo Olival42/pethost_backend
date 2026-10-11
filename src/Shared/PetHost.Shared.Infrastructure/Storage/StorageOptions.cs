@@ -30,6 +30,12 @@ public sealed class StorageOptions
     public string BucketName { get; init; } = string.Empty;
 
     /// <summary>
+    /// Bucket <b>privado</b>, sem leitura pública: documentos e selfies da verificação do
+    /// anfitrião. Mesmo endpoint e credenciais do bucket público; precisa ser outro bucket.
+    /// </summary>
+    public string PrivateBucketName { get; init; } = string.Empty;
+
+    /// <summary>
     /// Base pública das imagens: o que vai antes da chave do arquivo na URL gravada no banco.
     /// No R2, o domínio público do bucket (<c>https://pub-xxxx.r2.dev</c> ou um domínio próprio);
     /// no RustFS, <c>http://localhost:9000/&lt;bucket&gt;</c>.
@@ -55,6 +61,14 @@ internal sealed class StorageOptionsValidator : IValidateOptions<StorageOptions>
         Require(options.AccessKeyId, nameof(StorageOptions.AccessKeyId), failures);
         Require(options.SecretAccessKey, nameof(StorageOptions.SecretAccessKey), failures);
         Require(options.BucketName, nameof(StorageOptions.BucketName), failures);
+        Require(options.PrivateBucketName, nameof(StorageOptions.PrivateBucketName), failures);
+
+        // O bucket público tem leitura aberta: documento nele vazaria por link.
+        if (!string.IsNullOrWhiteSpace(options.PrivateBucketName)
+            && string.Equals(options.PrivateBucketName, options.BucketName, StringComparison.Ordinal))
+        {
+            failures.Add($"{StorageOptions.SectionName}:{nameof(StorageOptions.PrivateBucketName)} must be different from {nameof(StorageOptions.BucketName)}.");
+        }
 
         return failures.Count > 0
             ? ValidateOptionsResult.Fail(failures)

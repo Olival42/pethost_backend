@@ -17,6 +17,7 @@ using PetHost.Modules.Owners.Domain.Owners;
 using PetHost.Modules.Owners.Infrastructure.Accounts;
 using PetHost.Modules.Owners.Infrastructure.Persistence;
 using PetHost.Modules.Owners.Infrastructure.Persistence.Repositories;
+using PetHost.Shared.Contracts.Identity;
 using PetHost.Shared.Contracts.Owners;
 using PetHost.Shared.Infrastructure.Validation;
 using PetHost.Shared.Kernel.Messaging;
@@ -52,6 +53,9 @@ public static class DependencyInjection
 
         // Contrato público de leitura: outros módulos acham o tutor só por aqui (§5).
         services.AddScoped<IOwnerDirectory, OwnerDirectory>();
+
+        // Regra do CPF entre papéis: o Owners informa quais contas de tutor usam um CPF.
+        services.AddScoped<ICpfHolderLookup, OwnerCpfHolderLookup>();
 
         services.AddValidatedCommandHandler<
             RegisterOwnerAccountCommandHandler, RegisterOwnerAccountCommand, OwnerSessionResponse>();

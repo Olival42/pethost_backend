@@ -3,6 +3,7 @@ using PetHost.Modules.Owners.Application.Owners.Responses;
 using PetHost.Modules.Owners.Domain.Errors;
 using PetHost.Modules.Owners.Domain.Owners;
 using PetHost.Shared.Contracts.Audit;
+using PetHost.Shared.Contracts.Identity;
 using PetHost.Shared.Kernel.Messaging;
 using PetHost.Shared.Kernel.Results;
 
@@ -22,6 +23,7 @@ public sealed class RegisterOwnerAccountCommandHandler(
     IOwnersUnitOfWork unitOfWork,
     IOwnerAccounts ownerAccounts,
     IAuditTrail auditTrail,
+    ICpfOwnership cpfOwnership,
     TimeProvider timeProvider) : ICommandHandler<RegisterOwnerAccountCommand, OwnerSessionResponse>
 {
     public async Task<Result<OwnerSessionResponse>> HandleAsync(
@@ -33,6 +35,10 @@ public sealed class RegisterOwnerAccountCommandHandler(
             return Result<OwnerSessionResponse>.FromFailure(cpf);
 
         if (await ownerRepository.ExistsByCpfAsync(cpf.Value!, cancellationToken).ConfigureAwait(false))
+            return Result<OwnerSessionResponse>.Failure(OwnersErrors.CpfAlreadyRegistered);
+
+        // Restrição 9: o CPF pode já ser de um anfitrião, mas só se for a mesma pessoa (e-mail).
+        if (await cpfOwnership.IsHeldByAnotherPersonAsync(cpf.Value!.Value, command.Email ?? string.Empty, cancellationToken).ConfigureAwait(false))
             return Result<OwnerSessionResponse>.Failure(OwnersErrors.CpfAlreadyRegistered);
 
         var account = await ownerAccounts

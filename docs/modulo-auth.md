@@ -49,7 +49,7 @@ tests/                                      11 projetos de teste (seção 9)
 | Camada | Responsabilidade |
 |---|---|
 | Domain | Regras do usuário. Sem EF, sem ASP.NET. |
-| Application | Orquestra os casos de uso. Fala com portas (`IPasswordHasher`, `IAccessTokenGenerator`, `IRefreshTokenStore`, `IPasswordResetTokenStore`, `IPasswordResetNotifier`), não com implementações. |
+| Application | Orquestra os casos de uso. Fala com portas (`IPasswordHasher`, `IAccessTokenGenerator`, `IRefreshTokenStore`, `IPasswordResetTokenStore`, `IPasswordResetNotifier`, `IPasswordChangedNotifier`, `IAccountSuspensionLiftedNotifier`), não com implementações. |
 | Infrastructure | EF Core + Postgres, Argon2id, JWT, Redis, e-mail, seed. |
 | Presentation | Rota → handler → `ToActionResult()`. Não conhece o Domain. |
 
@@ -214,9 +214,11 @@ Nas próximas chamadas: `Authorization: Bearer <accessToken>`.
 
 Não tem `role`: o papel é sempre `host` (se o cliente mandar `role`, é ignorado). O tutor se cadastra com CPF em `POST /api/v1/owners/register`.
 
+A conta de anfitrião nasce aqui, mas **ainda não é anfitriã**: o próximo passo é a verificação de identidade (documento e selfie, aprovada pelo admin) em `POST /api/v1/hosts/me/application`. O perfil de anfitrião só existe depois da aprovação ([`modulo-hosts.md`](modulo-hosts.md)).
+
 ### 2.8 Minha conta — `GET /api/v1/users/me`
 
-`GET` devolve o objeto `user` da [sessão](#26-resposta-de-sessão). **Não há rota de edição em `/users`:** o perfil da conta muda só pelo contrato `IAccountProfileEditor`, que o módulo do papel usa — hoje, o tutor em `PATCH /api/v1/owners/me` ([`modulo-owners.md`](modulo-owners.md)). A regra do patch fica em `ProfilePatch` (Application):
+`GET` devolve o objeto `user` da [sessão](#26-resposta-de-sessão). **Não há rota de edição em `/users`:** o perfil da conta muda só pelo contrato `IAccountProfileEditor`, que o módulo do papel usa — o tutor em `PATCH /api/v1/owners/me` ([`modulo-owners.md`](modulo-owners.md)) e o anfitrião em `PATCH /api/v1/hosts/me` ([`modulo-hosts.md`](modulo-hosts.md)). A regra do patch fica em `ProfilePatch` (Application):
 
 - Campo ausente ou `null` = não mexer. O endereço também é parcial: cada campo dele segue a mesma regra, e o endereço resultante é validado inteiro.
 - Para **limpar** a foto ou o complemento, envie texto vazio.
@@ -239,7 +241,7 @@ Vale só para a conta do token: a outra conta da mesma pessoa tem senha própria
 
 ### 2.10 Inativar e reativar
 
-**Não há rota em `/users`.** O Auth oferece inativar e reativar só pelo contrato `IAccountStatusManager`, que o módulo do papel usa para mudar conta e perfil juntos — hoje, o tutor em `POST /api/v1/owners/me/deactivate` e `POST /api/v1/owners/reactivate` ([`modulo-owners.md`](modulo-owners.md) seção 3.5). O anfitrião ainda não inativa a conta (pendência 8).
+**Não há rota em `/users`.** O Auth oferece inativar e reativar só pelo contrato `IAccountStatusManager`, que o módulo do papel usa para mudar conta e perfil juntos — hoje, o tutor em `POST /api/v1/owners/me/deactivate` e `POST /api/v1/owners/reactivate` ([`modulo-owners.md`](modulo-owners.md) seção 3.5). O anfitrião, em `POST /api/v1/hosts/me/deactivate` e `POST /api/v1/hosts/reactivate` ([`modulo-hosts.md`](modulo-hosts.md)).
 
 O que a inativação faz na conta, venha de onde vier:
 
@@ -250,7 +252,8 @@ O que a inativação faz na conta, venha de onde vier:
 
 - Grava `suspended_at`, `suspension_reason` (obrigatório, até 500 caracteres) e `suspended_by` (o admin) e derruba as sessões na hora.
 - Recusa, sempre depois da senha conferida: login (`403 AUTH_ACCOUNT_SUSPENDED`, antes de "inativa"), refresh (`401`), troca de conta (`404`, como conta inexistente), reativação (`403`), troca de senha (`403`). "Esqueci a senha" responde `200` mas não manda e-mail.
-- Só o admin tira. O status de ativa/inativa não muda com a suspensão. O admin não pode ser suspenso (`AUTH_ADMIN_SUSPENSION_FORBIDDEN`).
+- Só o admin tira. O status de ativa/inativa não muda com a suspensão.
+- Ao tirar, a pessoa recebe um e-mail "sua conta foi liberada" (`IAccountSuspensionLiftedNotifier`), dizendo qual conta voltou (tutor ou anfitrião) e, se ela estava inativa, que precisa reativar com a senha. Tirar de quem não está suspenso não grava nem manda e-mail. O admin não pode ser suspenso (`AUTH_ADMIN_SUSPENSION_FORBIDDEN`).
 - O motivo e a data aparecem para o admin em `user.suspensionReason` / `user.suspendedAt` (contrato `IUserDirectory`).
 
 ### 2.11 Contas da mesma pessoa e troca — `GET /api/v1/users/me/accounts` e `POST /api/v1/auth/sessions/switch`
@@ -602,7 +605,7 @@ dotnet run --project src/Host/PetHost.Api
 | `Shared.Contracts.UnitTests` | Montagem do envelope e agrupamento de validação | 6 ✅ |
 | `Shared.Infrastructure.UnitTests` | Decorator de validação, código → status HTTP, `ToActionResult` | 25 ✅ |
 | `Auth.Domain.UnitTests` | `User` (cadastro, 18+, inativar/reativar, perfil sem tocar `updatedAt` quando nada muda, troca da data de nascimento, suspensão com motivo e admin, sem suspender admin), `UserRoleValues` e todos os value objects (`Email`, `Password`, `PasswordHash`, `FullName`, `PhoneNumber`, `AvatarUrl`, `StateCode`, `ZipCode`, `Address`) | 130 ✅ |
-| `Auth.Application.UnitTests` | Handlers de sessão, senha, troca de senha logada e cadastro, a regra do PATCH de perfil (`ProfilePatch`) e os validadores, incluindo senha forte, endereço aninhado e data de nascimento no PATCH; login de conta suspensa e o que vai para a trilha (com Moq e `FakeTimeProvider`) | 80 ✅ |
+| `Auth.Application.UnitTests` | Handlers de sessão, senha, troca de senha logada e cadastro, a regra do PATCH de perfil (`ProfilePatch`) e os validadores, incluindo senha forte, endereço aninhado e data de nascimento no PATCH; login de conta suspensa, aviso por e-mail ao tirar a suspensão (conta ativa ou inativa, nada se não estava suspensa) e o que vai para a trilha (com Moq e `FakeTimeProvider`) | 83 ✅ |
 | `Auth.Infrastructure.UnitTests` | Argon2id (hash, verificação, PHC, entrada inválida) e geração de JWT | 32 ✅ |
 | `ArchitectureTests` | Regras de dependência do §4 nos dois módulos, fronteira do §5 (Auth, Owners e Audit não se referenciam), `sealed`, sincronia `Roles` ↔ `UserRoleValues` | 27 ✅ |
 | `Auth.IntegrationTests` | Corpo malformado, fluxo HTTP completo com Postgres e Redis reais em container (Testcontainers), banco limpo com Respawn, seed, rotação e concorrência do refresh, validação do JWT pelo host. Esqueci a senha e troca de senha ponta a ponta, com o SMTP trocado por um coletor que guarda os e-mails. PATCH do perfil, troca de senha logada (sessões antigas caem, a nova vale), inativar/reativar, contas da mesma pessoa, troca de conta, revogação imediata do access token, `Location` do cadastro, validação do cadastro com todos os campos. Rate limit numa instância com limites baixos (`429` no envelope com `Retry-After`, política própria por endpoint, limite geral por usuário, health check de fora). Data de nascimento no PATCH do anfitrião. Inativar/reativar pelo contrato `IAccountStatusManager` | 67 ✅ |
@@ -683,5 +686,5 @@ Bugs encontrados durante o desenvolvimento:
 | 2 | Rate limit só por IP/usuário, em memória. | Feito: limite geral e políticas por endpoint crítico (`PROJECT_STANDARDS` §13). Falta: limite por e-mail no login e no "esqueci a senha" (ataque distribuído em muitos IPs contra uma conta) e contadores no Redis quando houver mais de uma instância. |
 | 3 | E-mail na fila se perde se a API reiniciar. | Aceitável para troca de senha (a pessoa pede de novo). Para e-mails que não podem se perder, trocar a fila em memória por uma persistente. |
 | 6 | Seed dos tipos de pet (Cachorro, Gato, Pequenos animais). | É do módulo Pets, fora do escopo do Auth. |
-| 8 | Anfitrião não inativa nem reativa a conta. | Quando houver o módulo do anfitrião, expor as rotas lá (como o tutor), pelo mesmo contrato `IAccountStatusManager`. |
-| 7 | Data de nascimento do anfitrião sem trava. | Quando houver o Stripe Connect do anfitrião, travar a troca depois da verificação de identidade (mesma ideia do primeiro pagamento do tutor) e pedir a senha. |
+| 8 | ~~Anfitrião não inativa nem reativa a conta.~~ | Feito no módulo Hosts: `POST /hosts/me/deactivate`, `POST /hosts/reactivate`, e a suspensão pelo admin, pelo contrato `IAccountStatusManager` ([`modulo-hosts.md`](modulo-hosts.md) seção 4.2). |
+| 7 | ~~Data de nascimento do anfitrião sem trava.~~ | Feito: no `PATCH /hosts/me` nome, nascimento, CPF, CNPJ e razão social ficam travados depois da verificação (`422 HOST_IDENTITY_LOCKED`) ([`modulo-hosts.md`](modulo-hosts.md) seção 4.2). |

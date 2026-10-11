@@ -47,10 +47,14 @@ public sealed class SuspendAccountCommandHandler(
     }
 }
 
-/// <summary>Tira a suspensão. A conta volta ao status (ativa/inativa) que tinha.</summary>
+/// <summary>
+/// Tira a suspensão. A conta volta ao status (ativa/inativa) que tinha, e a pessoa recebe
+/// um e-mail avisando. Tirar de quem não está suspenso não grava nem avisa.
+/// </summary>
 public sealed class LiftAccountSuspensionCommandHandler(
     IUserRepository userRepository,
     IAuthUnitOfWork unitOfWork,
+    IAccountSuspensionLiftedNotifier suspensionLiftedNotifier,
     IAuditTrail auditTrail,
     TimeProvider timeProvider) : ICommandHandler<LiftAccountSuspensionCommand, Unit>
 {
@@ -64,11 +68,18 @@ public sealed class LiftAccountSuspensionCommandHandler(
         if (!user.IsSuspended)
             return Result<Unit>.Success(Unit.Value);
 
-        user.LiftSuspension(timeProvider.GetUtcNow());
+        var now = timeProvider.GetUtcNow();
+        user.LiftSuspension(now);
         await unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         await auditTrail
             .RecordAsync(new AuditRecord(AuditActions.AccountSuspensionLifted, AuditTargets.Account, id.Value), cancellationToken)
+            .ConfigureAwait(false);
+
+        await suspensionLiftedNotifier
+            .NotifyAsync(
+                new AccountSuspensionLiftedNotification(user.Email.Value, user.FullName.Value, user.Role, user.IsActive, now),
+                cancellationToken)
             .ConfigureAwait(false);
 
         return Result<Unit>.Success(Unit.Value);

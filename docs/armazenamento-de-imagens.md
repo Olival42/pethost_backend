@@ -10,6 +10,8 @@ Fotos de perfil, de pet e, no futuro, do anfitrião e do cantinho ficam num **bu
 
 O código é o mesmo nos três: muda só a configuração. O RustFS substitui o MinIO, cujas imagens oficiais não são mais publicadas no Docker Hub.
 
+São **dois buckets**: o de imagens, **público para leitura** (fotos de perfil, pet, cantinho), e o de **documentos, privado** (documento de identidade e selfie da verificação do anfitrião). Seção 8.
+
 ## Sumário
 
 - [Armazenamento de imagens](#armazenamento-de-imagens)
@@ -24,6 +26,7 @@ O código é o mesmo nos três: muda só a configuração. O RustFS substitui o 
   - [5. Desenvolvimento local (RustFS)](#5-desenvolvimento-local-rustfs)
   - [6. Como dar foto a uma entidade nova](#6-como-dar-foto-a-uma-entidade-nova)
   - [7. Testes](#7-testes)
+  - [8. Bucket privado (documentos)](#8-bucket-privado-documentos)
 
 ---
 
@@ -49,6 +52,7 @@ As peças genéricas, que servem a qualquer módulo:
 | Peça | Onde | Papel |
 |---|---|---|
 | `IImageStorage` | `Shared.Contracts/Storage` | Enviar (`SaveAsync`) e apagar (`DeleteAsync`) uma imagem. |
+| `IPrivateImageStorage` | `Shared.Contracts/Storage` | O mesmo no bucket **privado**, mais ler (`OpenAsync`). Guarda e devolve a **chave**, nunca URL (seção 8). |
 | `ImageReplacement` | `Shared.Contracts/Storage` | O fluxo inteiro de trocar/remover: enviar → gravar → apagar a anterior, ou desfazer. |
 | `ImageFolders` | `Shared.Contracts/Storage` | Pastas: `avatars`, `pets`, `hosts`, `listings` (as duas últimas já reservadas). |
 | `ImageRules` / `ImageErrors` | `Shared.Contracts/Storage` | Limites e erros do arquivo, iguais em todo endpoint. |
@@ -59,6 +63,7 @@ As peças genéricas, que servem a qualquer módulo:
 
 | Método | Rota | Quem | O que faz | Sucesso |
 |---|---|---|---|---|
+| `PUT` | `/api/v1/hosts/me/application/documents` | anfitrião | Fotos da verificação num pedido só (partes `front`, `back`, `selfie`) no bucket **privado** (seção 8). | `200` |
 | `PUT` | `/api/v1/owners/me/avatar` | tutor | Troca a foto de perfil. Resposta: o tutor, com `user.avatarUrl`. | `200` |
 | `DELETE` | `/api/v1/owners/me/avatar` | tutor | Tira a foto de perfil. Idempotente. | `200` |
 | `POST` | `/api/v1/pets/{petId}/photos` | dono do pet | Adiciona uma foto ao pet (até 3). Resposta: o pet, com `photos`. | `200` |
@@ -134,6 +139,7 @@ Sim, dentro da cota gratuita mensal do R2 (valores da página de preços da Clou
    STORAGE_ACCESS_KEY_ID=<Access Key ID>
    STORAGE_SECRET_ACCESS_KEY=<Secret Access Key>
    STORAGE_BUCKET_NAME=pethost-images
+   STORAGE_PRIVATE_BUCKET_NAME=pethost-documents
    STORAGE_PUBLIC_BASE_URL=https://pub-<hash>.r2.dev
    STORAGE_FORCE_PATH_STYLE=false
    ```
@@ -167,6 +173,7 @@ Não pede cartão e aceita bucket público. O plano grátis tem pouco espaço (c
    STORAGE_ACCESS_KEY_ID=<Access key ID>
    STORAGE_SECRET_ACCESS_KEY=<Secret access key>
    STORAGE_BUCKET_NAME=pethost-images
+   STORAGE_PRIVATE_BUCKET_NAME=pethost-documents
    STORAGE_PUBLIC_BASE_URL=https://<ref>.supabase.co/storage/v1/object/public/pethost-images
    STORAGE_FORCE_PATH_STYLE=true
    ```
@@ -185,7 +192,7 @@ Não pede cartão e aceita bucket público. O plano grátis tem pouco espaço (c
 O `docker compose up` sobe dois serviços:
 
 - **`rustfs`**: o armazenamento, na porta `9000` (API S3), com o console web em [http://localhost:9001](http://localhost:9001). O login do console é `RUSTFS_ACCESS_KEY` / `RUSTFS_SECRET_KEY`, por padrão `pethost` / `pethost_local_dev`. Os dados ficam no volume `rustfs-data`.
-- **`rustfs-init`**: roda uma vez, cria o bucket `pethost-images` com leitura pública e termina. A API só sobe depois dele.
+- **`rustfs-init`**: roda uma vez, cria o bucket `pethost-images` com leitura pública e o bucket `pethost-documents` **sem** política (privado), e termina. A API só sobe depois dele.
 
 A API fala com o RustFS por `http://rustfs:9000` (rede do Docker) e grava URLs `http://localhost:9000/pethost-images/...`, que o navegador da máquina abre.
 
@@ -213,3 +220,21 @@ Exemplo: foto do anfitrião (`hosts`) ou fotos do cantinho (`listing_photos`). N
   - URL de foto no JSON ignorada.
 
 Um fixture que suba a API sem mexer com imagem usa `TestImageBucket.UnusedSettings`, como o do Auth.
+
+## 8. Bucket privado (documentos)
+
+Documento de identidade e selfie da verificação do anfitrião ([`modulo-hosts.md`](modulo-hosts.md)) são dado pessoal sensível: **nunca** vão para o bucket público.
+
+| | Bucket de imagens | Bucket de documentos |
+|---|---|---|
+| Configuração | `Storage:BucketName` | `Storage:PrivateBucketName` (padrão `pethost-documents`) |
+| Leitura | Pública, por URL, cache de 1 ano | **Só a API**, com a chave do servidor; `Cache-Control: private, no-store` |
+| O que vai para o banco | URL pública | **Chave** do arquivo (`host-applications/<guid>.<ext>`) |
+| Quem vê | Qualquer um com o link | O admin, pela rota `GET /api/v1/host-applications/{id}/documents/{kind}`, e cada abertura vai para a trilha |
+| Quanto tempo fica | Até ser trocada ou removida | Até o prazo de guarda (padrão: apagado na decisão do admin) |
+
+- Mesmo endpoint e credenciais do bucket de imagens; precisa ser **outro bucket**. A API não sobe se `PrivateBucketName` faltar ou for igual a `BucketName`.
+- Mesmas regras de arquivo (JPG/JPEG, PNG, WebP, até 5 MB, formato pelo conteúdo), pela mesma leitura (`ImageUploadReader`).
+- **Supabase:** crie um segundo bucket com **Public bucket desligado** e ponha o nome em `STORAGE_PRIVATE_BUCKET_NAME`. As chaves S3 do Supabase valem para o projeto inteiro: em produção, um projeto separado só para documentos (com chave própria e poucos membros no painel) reduz o estrago se uma chave vazar.
+- **R2:** um segundo bucket **sem** acesso público (não ligue `r2.dev` nem domínio próprio nele).
+- Nos testes, o `TestImageBucket` cria os dois buckets; `CountPrivateAsync`, `ListPrivateKeysAsync` e `PrivateObjectUrl` conferem que as fotos estão lá e que o acesso anônimo é recusado.

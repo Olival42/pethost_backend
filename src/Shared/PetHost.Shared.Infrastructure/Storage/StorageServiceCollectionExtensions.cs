@@ -7,7 +7,10 @@ using PetHost.Shared.Contracts.Storage;
 
 namespace PetHost.Shared.Infrastructure.Storage;
 
-/// <summary>Registro do bucket de imagens (<see cref="IImageStorage"/>).</summary>
+/// <summary>
+/// Registro dos buckets de imagens: o público (<see cref="IImageStorage"/>) e o privado
+/// (<see cref="IPrivateImageStorage"/>).
+/// </summary>
 public static class StorageServiceCollectionExtensions
 {
     public static IServiceCollection AddImageStorage(this IServiceCollection services, IConfiguration configuration)
@@ -41,6 +44,7 @@ public static class StorageServiceCollectionExtensions
         });
 
         services.AddSingleton<IImageStorage, S3ImageStorage>();
+        services.AddSingleton<IPrivateImageStorage, S3PrivateImageStorage>();
 
         return services;
     }

@@ -26,7 +26,7 @@ Um tutor ou anfitrião tem **muitos** pets (1:N). O dono sai **sempre do token**
 
 - token de `owner` → o tutor da conta (contrato `IOwnerDirectory`);
 - token de `host` → o anfitrião da conta (contrato `IHostDirectory`);
-- conta sem esse perfil → `404 PET_KEEPER_NOT_FOUND`. Hoje isso vale para **todo anfitrião**, porque o cadastro do perfil de anfitrião ainda não existe (seção 7).
+- conta sem esse perfil → `404 PET_KEEPER_NOT_FOUND`. Vale para o anfitrião que ainda não foi aprovado: o perfil só nasce quando o admin aprova a verificação ([`modulo-hosts.md`](modulo-hosts.md)).
 
 A mesma pessoa com conta de tutor e de anfitrião tem dois donos diferentes: o pet cadastrado como tutor não aparece nem é editável pela conta de anfitrião, e vice-versa.
 
@@ -317,7 +317,7 @@ O pet do anfitrião precisa de um `host_id`, então o perfil de anfitrião ganho
 
 O anfitrião pode ser **pessoa física** ou **pessoa jurídica** (empresa de hospedagem). É o `business_type` da conta conectada no Stripe:
 
-| | Pessoa física (`individual`) | Pessoa jurídica (`company`) |
+| | Pessoa física (`pf`) | Pessoa jurídica (`pj`) |
 |---|---|---|
 | CPF | Do anfitrião (único entre PFs) | Do **representante legal** (o Stripe exige) |
 | CNPJ | — | Obrigatório, único. Aceita o **CNPJ alfanumérico** (Receita, julho de 2026) |
@@ -351,11 +351,11 @@ O que o Stripe pede de uma empresa e **não** guardamos (cargo do representante,
 | Peso, microchip e alergias | Sugestão aceita por você: peso ajuda onde não há porte; microchip identifica o animal se fugir; alergias evitam erro do anfitrião com comida e remédio. |
 | Listas sem paginação | Pedido seu; uma pessoa ou casa tem poucos pets. Exceção registrada no §13. |
 | Pet de outro tutor é `404` no GET e `403` no PATCH | Quem não pode ver não descobre que existe; quem tenta alterar algo que vê (pet de anfitrião) recebe o motivo. |
-| Módulo Hosts só com a tabela | Pedido seu: cadastro e rotas do anfitrião ficam para depois. |
+| Pet da casa só para anfitrião verificado | O perfil de anfitrião só existe depois da aprovação da verificação ([`modulo-hosts.md`](modulo-hosts.md)). |
 
 | # | Pendência | Impacto |
 |---|---|---|
-| 1 | Cadastro do perfil de anfitrião (PF/PJ). | Até lá, **toda** conta de anfitrião recebe `404 PET_KEEPER_NOT_FOUND` ao cadastrar pet. A ideia é um cadastro unificado como o do tutor (`POST /hosts/register`: conta + CPF/CNPJ num pedido só), substituindo o `/users/register`. |
+| 1 | ~~Cadastro do perfil de anfitrião.~~ | Feito de outro jeito: a conta nasce em `/users/register` e o perfil na aprovação da verificação (`/hosts/me/application`, [`modulo-hosts.md`](modulo-hosts.md)). Pessoa jurídica ainda pendente. |
 | 2 | Pet em reserva ativa. | Quando o módulo Booking existir, desativar um pet com estadia confirmada ou em andamento deve ser recusado (ou cancelar a estadia). |
 | 3 | Ver a ficha do pet do tutor pelo anfitrião. | Hoje só o dono e o admin veem o pet de um tutor. Com o Booking, o anfitrião passa a ver os pets do pedido que recebeu. |
 | 4 | Tutor/anfitrião inativado ou suspenso. | Os pets dele continuam ativos e o pet do anfitrião continua visível na casa. Quando o anfitrião tiver status, a lista da casa pode esconder anfitrião inativo. |

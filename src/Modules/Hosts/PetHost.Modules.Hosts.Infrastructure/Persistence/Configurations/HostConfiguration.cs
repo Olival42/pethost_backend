@@ -113,6 +113,47 @@ internal sealed class HostConfiguration : IEntityTypeConfiguration<Host>
             .HasColumnName("stripe_account_id")
             .HasMaxLength(Host.StripeAccountIdMaxLength);
 
+        builder.Property(h => h.ApplicationId)
+            .HasColumnName("application_id")
+            .IsRequired();
+
+        builder.Property(h => h.VerifiedAt)
+            .HasColumnName("verified_at")
+            .HasColumnType("timestamptz")
+            .IsRequired();
+
+        builder.Property(h => h.VerifiedBy)
+            .HasColumnName("verified_by")
+            .IsRequired();
+
+        // Espelho da conta conectada no Stripe (webhook account.updated).
+        builder.Property(h => h.StripeDetailsSubmitted)
+            .HasColumnName("stripe_details_submitted")
+            .HasDefaultValue(false)
+            .IsRequired();
+
+        builder.Property(h => h.StripeChargesEnabled)
+            .HasColumnName("stripe_charges_enabled")
+            .HasDefaultValue(false)
+            .IsRequired();
+
+        builder.Property(h => h.StripePayoutsEnabled)
+            .HasColumnName("stripe_payouts_enabled")
+            .HasDefaultValue(false)
+            .IsRequired();
+
+        builder.Property(h => h.StripeDisabledReason)
+            .HasColumnName("stripe_disabled_reason")
+            .HasMaxLength(100);
+
+        builder.Property(h => h.StripeOnboardedAt)
+            .HasColumnName("stripe_onboarded_at")
+            .HasColumnType("timestamptz");
+
+        builder.Property(h => h.StripeSyncedAt)
+            .HasColumnName("stripe_synced_at")
+            .HasColumnType("timestamptz");
+
         builder.Property(h => h.IsActive)
             .HasColumnName("is_active")
             .HasDefaultValue(true)
@@ -124,6 +165,10 @@ internal sealed class HostConfiguration : IEntityTypeConfiguration<Host>
 
         builder.Property(h => h.SuspendedAt)
             .HasColumnName("suspended_at")
+            .HasColumnType("timestamptz");
+
+        builder.Property(h => h.IdentityReleasedAt)
+            .HasColumnName("identity_released_at")
             .HasColumnType("timestamptz");
 
         builder.Property(h => h.CreatedAt)
@@ -140,15 +185,21 @@ internal sealed class HostConfiguration : IEntityTypeConfiguration<Host>
             .HasDatabaseName("uq_hosts_user_id")
             .IsUnique();
 
-        // Um CPF por anfitrião pessoa física. Na empresa o CPF é do representante, que pode
-        // representar mais de uma: lá quem é único é o CNPJ.
+        // Um CPF por anfitrião pessoa física. Na empresa, quem é único é o CNPJ (entre pessoas, a
+        // restrição 9 vale pela aplicação). CPF/CNPJ liberado pelo admin (disputa) deixa de contar.
         builder.HasIndex(h => h.Cpf)
             .HasDatabaseName("uq_hosts_cpf_individual")
-            .HasFilter($"person_type = '{PersonTypeValues.Individual}'")
+            .HasFilter($"person_type = '{PersonTypeValues.Individual}' AND identity_released_at IS NULL")
             .IsUnique();
 
         builder.HasIndex(h => h.Cnpj)
             .HasDatabaseName("uq_hosts_cnpj")
+            .HasFilter("cnpj IS NOT NULL AND identity_released_at IS NULL")
+            .IsUnique();
+
+        // Uma solicitação aprovada cria um anfitrião só.
+        builder.HasIndex(h => h.ApplicationId)
+            .HasDatabaseName("uq_hosts_application_id")
             .IsUnique();
 
         builder.HasIndex(h => h.StripeAccountId)
@@ -156,5 +207,8 @@ internal sealed class HostConfiguration : IEntityTypeConfiguration<Host>
             .IsUnique();
 
         builder.Ignore(h => h.DomainEvents);
+        builder.Ignore(h => h.Company);
+        builder.Ignore(h => h.IsSuspended);
+        builder.Ignore(h => h.IsIdentityReleased);
     }
 }

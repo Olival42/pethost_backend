@@ -22,6 +22,9 @@ public sealed class TestImageBucket : IAsyncDisposable
 {
     public const string BucketName = "pethost-images";
 
+    /// <summary>Bucket privado (sem leitura pública): documentos da verificação do anfitrião.</summary>
+    public const string PrivateBucketName = "pethost-documents";
+
     /// <summary>Mesma imagem do docker-compose.</summary>
     public const string Image = "rustfs/rustfs:1.0.1";
 
@@ -50,6 +53,7 @@ public sealed class TestImageBucket : IAsyncDisposable
         ["Storage:AccessKeyId"] = AccessKey,
         ["Storage:SecretAccessKey"] = SecretKey,
         ["Storage:BucketName"] = BucketName,
+        ["Storage:PrivateBucketName"] = PrivateBucketName,
         ["Storage:PublicBaseUrl"] = PublicBaseUrl,
         ["Storage:ForcePathStyle"] = "true",
     };
@@ -65,6 +69,7 @@ public sealed class TestImageBucket : IAsyncDisposable
         ["Storage:AccessKeyId"] = "unused",
         ["Storage:SecretAccessKey"] = "unused",
         ["Storage:BucketName"] = BucketName,
+        ["Storage:PrivateBucketName"] = PrivateBucketName,
         ["Storage:PublicBaseUrl"] = "http://storage.invalid/" + BucketName,
     };
 
@@ -75,6 +80,30 @@ public sealed class TestImageBucket : IAsyncDisposable
         using var s3 = CreateClient();
         await s3.PutBucketAsync(BucketName).ConfigureAwait(false);
         await s3.PutBucketPolicyAsync(BucketName, PublicReadPolicy).ConfigureAwait(false);
+
+        // Sem política: só quem tem a chave lê, como no bucket de produção.
+        await s3.PutBucketAsync(PrivateBucketName).ConfigureAwait(false);
+    }
+
+    /// <summary>Quantos arquivos há no bucket privado.</summary>
+    public async Task<int> CountPrivateAsync()
+    {
+        using var s3 = CreateClient();
+        var objects = await s3.ListObjectsV2Async(new ListObjectsV2Request { BucketName = PrivateBucketName }).ConfigureAwait(false);
+
+        return objects.KeyCount ?? 0;
+    }
+
+    /// <summary>A URL que o arquivo teria se o bucket privado fosse público (para provar que não é).</summary>
+    public Uri PrivateObjectUrl(string key) => new($"{ServiceUrl}/{PrivateBucketName}/{key}");
+
+    /// <summary>Chaves dos arquivos no bucket privado.</summary>
+    public async Task<IReadOnlyList<string>> ListPrivateKeysAsync()
+    {
+        using var s3 = CreateClient();
+        var objects = await s3.ListObjectsV2Async(new ListObjectsV2Request { BucketName = PrivateBucketName }).ConfigureAwait(false);
+
+        return [.. (objects.S3Objects ?? []).Select(o => o.Key)];
     }
 
     /// <summary>A imagem existe no bucket? Recebe a URL pública gravada no banco.</summary>

@@ -124,7 +124,7 @@ Sem `role`: é sempre `owner`.
 | `201` | — | Conta e tutor criados. Header `Location: /api/v1/owners/me`. |
 | `400` | `VALIDATION_ERROR` | Qualquer campo inválido — **todos de uma vez**, da conta e o CPF, com o endereço aninhado (`address.zipCode`...). |
 | `409` | `AUTH_EMAIL_ALREADY_REGISTERED` | Esse e-mail já tem conta de tutor. Nada é criado. |
-| `409` | `OWNER_CPF_ALREADY_REGISTERED` | O CPF já é de outro tutor. Nada é criado. |
+| `409` | `OWNER_CPF_ALREADY_REGISTERED` | O CPF já é de outro tutor, ou de um anfitrião (ou solicitação de anfitrião aberta) de **outro e-mail**. Nada é criado. |
 
 ### 3.3 `GET` e `PATCH /api/v1/owners/me`
 
@@ -147,7 +147,7 @@ Sem `role`: é sempre `owner`.
 | `200` | — | Alterado. Corpo no formato da 3.1, já com os dados novos. |
 | `400` | `VALIDATION_ERROR` | Campos da conta ou CPF inválidos — **todos de uma vez**. Também `currentPassword` ausente ou errada quando o CPF muda (campo `currentPassword`). |
 | `404` | `OWNER_NOT_FOUND` | A conta não tem perfil de tutor. |
-| `409` | `OWNER_CPF_ALREADY_REGISTERED` | O CPF novo é de outro tutor. |
+| `409` | `OWNER_CPF_ALREADY_REGISTERED` | O CPF novo é de outro tutor, ou de um anfitrião de outro e-mail. |
 | `422` | `OWNER_CPF_LOCKED` | Já houve pagamento: o CPF está travado. |
 | `422` | `OWNER_BIRTH_DATE_LOCKED` | Já houve pagamento: a data de nascimento está travada. |
 
@@ -193,7 +193,7 @@ Formato da 3.1 (a lista é um array dele). `{ownerId}` é o **id do tutor**, nã
 | Sessões | Caem na hora | Caem na hora |
 
 - `POST /api/v1/owners/{ownerId}/suspension` com `{ "reason": "..." }` (obrigatório, até 500 caracteres): suspende perfil e conta. Idempotente — suspender de novo mantém a primeira. Resposta: formato da 3.1.
-- `DELETE /api/v1/owners/{ownerId}/suspension`: tira a suspensão; o tutor volta ao status que tinha (ativo ou inativo) e entra de novo. Tutor cujo CPF foi liberado **não** volta: `422 OWNER_CPF_RELEASED`.
+- `DELETE /api/v1/owners/{ownerId}/suspension`: tira a suspensão; o tutor volta ao status que tinha (ativo ou inativo), recebe um e-mail avisando e entra de novo. Tutor cujo CPF foi liberado **não** volta: `422 OWNER_CPF_RELEASED`.
 - `POST /api/v1/owners/{ownerId}/cpf-release` com `{ "reason": "..." }`: tira o CPF do tutor, para o dono de verdade poder se cadastrar. Só de tutor suspenso (`422 OWNER_SUSPENSION_REQUIRED`). A trilha guarda o CPF mascarado.
 
 **Disputa de CPF, passo a passo:** a pessoa recebe `409 OWNER_CPF_ALREADY_REGISTERED` e procura o suporte → o admin confere o documento → suspende o tutor indevido → libera o CPF → a pessoa se cadastra normalmente. Cada passo fica na trilha com o motivo e quem fez.
@@ -203,7 +203,7 @@ Por dentro, perfil e conta mudam juntos, com compensação: o perfil é gravado 
 ## 4. Regras
 
 - **CPF:** só dígitos no banco; aceita máscara na entrada; confere os dois dígitos verificadores (módulo 11); recusa todos os dígitos iguais. Nas respostas vem completo; só o `ToString()` mascara (`***.***.247-25`), para não vazar em log (LGPD).
-- **Um CPF por conta de tutor** e **um tutor por conta** (índices únicos em `cpf` e `user_id`).
+- **Um CPF por conta de tutor** e **um tutor por conta** (índices únicos em `cpf` e `user_id`). **Entre papéis** (restrição 9): o CPF pode ser também o do anfitrião da mesma pessoa (mesmo e-mail), nunca o de outro e-mail — conferido no cadastro e na troca de CPF pelo `ICpfOwnership`.
 - **CPF e data de nascimento editáveis até o primeiro pagamento, com a senha:** o marco é o `stripe_customer_id` (`Owner.HasPaid`), criado no primeiro pagamento. Depois dele, `OWNER_CPF_LOCKED` / `OWNER_BIRTH_DATE_LOCKED`. Antes, a troca pede `currentPassword`. A data fica na conta (Auth); quem aplica a trava é o caso de uso do Owners.
 - **Status próprio, junto com a conta:** `Owner.Deactivate` / `Owner.Reactivate`, idempotentes. O caso de uso muda perfil e conta juntos.
 - **Suspensão (admin):** `Owner.Suspend` / `Owner.LiftSuspension`, junto com a suspensão da conta. `Owner.ReleaseCpf` só em tutor suspenso; depois dele a suspensão não sai mais. CPF nulo só em tutor suspenso (constraint no banco).
@@ -323,8 +323,8 @@ O `cus_...` volta para `owners.stripe_customer_id` (`Owner.LinkStripeCustomer`) 
 | # | Pendência | Impacto |
 |---|---|---|
 | 1 | Troca de e-mail. | Precisa da verificação de e-mail: código para o e-mail novo, troca só depois de confirmado, aviso para o antigo. |
-| 2 | Anfitrião sem perfil próprio. | O cantinho e o Stripe Connect farão esse papel no módulo do anfitrião. |
-| 3 | CPF único só entre tutores. | Alguém com outro e-mail pode usar o CPF de um anfitrião (ou de quem ainda não tem conta) para criar um tutor. Regra decidida (escopo, restrição 9): o mesmo CPF só pode estar num tutor e num anfitrião do **mesmo e-mail**. Entra junto com o CPF do anfitrião: o módulo do anfitrião guarda o CPF, e os dois lados conferem um ao outro por um contrato em `Shared.Contracts` antes de gravar. |
+| 2 | ~~Anfitrião sem perfil próprio.~~ | Feito: o módulo Hosts tem a verificação de identidade e o perfil verificado ([`modulo-hosts.md`](modulo-hosts.md)). |
+| 3 | ~~CPF único só entre tutores.~~ | Feito: o mesmo CPF só fica num tutor e num anfitrião do **mesmo e-mail** (restrição 9), pelo contrato `ICpfOwnership` — o Owners informa os tutores (`OwnerCpfHolderLookup`) e consulta todos os módulos antes de gravar ([`modulo-hosts.md`](modulo-hosts.md) seção 4.1). |
 | 4 | Titularidade do CPF do tutor não é verificada. | O dígito confere, mas não prova que o CPF é de quem digitou — e quem cadastra primeiro fica com ele. Opções (decisão de custo): Serpro Datavalid (CPF + nome + nascimento) no cadastro, ou Stripe Identity (documento + selfie) no primeiro pagamento. |
 | 5 | Disputa de CPF sem tela. | As rotas existem (seção 3.7) e tudo fica na trilha; falta a tela no admin e o canal de suporte por onde a pessoa abre o pedido. |
 | 6 | Suspender anfitrião. | Mesmo contrato (`IAccountStatusManager.SuspendAsync`); as rotas entram no módulo do anfitrião. |

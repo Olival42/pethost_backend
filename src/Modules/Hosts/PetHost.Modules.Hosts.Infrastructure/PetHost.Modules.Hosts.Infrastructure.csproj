@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <ProjectReference Include="..\PetHost.Modules.Hosts.Application\PetHost.Modules.Hosts.Application.csproj" />
     <ProjectReference Include="..\PetHost.Modules.Hosts.Domain\PetHost.Modules.Hosts.Domain.csproj" />
     <ProjectReference Include="..\..\..\Shared\PetHost.Shared.Kernel\PetHost.Shared.Kernel.csproj" />
     <ProjectReference Include="..\..\..\Shared\PetHost.Shared.Contracts\PetHost.Shared.Contracts.csproj" />

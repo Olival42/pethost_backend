@@ -3,7 +3,7 @@
 > Documento normativo. Tudo é obrigatório salvo onde marcado como *recomendado*.
 > Em conflito com o código existente, este documento vence.
 
-**Atualizado:** 2026-10-09 · **Escopo:** backend (API)
+**Atualizado:** 2026-10-10 · **Escopo:** backend (API)
 
 ---
 
@@ -35,7 +35,7 @@
 4. **Erro esperado não usa exceção.** Fluxo de negócio previsível retorna `Result`. Exceção só para bug ou infraestrutura fora.
 5. **Toda regra de negócio tem teste unitário.** Sem exceção.
 
-**Módulos** (bounded contexts): `Auth` (conta, sessão, perfil comum), `Owners` (perfil de tutor), `Hosts` (perfil de anfitrião, PF/PJ — por enquanto só a tabela), `Audit` (trilha de auditoria de todos os módulos), `Pets` (ficha do pet, do tutor ou do anfitrião), `Booking`, `Availability`, `Payments`, `Reviews`, `Notifications`. Criar módulo novo é decisão de arquitetura — discutir antes do PR.
+**Módulos** (bounded contexts): `Auth` (conta, sessão, perfil comum), `Owners` (perfil de tutor), `Hosts` (anfitrião: verificação de identidade aprovada pelo admin e perfil verificado, PF/PJ), `Audit` (trilha de auditoria de todos os módulos), `Pets` (ficha do pet, do tutor ou do anfitrião), `Booking`, `Availability`, `Payments`, `Reviews`, `Notifications`. Criar módulo novo é decisão de arquitetura — discutir antes do PR.
 
 ---
 
@@ -113,6 +113,8 @@ Proibido: referenciar projeto de outro módulo, compartilhar `DbContext`, fazer 
 1. **Porta + adaptador** (consulta síncrona) — a `Application` consumidora declara a interface no seu vocabulário (`IAvailabilityChecker`); a `Infrastructure` implementa via `Shared.Contracts`.
 2. **Integration event** (assíncrono) — domain event fica dentro do módulo; para cruzar fronteira, publique um `record ...IntegrationEvent` declarado em `Shared.Contracts`, via **padrão Outbox** (tabela no schema do publicador, atômica com a transação).
 3. **Read model próprio** — módulo que lê muito dado de outro mantém tabela desnormalizada alimentada por integration events. Duplicar dado é aceitável; acoplar schema não é.
+
+**Regra que atravessa módulos** (ex.: o CPF identifica a pessoa entre tutor e anfitrião): cada módulo implementa um contrato de consulta pequeno em `Shared.Contracts` (`ICpfHolderLookup`), registrado com `AddScoped` — todos são lidos —, e a regra mora num lugar só (`ICpfOwnership`, implementado em `Shared.Infrastructure`). Nenhum módulo conhece o outro.
 
 ---
 
@@ -562,6 +564,10 @@ O time pensa em português, o código fala inglês. Esta é a tradução oficial
 | Trilha de auditoria | `AuditTrail` / `AuditEntry` | Motivo | `Reason` |
 | Dono do pet (tutor **ou** anfitrião) | `Keeper` *(❌ Owner, que é só o tutor)* | Animal fora da lista | `Exotic` (+ `SpeciesDescription`) |
 | Pessoa física / jurídica | `Individual` / `Company` (`PersonType`) | Razão social / nome fantasia | `LegalName` / `TradeName` |
+| Solicitação de cadastro de anfitrião (verificação) | `HostApplication` *(❌ HostRequest, Verification)* | Foto da verificação (frente, verso, selfie) | `HostApplicationDocument` (`DocumentKind`) |
+| Aprovar / recusar (admin) | `Approve` / `Reject` (`RejectionReason`) | Documento de identidade (RG, CNH, CIN) | `IdentityDocumentType` |
+| Prazo de guarda das fotos | `DocumentRetention` | Apagar as fotos | `PurgeDocuments` |
+| Representante legal (da empresa) | `Representative` (o CPF do `HostApplication`/`Host` de empresa) | Dados da empresa | `CompanyDetails` |
 
 ---
 
@@ -661,6 +667,13 @@ Toda foto (avatar, pet, anfitrião, cantinho) vai para o **bucket S3 compatível
 - **Posse antes do upload.** O handler confere se quem pede é dono da entidade antes de enviar qualquer coisa ao bucket; recurso de outra conta é `404`, como nas outras rotas.
 - **O formato é conferido pelo conteúdo** (JPEG, PNG, WebP; até 5 MB), nunca pelo nome ou pelo `Content-Type` declarado. Erros no campo `file`.
 - **Trocar apaga a anterior; falhar desfaz.** Use `ImageReplacement`, que envia, grava e apaga a antiga, ou apaga a nova se gravar falhar. Não reimplemente o fluxo no módulo.
+
+**Imagem com dado pessoal sensível** (documento de identidade, selfie de verificação) **nunca** vai para o bucket público:
+
+- Usa `IPrivateImageStorage` — bucket **privado** (`Storage:PrivateBucketName`, sem leitura pública, obrigatoriamente diferente do público). Mesmas regras de arquivo.
+- O banco guarda a **chave** do arquivo, nunca uma URL. Quem enviou não recebe link nem a imagem de volta.
+- Só o admin lê, por uma rota da API que repassa o arquivo com `Cache-Control: no-store`; **cada leitura vai para a trilha** (`<alvo>.document_viewed`).
+- Tem **prazo de guarda**: apagar quando a finalidade acabar (padrão: na decisão), com uma tarefa de limpeza para o que ficar. Detalhes em [`modulo-hosts.md`](modulo-hosts.md) seção 5.
 
 ## 14. Testes
 
