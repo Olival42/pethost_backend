@@ -7,9 +7,12 @@ using PetHost.Modules.Audit.Infrastructure;
 using PetHost.Modules.Audit.Infrastructure.Persistence;
 using PetHost.Modules.Auth.Infrastructure;
 using PetHost.Modules.Auth.Infrastructure.Persistence;
+using PetHost.Modules.Hosts.Infrastructure;
+using PetHost.Modules.Hosts.Infrastructure.Persistence;
 using PetHost.Modules.Owners.Infrastructure;
 using PetHost.Modules.Owners.Infrastructure.Persistence;
 using PetHost.Shared.Infrastructure.Email;
+using PetHost.Shared.Infrastructure.Email.Persistence;
 using Respawn;
 using Respawn.Graph;
 using PetHost.TestKit;
@@ -92,9 +95,13 @@ public sealed class OwnersApiFixture : IAsyncLifetime
                 services.AddSingleton<IEmailSender, NoOpEmailSender>());
         });
 
+        await Services.InitializeEmailAsync(applyMigrations: true);
         await Services.InitializeAuthModuleAsync(applyMigrations: true);
         await Services.InitializeOwnersModuleAsync(applyMigrations: true);
         await Services.InitializeAuditModuleAsync(applyMigrations: true);
+
+        // A regra do CPF entre papéis consulta os anfitriões.
+        await Services.InitializeHostsModuleAsync(applyMigrations: true);
 
         _connection = new NpgsqlConnection(_postgres.GetConnectionString());
         await _connection.OpenAsync();
@@ -102,12 +109,14 @@ public sealed class OwnersApiFixture : IAsyncLifetime
         _respawner = await Respawner.CreateAsync(_connection, new RespawnerOptions
         {
             DbAdapter = DbAdapter.Postgres,
-            SchemasToInclude = [AuthDbContext.Schema, OwnersDbContext.Schema, AuditDbContext.Schema],
+            SchemasToInclude = [AuthDbContext.Schema, OwnersDbContext.Schema, AuditDbContext.Schema, HostsDbContext.Schema, EmailDbContext.Schema],
             TablesToIgnore =
             [
                 new Table(AuthDbContext.Schema, AuthDbContext.MigrationsHistoryTable),
                 new Table(OwnersDbContext.Schema, OwnersDbContext.MigrationsHistoryTable),
                 new Table(AuditDbContext.Schema, AuditDbContext.MigrationsHistoryTable),
+                new Table(HostsDbContext.Schema, HostsDbContext.MigrationsHistoryTable),
+                new Table(EmailDbContext.Schema, EmailDbContext.MigrationsHistoryTable),
             ],
         });
     }

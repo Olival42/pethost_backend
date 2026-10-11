@@ -10,6 +10,7 @@ using PetHost.Shared.Contracts.Accounts;
 using PetHost.Shared.Kernel.Errors;
 using PetHost.Shared.Kernel.Results;
 using PetHost.Shared.Contracts.Audit;
+using PetHost.Shared.Contracts.Identity;
 using Xunit;
 
 namespace PetHost.Modules.Owners.Application.UnitTests.Owners;
@@ -30,6 +31,7 @@ public sealed class RegisterOwnerAccountCommandHandlerTests
     private readonly Mock<IOwnersUnitOfWork> _unitOfWork = new();
     private readonly Mock<IOwnerAccounts> _ownerAccounts = new();
     private readonly Mock<IAuditTrail> _auditTrail = new();
+    private readonly Mock<ICpfOwnership> _cpfOwnership = new();
     private readonly RegisterOwnerAccountCommandHandler _sut;
 
     public RegisterOwnerAccountCommandHandlerTests()
@@ -40,7 +42,7 @@ public sealed class RegisterOwnerAccountCommandHandlerTests
                 new AccountSession("jwt", "refresh", 1_791_461_700, Accounts.Summary(AccountId, "Camila"))));
 
         _sut = new RegisterOwnerAccountCommandHandler(
-            _ownerRepository.Object, _unitOfWork.Object, _ownerAccounts.Object, _auditTrail.Object, new FakeTimeProvider(Accounts.Now));
+            _ownerRepository.Object, _unitOfWork.Object, _ownerAccounts.Object, _auditTrail.Object, _cpfOwnership.Object, new FakeTimeProvider(Accounts.Now));
     }
 
     [Fact]
@@ -71,6 +73,20 @@ public sealed class RegisterOwnerAccountCommandHandlerTests
     {
         _ownerRepository
             .Setup(r => r.ExistsByCpfAsync(It.IsAny<Cpf>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var result = await _sut.HandleAsync(Command(), CancellationToken.None);
+
+        result.FirstError!.Code.Should().Be("OWNER_CPF_ALREADY_REGISTERED");
+        _ownerAccounts.Verify(a => a.CreateAsync(It.IsAny<AccountRegistration>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task HandleAsync_Should_ReturnConflictWithoutCreatingAccount_When_AHostOfAnotherEmailHasTheCpf()
+    {
+        // Restrição 9: o CPF é de um anfitrião de outro e-mail (outra pessoa).
+        _cpfOwnership
+            .Setup(c => c.IsHeldByAnotherPersonAsync("52998224725", "camila@exemplo.com", It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
 
         var result = await _sut.HandleAsync(Command(), CancellationToken.None);
@@ -122,6 +138,7 @@ public sealed class RegisterOwnerAccountCommandValidatorTests
 {
     private readonly Mock<IOwnerAccounts> _ownerAccounts = new();
     private readonly Mock<IAuditTrail> _auditTrail = new();
+    private readonly Mock<ICpfOwnership> _cpfOwnership = new();
     private readonly RegisterOwnerAccountCommandValidator _sut;
 
     public RegisterOwnerAccountCommandValidatorTests()
@@ -169,6 +186,7 @@ public sealed class OwnerQueriesTests
     private readonly Mock<IOwnerRepository> _ownerRepository = new();
     private readonly Mock<IOwnerAccounts> _ownerAccounts = new();
     private readonly Mock<IAuditTrail> _auditTrail = new();
+    private readonly Mock<ICpfOwnership> _cpfOwnership = new();
 
     [Fact]
     public async Task ListOwners_Should_JoinEveryOwnerWithItsAccount_When_Called()

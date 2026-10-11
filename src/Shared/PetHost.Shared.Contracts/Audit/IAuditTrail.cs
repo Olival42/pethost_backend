@@ -45,6 +45,12 @@ public static class AuditTargets
     /// <summary>Pet (módulo Pets). O id é o do pet.</summary>
     public const string Pet = "pet";
 
+    /// <summary>Anfitrião verificado (módulo Hosts). O id é o do anfitrião.</summary>
+    public const string Host = "host";
+
+    /// <summary>Solicitação de cadastro de anfitrião (módulo Hosts). O id é o da solicitação.</summary>
+    public const string HostApplication = "host_application";
+
     /// <summary>A própria trilha (consulta do admin).</summary>
     public const string Audit = "audit";
 }
@@ -92,6 +98,46 @@ public static class AuditActions
     public const string PetUpdated = "pet.updated";
     public const string PetDeactivated = "pet.deactivated";
     public const string PetReactivated = "pet.reactivated";
+
+    // --- Anfitrião (Hosts) ---
+    public const string HostUpdated = "host.updated";
+    public const string HostDeactivated = "host.deactivated";
+    public const string HostReactivated = "host.reactivated";
+    public const string HostSuspended = "host.suspended";
+    public const string HostSuspensionLifted = "host.suspension_lifted";
+    public const string HostIdentityReleased = "host.identity_released";
+
+    /// <summary>Admin abriu os dados de um anfitrião (CPF/CNPJ completo): acesso a dado pessoal (LGPD).</summary>
+    public const string HostViewed = "host.viewed";
+
+    /// <summary>Admin listou os anfitriões.</summary>
+    public const string HostsListed = "host.listed";
+
+    // --- Solicitação de cadastro de anfitrião (Hosts) ---
+    public const string HostApplicationStarted = "host_application.started";
+    public const string HostApplicationUpdated = "host_application.updated";
+    public const string HostApplicationDocumentUploaded = "host_application.document_uploaded";
+    public const string HostApplicationSubmitted = "host_application.submitted";
+    public const string HostApplicationCancelled = "host_application.cancelled";
+
+    /// <summary>Admin aprovou: o perfil de anfitrião foi criado.</summary>
+    public const string HostApplicationApproved = "host_application.approved";
+    public const string HostApplicationRejected = "host_application.rejected";
+
+    /// <summary>Admin abriu uma solicitação (CPF completo, dados da conta): acesso a dado pessoal (LGPD).</summary>
+    public const string HostApplicationViewed = "host_application.viewed";
+
+    /// <summary>Admin listou solicitações (CPF completo de todas).</summary>
+    public const string HostApplicationsListed = "host_application.listed";
+
+    /// <summary>Admin abriu uma foto de documento ou selfie: acesso a dado pessoal sensível (LGPD).</summary>
+    public const string HostApplicationDocumentViewed = "host_application.document_viewed";
+
+    /// <summary>Rascunho abandonado fechado pela tarefa de limpeza.</summary>
+    public const string HostApplicationExpired = "host_application.expired";
+
+    /// <summary>Fotos apagadas do bucket privado (prazo de guarda).</summary>
+    public const string HostApplicationDocumentsPurged = "host_application.documents_purged";
 
     // --- Auditoria ---
     public const string AuditSearched = "audit.searched";

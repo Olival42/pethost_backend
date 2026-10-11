@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using PetHost.Modules.Hosts.Domain.HostApplications;
 using PetHost.Modules.Hosts.Domain.Hosts;
 
 namespace PetHost.Modules.Hosts.Infrastructure.Persistence;
@@ -16,6 +17,8 @@ public sealed class HostsDbContext(DbContextOptions<HostsDbContext> options) : D
     public const string MigrationsHistoryTable = "__ef_migrations_history";
 
     public DbSet<Host> Hosts => Set<Host>();
+
+    public DbSet<HostApplication> HostApplications => Set<HostApplication>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

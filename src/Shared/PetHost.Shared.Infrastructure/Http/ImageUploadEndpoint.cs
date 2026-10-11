@@ -13,7 +13,8 @@ namespace PetHost.Shared.Infrastructure.Http;
 
 /// <summary>
 /// Marca uma action de upload de imagem: aceita <c>multipart/form-data</c> com a imagem na
-/// parte <c>file</c> e limita o corpo a <see cref="ImageRules.MaxRequestBytes"/>. O mesmo em
+/// parte <c>file</c> (ou nas partes de <see cref="Fields"/>) e limita o corpo a
+/// <see cref="ImageRules.MaxRequestBytes"/> por imagem (<see cref="MaxImages"/>). O mesmo em
 /// todo endpoint de foto, de qualquer módulo.
 /// </summary>
 /// <remarks>
@@ -38,6 +39,17 @@ namespace PetHost.Shared.Infrastructure.Http;
 public sealed class ImageUploadEndpointAttribute : Attribute, IAsyncResourceFilter, IApiRequestMetadataProvider
 {
     private const string MultipartFormData = "multipart/form-data";
+
+    /// <summary>
+    /// Quantas imagens o pedido leva (padrão 1). O teto do corpo é
+    /// <see cref="ImageRules.MaxRequestBytes"/> por imagem.
+    /// </summary>
+    public int MaxImages { get; init; } = 1;
+
+    /// <summary>As partes do multipart que levam imagem, para a mensagem de formato errado.</summary>
+    public string Fields { get; init; } = ImageErrors.Field;
+
+    private long MaxRequestBytes => ImageRules.MaxRequestBytes * Math.Max(1, MaxImages);
 
     /// <summary>Documenta no OpenAPI que o corpo é multipart (o Swagger mostra o seletor de arquivo).</summary>
     public void SetContentTypes(MediaTypeCollection contentTypes)
@@ -64,7 +76,7 @@ public sealed class ImageUploadEndpointAttribute : Attribute, IAsyncResourceFilt
             return;
         }
 
-        if (request.ContentLength > ImageRules.MaxRequestBytes)
+        if (request.ContentLength > MaxRequestBytes)
         {
             context.Result = TooLarge();
             return;
@@ -72,11 +84,11 @@ public sealed class ImageUploadEndpointAttribute : Attribute, IAsyncResourceFilt
 
         // Sem Content-Length (envio em partes), o teto vale durante a leitura.
         if (context.HttpContext.Features.Get<IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } maxBody)
-            maxBody.MaxRequestBodySize = ImageRules.MaxRequestBytes;
+            maxBody.MaxRequestBodySize = MaxRequestBytes;
 
         context.HttpContext.Features.Set<IFormFeature>(new FormFeature(
             request,
-            new FormOptions { MultipartBodyLengthLimit = ImageRules.MaxRequestBytes }));
+            new FormOptions { MultipartBodyLengthLimit = MaxRequestBytes }));
 
         try
         {
@@ -102,10 +114,12 @@ public sealed class ImageUploadEndpointAttribute : Attribute, IAsyncResourceFilt
         await next().ConfigureAwait(false);
     }
 
-    private static ObjectResult WrongContentType() =>
+    private ObjectResult WrongContentType() =>
         new(ApiResponse<Unit>.Fail(new ErrorResponse(
             ErrorCodes.UnsupportedMediaType,
-            $"Unsupported content type. Send multipart/form-data, with the image in the '{ImageErrors.Field}' field.")))
+            Fields == ImageErrors.Field
+                ? $"Unsupported content type. Send multipart/form-data, with the image in the '{ImageErrors.Field}' field."
+                : $"Unsupported content type. Send multipart/form-data, with the images in the fields: {Fields}.")))
         {
             StatusCode = StatusCodes.Status415UnsupportedMediaType,
         };
@@ -119,10 +133,10 @@ public sealed class ImageUploadEndpointAttribute : Attribute, IAsyncResourceFilt
             StatusCode = StatusCodes.Status400BadRequest,
         };
 
-    private static ObjectResult TooLarge() =>
+    private ObjectResult TooLarge() =>
         new(ApiResponse<Unit>.Fail(new ErrorResponse(
             ErrorCodes.PayloadTooLarge,
-            $"The request body must be at most {ImageRules.MaxRequestBytes / (1024 * 1024)} MB. Images up to {ImageRules.MaxBytes / (1024 * 1024)} MB are accepted.")))
+            $"The request body must be at most {MaxRequestBytes / (1024 * 1024)} MB. Images up to {ImageRules.MaxBytes / (1024 * 1024)} MB are accepted.")))
         {
             StatusCode = StatusCodes.Status413PayloadTooLarge,
         };

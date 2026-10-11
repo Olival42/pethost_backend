@@ -3,7 +3,7 @@ using PetHost.Modules.Hosts.Domain.Hosts;
 
 namespace PetHost.Modules.Hosts.Infrastructure.Persistence.Converters;
 
-/// <summary><see cref="PersonType"/> ↔ texto (<c>individual</c>, <c>company</c>): enum como string (§11).</summary>
+/// <summary><see cref="PersonType"/> ↔ texto (<c>pf</c>, <c>pj</c>): enum como string (§11).</summary>
 internal sealed class PersonTypeConverter : ValueConverter<PersonType, string>
 {
     public PersonTypeConverter()

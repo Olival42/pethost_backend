@@ -20,6 +20,6 @@ public interface IHostDirectory
 /// Referência a um anfitrião: o id dele, o da conta e o nome a mostrar quando é empresa.
 /// Sem CPF, CNPJ nem outro dado pessoal.
 /// </summary>
-/// <param name="PersonType"><c>individual</c> ou <c>company</c>.</param>
+/// <param name="PersonType"><c>pf</c> (pessoa física) ou <c>pj</c> (pessoa jurídica).</param>
 /// <param name="TradeName">Nome fantasia, só de empresa. Pessoa física usa o nome da conta.</param>
 public sealed record HostReference(Guid Id, Guid UserId, string PersonType, string? TradeName, bool IsActive);

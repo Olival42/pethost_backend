@@ -1,6 +1,6 @@
 # PetHost — Dicionário de dados
 
-_Modelo lógico do MVP · 15 tabelas · outubro de 2026 · complementa o [`escopo-mvp.md`](escopo-mvp.md)_
+_Modelo lógico do MVP · 17 tabelas · outubro de 2026 · complementa o [`escopo-mvp.md`](escopo-mvp.md)_
 
 Este documento explica cada tabela e cada coluna do banco: o que guarda, por que existe e quais regras valem. O banco ainda não foi escolhido (PostgreSQL ou SQL Server), então os tipos são genéricos; a seção 1 mostra como cada um vira tipo real.
 
@@ -84,7 +84,9 @@ Os nomes seguem o padrão mais comum em projetos atuais. A regra de ouro: **um j
 | Cantinho | `listings` | Mesmo termo usado pelo Airbnb para o anúncio. |
 | Reserva / estadia | `bookings` |  |
 | Ficha do pet | `pets` |  |
-| Anfitrião (perfil: PF/PJ, CPF/CNPJ, Stripe Connect) | `hosts` | 1:1 com a conta de role host. |
+| Anfitrião (perfil: PF/PJ, CPF/CNPJ, Stripe Connect) | `hosts` | 1:1 com a conta de role host. Só anfitrião **verificado** (nasce na aprovação). |
+| Solicitação de cadastro de anfitrião (verificação) | `host_applications` | Documento + selfie conferidos pelo admin. Aprovada → cria `hosts`. |
+| Foto da verificação (frente, verso, selfie) | `host_application_documents` | Chave no bucket **privado**; apagada depois da decisão. |
 | Tipo de pet | `pets.species` | Enum fixo; o que não está na lista é `exotic`, com a descrição em texto. |
 | Agenda bloqueada | `availability_blocks` |  |
 | Pagamento e repasse | `payments` | Repasse = payout; taxa da plataforma = platform fee. |
@@ -97,6 +99,9 @@ Os nomes seguem o padrão mais comum em projetos atuais. A regra de ouro: **um j
 erDiagram
     users ||--o| owners : "is owner"
     users ||--o| hosts : "is host"
+    users ||--o{ host_applications : "applies"
+    host_applications ||--o{ host_application_documents : "has"
+    host_applications ||--o| hosts : "approved as"
     owners ||--o{ pets : "owns"
     hosts ||--o{ pets : "lives with"
     users ||--o| listings : "hosts"
@@ -164,11 +169,55 @@ erDiagram
         varchar company_city "nullable"
         char company_state "nullable"
         varchar stripe_account_id UK "nullable"
+        uuid application_id UK
+        timestamp verified_at
+        uuid verified_by
+        boolean stripe_details_submitted
+        boolean stripe_charges_enabled
+        boolean stripe_payouts_enabled
+        varchar stripe_disabled_reason "nullable"
+        timestamp stripe_onboarded_at "nullable"
+        timestamp stripe_synced_at "nullable"
         boolean is_active
         timestamp deactivated_at "nullable"
         timestamp suspended_at "nullable"
         timestamp created_at
         timestamp updated_at
+    }
+    host_applications {
+        uuid id PK
+        uuid user_id FK
+        enum status
+        enum person_type
+        char cpf
+        char cnpj "nullable"
+        varchar legal_name "nullable"
+        varchar trade_name "nullable"
+        varchar company_zip_code "nullable"
+        varchar company_city "nullable"
+        enum document_type
+        varchar notice_version
+        timestamp notice_accepted_at
+        varchar notice_ip_address "nullable"
+        int attempt_number
+        timestamp submitted_at "nullable"
+        timestamp reviewed_at "nullable"
+        uuid reviewed_by "nullable"
+        enum rejection_reason "nullable"
+        varchar review_notes "nullable"
+        timestamp closed_at "nullable"
+        timestamp documents_purged_at "nullable"
+        timestamp created_at
+        timestamp updated_at
+    }
+    host_application_documents {
+        uuid id PK
+        uuid application_id FK, UK
+        enum kind UK
+        varchar storage_key
+        char content_hash
+        bigint size_bytes
+        timestamp uploaded_at
     }
     pets {
         uuid id PK
@@ -223,8 +272,6 @@ erDiagram
         int capacity
         int nightly_rate_cents
         text house_rules "nullable"
-        boolean payouts_enabled
-        timestamp approved_at "nullable"
         enum status
         timestamp created_at
         timestamp updated_at
@@ -394,34 +441,91 @@ O que só o tutor tem. 1:1 com `users` de role `owner`: tem id próprio e aponta
 
 > **Para o Stripe:** o tutor é o pagador. No primeiro pagamento, o módulo de pagamentos cria o Customer com nome, e-mail, telefone (`+55...`) e endereço de `users`, e o CPF como tax ID `br_cpf`. O id volta para `stripe_customer_id` e é reaproveitado nos pagamentos seguintes (cartão salvo, recibos, histórico).
 >
-> O CPF do **anfitrião** também precisa ficar no banco, guardado pelo módulo do anfitrião e enviado ao Stripe Connect no onboarding (que confere CPF, nome e nascimento e coleta documento e conta bancária). Sem ele aqui não dá para aplicar a restrição 9: o Stripe não devolve o número completo do documento. Na hora de gravar o CPF de qualquer papel, a aplicação confere os dois lados: CPF de outro e-mail → `409`.
+> O CPF do **anfitrião** também precisa ficar no banco, guardado pelo módulo do anfitrião e enviado ao Stripe Connect no onboarding (que confere CPF, nome e nascimento e coleta documento e conta bancária). Sem ele aqui não dá para aplicar a restrição 9: o Stripe não devolve o número completo do documento. Na hora de gravar o CPF de qualquer papel, a aplicação confere os dois lados: CPF de outro e-mail → `409`. Implementado pelo contrato `ICpfOwnership` ([`modulo-hosts.md`](modulo-hosts.md) seção 4.1).
 
 ### `hosts` · Anfitriões
 
-O que só o anfitrião tem. 1:1 com `users` de role `host`: tem id próprio e aponta para a conta por `user_id`. Fica no schema `host` (módulo Hosts) — `user_id` é **FK lógica, sem constraint física**, como em `owners`. O anfitrião pode ser **pessoa física** ou **pessoa jurídica** (empresa de hospedagem): é o `business_type` da conta conectada no Stripe (`individual` ou `company`). Por enquanto só a tabela existe; cadastro, edição e status do anfitrião ainda não têm rota.
+O que só o anfitrião tem. 1:1 com `users` de role `host`: tem id próprio e aponta para a conta por `user_id`. Fica no schema `host` (módulo Hosts) — `user_id` é **FK lógica, sem constraint física**, como em `owners`. O anfitrião pode ser **pessoa física** ou **pessoa jurídica** (empresa de hospedagem): é o `business_type` da conta conectada no Stripe (`individual` ou `company`). **Só existe anfitrião verificado:** a linha nasce quando o admin aprova a solicitação de cadastro (`host_applications`), com os dados conferidos nela ([`modulo-hosts.md`](modulo-hosts.md)). Pessoa física ou jurídica: na jurídica, o CPF é do representante legal (o dono da conta).
 
 | Coluna | Tipo | Chave | Nulo | Descrição |
 |---|---|---|---|---|
 | `id` | `uuid` | `PK` | não | Identificador do anfitrião. É ele que os outros módulos guardam (ex.: `pets.host_id`), nunca o id da conta. |
 | `user_id` | `uuid` | `FK UK` | não | A conta do anfitrião → users.id (FK lógica). Única: um anfitrião por conta. |
-| `person_type` | `enum` |  | não | `individual` (pessoa física) ou `company` (pessoa jurídica). |
+| `person_type` | `enum` |  | não | `pf` (pessoa física) ou `pj` (pessoa jurídica). |
 | `cpf` | `char(11)` | `UK³` | não | Pessoa física: CPF do anfitrião. Pessoa jurídica: CPF do **representante legal**, que o Stripe exige de toda empresa. Só dígitos, dígitos verificadores conferidos. |
 | `cnpj` | `char(14)` | `UK` | sim | Só pessoa jurídica (obrigatório nela). Aceita o **CNPJ alfanumérico** (julho de 2026): 12 posições letra/dígito + 2 dígitos verificadores. Guardado sem máscara, em maiúsculas. |
 | `legal_name` | `varchar(160)` |  | sim | Razão social. Só pessoa jurídica (obrigatório nela). Stripe: `company.name`. |
 | `trade_name` | `varchar(120)` |  | sim | Nome fantasia: o nome que o tutor vê. Só pessoa jurídica (obrigatório nela). |
 | `company_zip_code` … `company_state` |  |  | sim | Endereço da empresa (CEP, rua, número, complemento, bairro, cidade, UF), mesmos tamanhos do endereço de `users`. Só pessoa jurídica (obrigatório nela, exceto o complemento). Stripe: `company.address`. |
-| `stripe_account_id` | `varchar(255)` | `UK` | sim | Conta conectada no Stripe (acct_...). Criada no onboarding. Fica no anfitrião, não no cantinho. |
+| `stripe_account_id` | `varchar(255)` | `UK` | sim | Conta conectada no Stripe (acct_...). Criada no onboarding, que só é liberado depois da verificação. Fica no anfitrião, não no cantinho. |
+| `application_id` | `uuid` | `UK` | não | A solicitação aprovada que criou o perfil → host_applications.id (mesmo schema, sem constraint física: é só a referência histórica). |
+| `verified_at` | `timestamptz` |  | não | Quando o admin aprovou a identidade. |
+| `verified_by` | `uuid` |  | não | O admin que aprovou (users.id). Sem FK, como `suspended_by`. |
+| `stripe_details_submitted` | `boolean` |  | não | Espelho do Stripe (`details_submitted`): terminou o onboarding. Default `false`. |
+| `stripe_charges_enabled` | `boolean` |  | não | Espelho do Stripe (`charges_enabled`). Default `false`. |
+| `stripe_payouts_enabled` | `boolean` |  | não | Espelho do Stripe (`payouts_enabled`): pode receber repasses. **Cantinho só aparece na busca com isto ligado.** Default `false`. (Antes ficava em `listings.payouts_enabled`; mudou para cá porque a conta conectada é do anfitrião.) |
+| `stripe_disabled_reason` | `varchar(100)` |  | sim | Por que o Stripe bloqueou (`requirements.disabled_reason`), para o painel mostrar o que falta. |
+| `stripe_onboarded_at` | `timestamptz` |  | sim | Quando a conta passou a poder receber repasses pela primeira vez. |
+| `stripe_synced_at` | `timestamptz` |  | sim | Última sincronização pelo webhook `account.updated`. |
 | `is_active` | `boolean` |  | não | Default `true`. Anda junto com `users.is_active`. |
 | `deactivated_at` | `timestamptz` |  | sim | Quando foi inativado pela última vez. |
 | `suspended_at` | `timestamptz` |  | sim | Quando o admin suspendeu. Anda junto com `users.suspended_at`. |
+| `identity_released_at` | `timestamptz` |  | sim | Quando o admin liberou o CPF/CNPJ deste anfitrião (disputa de documento; só de suspenso). Os valores ficam como evidência, mas deixam de contar nos índices únicos e na restrição 9; a suspensão não sai mais. |
 | `created_at` | `timestamptz` |  | não | Quando o registro foi criado (UTC). |
 | `updated_at` | `timestamptz` |  | não | Última alteração do registro (UTC). |
 
-> ³ Único só entre pessoas físicas (índice parcial `WHERE person_type = 'individual'`): a mesma pessoa pode representar mais de uma empresa — nelas, quem é único é o CNPJ.
+> ³ Único só entre pessoas físicas não liberadas (índice parcial `WHERE person_type = 'pf' AND identity_released_at IS NULL`); na empresa, quem é único é o CNPJ (`uq_hosts_cnpj`, também ignorando o liberado). Entre pessoas, a restrição 9 vale pela aplicação (`ICpfOwnership`): como cada e-mail tem uma conta de anfitrião, uma pessoa representa no máximo uma empresa.
 >
 > CHECK `ck_hosts_company_data`: pessoa jurídica tem CNPJ, razão social, nome fantasia e endereço da empresa; pessoa física não tem nenhum deles.
 >
 > **Para o Stripe Connect:** pessoa física → `individual` com nome, nascimento, CPF (`id_number`), telefone e endereço (os da conta). Pessoa jurídica → `company` com razão social, CNPJ (`tax_id`), endereço da empresa e telefone; mais o **representante** (`relationship.representative`) com nome, nascimento, CPF, e-mail, telefone e endereço — os da conta. O que o Stripe pedir além disso (sócios com 25%+, cargo do representante, site/descrição do negócio, MCC, conta bancária e documentos) é coletado no onboarding hospedado do Stripe, não por nós.
+
+### `host_applications` · Solicitações de cadastro de anfitrião
+
+O caso de verificação de identidade: a pessoa com conta de anfitrião envia CPF, tipo de documento e três fotos; o admin confere e aprova (cria a linha em `hosts`) ou recusa. Schema `host` (módulo Hosts, [`modulo-hosts.md`](modulo-hosts.md)). A linha fica para o histórico e a trilha; as fotos são apagadas depois que ela fecha.
+
+| Coluna | Tipo | Chave | Nulo | Descrição |
+|---|---|---|---|---|
+| `id` | `uuid` | `PK` | não | Identificador da solicitação. |
+| `user_id` | `uuid` | `FK` | não | A conta de anfitrião → users.id (FK lógica). **Uma solicitação aberta por conta** (único parcial com `status IN (draft, submitted)`). |
+| `status` | `enum` |  | não | draft, submitted, approved, rejected, rejected_final, cancelled, expired (seção 7). |
+| `person_type` | `enum` |  | não | `pf` ou `pj`. Escolhido ao abrir; não muda. |
+| `cpf` | `char(11)` | `UK` | não | Pessoa física: o CPF do anfitrião. Empresa: o do **representante legal** (o dono da conta). Só dígitos, conferido. Único entre as solicitações **abertas** (parcial) e sujeito à restrição 9: CPF de uma conta de outro e-mail (tutor, anfitrião ou solicitação aberta) é recusado. Vai para `hosts.cpf` na aprovação. |
+| `cnpj` | `char(14)` | `UK` | sim | Só empresa (obrigatório nela). Único entre as solicitações abertas (parcial) e não pode ser de um anfitrião. Vai para `hosts.cnpj`. |
+| `legal_name`, `trade_name` | `varchar(160)`, `varchar(120)` |  | sim | Razão social e nome fantasia. Só empresa (obrigatórios nela). |
+| `company_zip_code` … `company_state` |  |  | sim | Endereço da empresa, mesmas colunas de `hosts`. Só empresa (obrigatório nela, exceto o complemento). CHECK `ck_host_applications_company_data`: empresa tem todos os dados da empresa; pessoa física, nenhum. |
+| `document_type` | `enum` |  | não | rg, cnh ou cin. |
+| `notice_version` | `varchar(20)` |  | não | Versão do aviso de uso das fotos que a pessoa aceitou (transparência, LGPD). |
+| `notice_accepted_at` | `timestamptz` |  | não | Quando aceitou o aviso (= quando abriu a solicitação). |
+| `notice_ip_address` | `varchar(45)` |  | sim | IP de quem aceitou. Dado pessoal. |
+| `attempt_number` | `int` |  | não | 1 na primeira; +1 a cada recusa comum anterior. Máximo 3 recusas. |
+| `submitted_at` | `timestamptz` |  | sim | Quando foi enviada para a fila. Ordena a fila do admin. |
+| `reviewed_at` | `timestamptz` |  | sim | Quando o admin decidiu. |
+| `reviewed_by` | `uuid` |  | sim | O admin que decidiu (users.id), sem FK. |
+| `rejection_reason` | `enum` |  | sim | Motivo da recusa que a pessoa vê (seção 7). Preenchido **só** em rejected/rejected_final (CHECK). |
+| `review_notes` | `varchar(500)` |  | sim | Motivo escrito pelo admin (aprovação ou recusa). **Interno**: a pessoa não vê. |
+| `closed_at` | `timestamptz` |  | sim | Quando fechou (decidida, cancelada ou expirada). Base do prazo de guarda das fotos. |
+| `documents_purged_at` | `timestamptz` |  | sim | Quando as fotos foram apagadas do bucket. |
+| `created_at` | `timestamptz` |  | não | Quando foi aberta (UTC). Base do prazo do rascunho (7 dias). |
+| `updated_at` | `timestamptz` |  | não | Última alteração (UTC). |
+
+> Índices: único parcial (`user_id`), (`cpf`) e (`cnpj`) `WHERE status IN ('draft','submitted')`; (`status`, `submitted_at`) para a fila; (`user_id`, `created_at`); (`closed_at`) `WHERE closed_at IS NOT NULL AND documents_purged_at IS NULL` para a limpeza. Concorrência otimista pelo `xmin` (dois admins decidindo juntos → `409`).
+
+### `host_application_documents` · Fotos da verificação
+
+Frente e verso do documento e a selfie segurando o documento. Ficam no **bucket privado** (sem leitura pública); o admin vê pela rota da API, e cada abertura vai para a trilha.
+
+| Coluna | Tipo | Chave | Nulo | Descrição |
+|---|---|---|---|---|
+| `id` | `uuid` | `PK` | não | Identificador da foto. |
+| `application_id` | `uuid` | `FK UK⁴` | não | Solicitação → host_applications.id. FK física (mesmo schema), `ON DELETE CASCADE`. |
+| `kind` | `enum` | `UK⁴` | não | front, back ou selfie. Uma foto por vaga. |
+| `storage_key` | `varchar(200)` |  | não | **Chave** do arquivo no bucket privado (`host-applications/<guid>.<ext>`). Nunca uma URL. |
+| `content_hash` | `char(64)` |  | não | SHA-256 da imagem: a mesma imagem não entra em duas vagas. |
+| `size_bytes` | `bigint` |  | não | Tamanho do arquivo. |
+| `uploaded_at` | `timestamptz` |  | não | Quando a foto foi enviada (ou trocada). |
+
+> ⁴ Índice único (`application_id`, `kind`). As linhas são apagadas junto com os arquivos quando o prazo de guarda vence (padrão: na decisão).
 
 
 ### `pets` · Pets
@@ -476,7 +580,7 @@ Até 3 fotos por pet, gravadas só pelas rotas de upload (`/pets/{petId}/photos`
 
 ### `listings` · Cantinhos
 
-O espaço que o anfitrião oferece (no app: "cantinho"). Um por conta de anfitrião. Também guarda a ligação com a conta Stripe Connect, que é a verificação do anfitrião.
+O espaço que o anfitrião oferece (no app: "cantinho"). Um por anfitrião. A verificação (aprovação do admin) e a situação no Stripe ficam no anfitrião (`hosts.verified_at`, `hosts.stripe_payouts_enabled`), não aqui: só anfitrião verificado tem cantinho.
 
 | Coluna | Tipo | Chave | Nulo | Descrição |
 |---|---|---|---|---|
@@ -504,9 +608,7 @@ O espaço que o anfitrião oferece (no app: "cantinho"). Um por conta de anfitri
 | `capacity` | `int` |  | não | Quantos pets ao mesmo tempo, somando todos os tutores. |
 | `nightly_rate_cents` | `int` |  | não | Diária por pet, em centavos (6000 = R$ 60,00). |
 | `house_rules` | `text` |  | sim | Regras da casa. |
-| `payouts_enabled` | `boolean` |  | não | Espelha o Stripe: true quando a conta conectada (`hosts.stripe_account_id`) pode receber repasses. |
-| `approved_at` | `timestamp` |  | sim | Quando o admin aprovou. Nulo = aguardando. |
-| `status` | `enum` |  | não | draft, active ou paused. Só active + payouts_enabled + approved_at aparece na busca. |
+| `status` | `enum` |  | não | draft, active ou paused. Só cantinho `active` de anfitrião com `hosts.stripe_payouts_enabled` aparece na busca (o anfitrião já é verificado por existir). |
 | `created_at` | `timestamp` |  | não | Quando o registro foi criado (UTC). |
 | `updated_at` | `timestamp` |  | não | Última alteração do registro (UTC). |
 
@@ -677,6 +779,26 @@ Quem fez o quê, sobre o quê, quando e de onde. Schema `audit` (módulo Audit, 
 
 > Índices: (`target_type`, `target_id`, `occurred_at`), (`actor_id`, `occurred_at`), (`action`, `occurred_at`), (`occurred_at`).
 
+### `outbox_emails` · Caixa de saída de e-mails
+
+E-mails esperando envio. Schema `email` (infraestrutura compartilhada, `Shared.Infrastructure/Email`; [`modulo-auth.md`](modulo-auth.md) seção 6.4). A linha nasce quando um caso de uso pede o envio e é **apagada** quando o SMTP aceita — o corpo pode ter token de troca de senha. O que falha fica com a próxima tentativa agendada; esgotadas as 8 tentativas, recebe `failed_at` e é apagado 7 dias depois. Sem FK: o destinatário é só um endereço.
+
+| Coluna | Tipo | Chave | Nulo | Descrição |
+|---|---|---|---|---|
+| `id` | `uuid` | `PK` | não | UUID v7. |
+| `to_address` | `varchar(320)` |  | não | E-mail do destinatário. |
+| `to_name` | `varchar(200)` |  | sim | Nome do destinatário. |
+| `subject` | `varchar(300)` |  | não | Assunto. |
+| `text_body` | `text` |  | não | Corpo em texto puro. |
+| `html_body` | `text` |  | não | Corpo em HTML. |
+| `created_at` | `timestamptz` |  | não | Quando foi enfileirado (UTC). |
+| `attempts` | `integer` |  | não | Tentativas iniciadas (conta quando o despachante pega o e-mail). |
+| `next_attempt_at` | `timestamptz` |  | não | Quando pode ser pego. Durante um envio fica 5 min no futuro (reserva): se a API cair, o e-mail volta para a fila quando ela vence. |
+| `last_error` | `varchar(2000)` |  | sim | Erro da última tentativa que falhou. |
+| `failed_at` | `timestamptz` |  | sim | Tentativas esgotadas: saiu da fila. Nulo = pendente. |
+
+> Índice: (`next_attempt_at`) `WHERE failed_at IS NULL`, para a busca do despachante.
+
 ### `reviews` · Avaliações
 
 Avaliação feita depois da reserva concluída. Cada lado avalia o outro uma vez.
@@ -700,6 +822,9 @@ Avaliação feita depois da reserva concluída. Cada lado avalia o outro uma vez
 | `users` | `owners` | 1 : 0..1 | Só contas owner. owners.user_id → users.id; schemas diferentes, sem FK física. |
 | `users` | `hosts` | 1 : 0..1 | Só contas host. hosts.user_id → users.id; schemas diferentes, sem FK física. |
 | `owners` | `pets` | 1 : N | Pets do tutor. pets.owner_id → owners.id, sem FK física. |
+| `users` | `host_applications` | 1 : N | Solicitações de cadastro da conta de anfitrião (no máximo uma aberta). host_applications.user_id → users.id, sem FK física. |
+| `host_applications` | `host_application_documents` | 1 : 0..3 | Frente, verso e selfie. FK física, `ON DELETE CASCADE`. Apagadas depois da decisão. |
+| `host_applications` | `hosts` | 1 : 0..1 | A solicitação aprovada cria o anfitrião (hosts.application_id, único). |
 | `hosts` | `pets` | 1 : N | Pets que moram na casa do anfitrião. pets.host_id → hosts.id, sem FK física. Cada pet tem exatamente um dono (tutor **ou** anfitrião). |
 | `users` | `listings` | 1 : 0..1 | Uma conta host tem no máximo um cantinho. |
 | `listings` | `listing_photos` | 1 : N | Até 5 fotos. |
@@ -720,7 +845,11 @@ Avaliação feita depois da reserva concluída. Cada lado avalia o outro uma vez
 | Coluna | Valores no banco | Na tela |
 |---|---|---|
 | `users.role` | `owner` · `host` · `admin` | Tutor · Anfitrião · Admin |
-| `hosts.person_type` | `individual` · `company` | Pessoa física · Pessoa jurídica |
+| `hosts.person_type` · `host_applications.person_type` | `pf` · `pj` | Pessoa física · Pessoa jurídica |
+| `host_applications.status` | `draft` · `submitted` · `approved` · `rejected` · `rejected_final` · `cancelled` · `expired` | Rascunho · Em análise · Aprovada · Recusada · Recusada (definitiva) · Desistiu · Expirada |
+| `host_applications.document_type` | `rg` · `cnh` · `cin` | RG · CNH · Carteira de Identidade Nacional |
+| `host_applications.rejection_reason` | `document_illegible` · `document_expired` · `selfie_mismatch` · `data_mismatch` · `missing_document` · `suspected_fraud` · `other` | Documento ilegível · Vencido · Selfie não confere · Dados não batem · Foto errada · Suspeita de fraude (definitiva) · Outro |
+| `host_application_documents.kind` | `front` · `back` · `selfie` | Frente · Verso · Selfie com o documento |
 | `pets.species` | `dog` · `cat` · `cockatiel` · `parrot` · `parakeet` · `canary` · `rabbit` · `hamster` · `guinea_pig` · `fish` · `turtle` · `exotic` | Cachorro · Gato · Calopsita · Papagaio · Periquito · Canário · Coelho · Hamster · Porquinho-da-índia · Peixe · Tartaruga/jabuti · Exótico (com descrição) |
 | `pets.size` | `small` · `medium` · `large` | P · M · G (cachorro obrigatório, gato opcional) |
 | `pets.sex` | `male` · `female` · `unknown` | Macho · Fêmea · Não sei |

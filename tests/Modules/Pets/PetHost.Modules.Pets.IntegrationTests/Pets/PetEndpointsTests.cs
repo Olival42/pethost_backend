@@ -543,14 +543,17 @@ public sealed class PetEndpointsTests(PetsApiFixture fixture) : IAsyncLifetime
         return (data.GetProperty("accessToken").GetString()!, data.GetProperty("user").GetProperty("id").GetGuid());
     }
 
-    /// <summary>Conta de anfitrião + perfil gravado direto na tabela (a rota de cadastro ainda não existe).</summary>
+    /// <summary>
+    /// Conta de anfitrião + perfil gravado direto na tabela, como se a verificação já tivesse
+    /// sido aprovada (o fluxo de aprovação é testado no módulo Hosts).
+    /// </summary>
     private async Task<RegisteredHost> RegisterHostAsync()
     {
         var (token, userId) = await RegisterHostAccountAsync();
 
         await using var scope = fixture.Services.CreateAsyncScope();
         var hosts = scope.ServiceProvider.GetRequiredService<HostsDbContext>();
-        var host = Host.CreateIndividual(userId, Cpf.Create("52998224725").Value!, DateTimeOffset.UtcNow);
+        var host = Host.CreateIndividual(userId, Cpf.Create("12345678909").Value!, Guid.CreateVersion7(), Guid.CreateVersion7(), DateTimeOffset.UtcNow);
         hosts.Hosts.Add(host);
         await hosts.SaveChangesAsync(Ct);
 

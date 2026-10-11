@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using Amazon.S3;
 using Amazon.S3.Model;
 using Microsoft.Extensions.Logging;
@@ -32,26 +31,15 @@ internal sealed partial class S3ImageStorage(
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(folder);
 
-        if (image is null)
-            return Result<StoredImage>.Failure(ImageErrors.FileRequired);
+        var read = await ImageUploadReader.ReadAsync(image, cancellationToken).ConfigureAwait(false);
+        if (read.IsFailure)
+            return Result<StoredImage>.FromFailure(read);
 
-        // Lê no máximo um byte além do limite: o bastante para saber que passou, sem
-        // carregar um arquivo gigante inteiro na memória.
-        using var buffer = new MemoryStream();
-        var tooLarge = await CopyUpToAsync(image.Content, buffer, ImageRules.MaxBytes, cancellationToken).ConfigureAwait(false);
-
-        if (tooLarge)
-            return Result<StoredImage>.Failure(ImageErrors.FileTooLarge);
-
-        if (buffer.Length == 0)
-            return Result<StoredImage>.Failure(ImageErrors.FileEmpty);
-
-        var header = buffer.GetBuffer().AsSpan(0, (int)Math.Min(buffer.Length, ImageSignature.HeaderLength));
-        if (ImageSignature.Detect(header) is not { } format)
-            return Result<StoredImage>.Failure(ImageErrors.UnsupportedFormat);
+        using var upload = read.Value!;
+        var buffer = upload.Buffer;
+        var format = upload.Format;
 
         var key = $"{folder.Trim('/')}/{Guid.CreateVersion7():N}{format.Extension}";
-        buffer.Position = 0;
 
         var request = new PutObjectRequest
         {
@@ -70,9 +58,7 @@ internal sealed partial class S3ImageStorage(
 
         LogImageStored(logger, key, buffer.Length);
 
-        var hash = Convert.ToHexStringLower(SHA256.HashData(buffer.GetBuffer().AsSpan(0, (int)buffer.Length)));
-
-        return Result<StoredImage>.Success(new StoredImage(PublicPrefix + key, hash));
+        return Result<StoredImage>.Success(new StoredImage(PublicPrefix + key, upload.ContentHash()));
     }
 
     public async Task DeleteAsync(string? url, CancellationToken cancellationToken)
@@ -96,26 +82,6 @@ internal sealed partial class S3ImageStorage(
     }
 
     private bool IsHttps => _options.ServiceUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
-
-    /// <summary>Copia até <paramref name="limit"/> bytes. Devolve <c>true</c> se a origem tinha mais.</summary>
-    private static async Task<bool> CopyUpToAsync(Stream source, Stream destination, long limit, CancellationToken cancellationToken)
-    {
-        var chunk = new byte[81920];
-        long total = 0;
-
-        while (true)
-        {
-            var read = await source.ReadAsync(chunk, cancellationToken).ConfigureAwait(false);
-            if (read == 0)
-                return false;
-
-            total += read;
-            if (total > limit)
-                return true;
-
-            await destination.WriteAsync(chunk.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
-        }
-    }
 
     [LoggerMessage(EventId = 6000, Level = LogLevel.Information, Message = "Image stored at {Key} ({Bytes} bytes).")]
     private static partial void LogImageStored(ILogger logger, string key, long bytes);

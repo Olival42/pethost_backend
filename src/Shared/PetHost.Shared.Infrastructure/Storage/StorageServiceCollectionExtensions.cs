@@ -7,9 +7,18 @@ using PetHost.Shared.Contracts.Storage;
 
 namespace PetHost.Shared.Infrastructure.Storage;
 
-/// <summary>Registro do bucket de imagens (<see cref="IImageStorage"/>).</summary>
+/// <summary>
+/// Registro dos buckets de imagens: o público (<see cref="IImageStorage"/>) e o privado
+/// (<see cref="IPrivateImageStorage"/>).
+/// </summary>
 public static class StorageServiceCollectionExtensions
 {
+    /// <summary>
+    /// Cliente S3 só para <b>assinar</b> URLs do bucket privado, com o endereço que o navegador
+    /// alcança (<see cref="StorageOptions.SignedUrlServiceUrl"/>). Assinar não faz chamada de rede.
+    /// </summary>
+    internal const string UrlSignerKey = "storage-url-signer";
+
     public static IServiceCollection AddImageStorage(this IServiceCollection services, IConfiguration configuration)
     {
         ArgumentNullException.ThrowIfNull(services);
@@ -24,24 +33,35 @@ public static class StorageServiceCollectionExtensions
         services.AddSingleton<IAmazonS3>(provider =>
         {
             var options = provider.GetRequiredService<IOptions<StorageOptions>>().Value;
+            return CreateClient(options, options.ServiceUrl);
+        });
 
-            var config = new AmazonS3Config
-            {
-                ServiceURL = options.ServiceUrl,
-                AuthenticationRegion = options.Region,
-                ForcePathStyle = options.ForcePathStyle,
-
-                // O SDK v4 manda checksum em todo pedido por padrão; o R2 e o RustFS não
-                // aceitam todos os tipos. Só quando a operação exige.
-                RequestChecksumCalculation = RequestChecksumCalculation.WHEN_REQUIRED,
-                ResponseChecksumValidation = ResponseChecksumValidation.WHEN_REQUIRED,
-            };
-
-            return new AmazonS3Client(new BasicAWSCredentials(options.AccessKeyId, options.SecretAccessKey), config);
+        services.AddKeyedSingleton<IAmazonS3>(UrlSignerKey, (provider, _) =>
+        {
+            var options = provider.GetRequiredService<IOptions<StorageOptions>>().Value;
+            return CreateClient(options, options.SigningServiceUrl);
         });
 
         services.AddSingleton<IImageStorage, S3ImageStorage>();
+        services.AddSingleton<IPrivateImageStorage, S3PrivateImageStorage>();
 
         return services;
+    }
+
+    private static AmazonS3Client CreateClient(StorageOptions options, string serviceUrl)
+    {
+        var config = new AmazonS3Config
+        {
+            ServiceURL = serviceUrl,
+            AuthenticationRegion = options.Region,
+            ForcePathStyle = options.ForcePathStyle,
+
+            // O SDK v4 manda checksum em todo pedido por padrão; o R2 e o RustFS não
+            // aceitam todos os tipos. Só quando a operação exige.
+            RequestChecksumCalculation = RequestChecksumCalculation.WHEN_REQUIRED,
+            ResponseChecksumValidation = ResponseChecksumValidation.WHEN_REQUIRED,
+        };
+
+        return new AmazonS3Client(new BasicAWSCredentials(options.AccessKeyId, options.SecretAccessKey), config);
     }
 }

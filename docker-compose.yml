@@ -135,8 +135,29 @@ services:
       Storage__AccessKeyId: ${STORAGE_ACCESS_KEY_ID:-pethost}
       Storage__SecretAccessKey: ${STORAGE_SECRET_ACCESS_KEY:-pethost_local_dev}
       Storage__BucketName: ${STORAGE_BUCKET_NAME:-pethost-images}
+      # Bucket SEM leitura publica: documentos e selfies da verificacao do anfitriao.
+      Storage__PrivateBucketName: ${STORAGE_PRIVATE_BUCKET_NAME:-pethost-documents}
       Storage__PublicBaseUrl: ${STORAGE_PUBLIC_BASE_URL:-http://localhost:9000/pethost-images}
       Storage__ForcePathStyle: ${STORAGE_FORCE_PATH_STYLE:-true}
+      # URLs assinadas dos documentos (bucket privado): o endereco que o NAVEGADOR alcanca.
+      # Vazio = o mesmo de STORAGE_SERVICE_URL (Supabase, R2). So o RustFS precisa
+      # (http://localhost:9000), porque a API fala com ele por http://rustfs:9000.
+      Storage__SignedUrlServiceUrl: ${STORAGE_SIGNED_URL_SERVICE_URL:-}
+      # Validade de cada link de documento, em minutos (1 a 60).
+      Storage__SignedUrlLifetimeMinutes: ${STORAGE_SIGNED_URL_LIFETIME_MINUTES:-5}
+
+      # --- verificacao do anfitriao ---
+      # Dias que as fotos (documento e selfie) ficam depois da decisao. 0 = apaga na hora.
+      HostVerification__DocumentRetentionDays: ${HOST_VERIFICATION_DOCUMENT_RETENTION_DAYS:-0}
+      HostVerification__DraftLifetimeDays: ${HOST_VERIFICATION_DRAFT_LIFETIME_DAYS:-7}
+
+      # --- anfitriao de demonstracao (apresentacao) ---
+      # Cria na subida um anfitriao ja verificado, opcionalmente ligado a uma conta do Stripe.
+      Seed__DemoHost__Enabled: ${SEED_DEMO_HOST_ENABLED:-false}
+      Seed__DemoHost__Email: ${SEED_DEMO_HOST_EMAIL:-}
+      Seed__DemoHost__Password: ${SEED_DEMO_HOST_PASSWORD:-}
+      Seed__DemoHost__Cpf: ${SEED_DEMO_HOST_CPF:-}
+      Seed__DemoHost__StripeAccountId: ${SEED_DEMO_HOST_STRIPE_ACCOUNT_ID:-}
 
       # --- seed do admin ---
       # Cria o admin na subida se ainda nao existir. Nunca altera um admin existente.
@@ -184,7 +205,8 @@ services:
       start_period: 5s
     networks: [pethost]
 
-  # Cria o bucket com leitura publica (como o do R2) e termina. Idempotente.
+  # Cria o bucket de imagens com leitura publica (como o do R2) e o bucket privado de
+  # documentos (sem politica: so a API le), e termina. Idempotente.
   rustfs-init:
     image: amazon/aws-cli:2.27.50
     container_name: pethost-rustfs-init
@@ -199,9 +221,12 @@ services:
       AWS_REQUEST_CHECKSUM_CALCULATION: when_required
       AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
       BUCKET: ${RUSTFS_BUCKET_NAME:-pethost-images}
+      PRIVATE_BUCKET: ${RUSTFS_PRIVATE_BUCKET_NAME:-pethost-documents}
     entrypoint: ["/bin/sh", "-c"]
     command:
       - >-
+        aws --endpoint-url http://rustfs:9000 s3api head-bucket --bucket "$$PRIVATE_BUCKET" 2>/dev/null
+        || aws --endpoint-url http://rustfs:9000 s3api create-bucket --bucket "$$PRIVATE_BUCKET";
         aws --endpoint-url http://rustfs:9000 s3api head-bucket --bucket "$$BUCKET" 2>/dev/null
         || aws --endpoint-url http://rustfs:9000 s3api create-bucket --bucket "$$BUCKET";
         aws --endpoint-url http://rustfs:9000 s3api put-bucket-policy --bucket "$$BUCKET"

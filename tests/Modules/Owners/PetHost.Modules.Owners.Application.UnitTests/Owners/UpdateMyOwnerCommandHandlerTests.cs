@@ -8,6 +8,7 @@ using PetHost.Shared.Contracts.Accounts;
 using PetHost.Shared.Kernel.Errors;
 using PetHost.Shared.Kernel.Results;
 using PetHost.Shared.Contracts.Audit;
+using PetHost.Shared.Contracts.Identity;
 using Xunit;
 
 namespace PetHost.Modules.Owners.Application.UnitTests.Owners;
@@ -24,6 +25,7 @@ public sealed class UpdateMyOwnerCommandHandlerTests
     private readonly Mock<IOwnersUnitOfWork> _unitOfWork = new();
     private readonly Mock<IOwnerAccounts> _ownerAccounts = new();
     private readonly Mock<IAuditTrail> _auditTrail = new();
+    private readonly Mock<ICpfOwnership> _cpfOwnership = new();
     private readonly Owner _owner = Owner.Create(Id, Cpf.Create("52998224725").Value!, Now);
     private readonly UpdateMyOwnerCommandHandler _sut;
 
@@ -46,7 +48,7 @@ public sealed class UpdateMyOwnerCommandHandlerTests
             .ReturnsAsync(Result<AccountProfilePatch>.Success(Previous));
 
         _sut = new UpdateMyOwnerCommandHandler(
-            _ownerRepository.Object, _unitOfWork.Object, _ownerAccounts.Object, _auditTrail.Object, new FakeTimeProvider(Now.AddDays(1)));
+            _ownerRepository.Object, _unitOfWork.Object, _ownerAccounts.Object, _auditTrail.Object, _cpfOwnership.Object, new FakeTimeProvider(Now.AddDays(1)));
     }
 
     [Fact]
@@ -134,6 +136,19 @@ public sealed class UpdateMyOwnerCommandHandlerTests
         var result = await _sut.HandleAsync(Command(cpf: "111.444.777-35", currentPassword: Password), CancellationToken.None);
 
         result.FirstError!.Code.Should().Be("OWNER_CPF_ALREADY_REGISTERED");
+    }
+
+    [Fact]
+    public async Task HandleAsync_Should_ReturnConflict_When_TheNewCpfBelongsToAHostOfAnotherEmail()
+    {
+        _cpfOwnership
+            .Setup(c => c.IsHeldByAnotherPersonAsync("11144477735", Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var result = await _sut.HandleAsync(Command(cpf: "111.444.777-35", currentPassword: Password), CancellationToken.None);
+
+        result.FirstError!.Code.Should().Be("OWNER_CPF_ALREADY_REGISTERED");
+        _ownerAccounts.Verify(a => a.UpdateProfileAsync(It.IsAny<Guid>(), It.IsAny<AccountProfilePatch>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -231,6 +246,7 @@ public sealed class UpdateMyOwnerCommandValidatorTests
 {
     private readonly Mock<IOwnerAccounts> _ownerAccounts = new();
     private readonly Mock<IAuditTrail> _auditTrail = new();
+    private readonly Mock<ICpfOwnership> _cpfOwnership = new();
     private readonly UpdateMyOwnerCommandValidator _sut;
 
     public UpdateMyOwnerCommandValidatorTests()

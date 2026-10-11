@@ -121,6 +121,7 @@ public static class DependencyInjection
         services.AddSingleton<IPasswordResetTokenStore, RedisPasswordResetTokenStore>();
         services.AddSingleton<IPasswordResetNotifier, PasswordResetEmailNotifier>();
         services.AddSingleton<IPasswordChangedNotifier, PasswordChangedEmailNotifier>();
+        services.AddSingleton<IAccountSuspensionLiftedNotifier, AccountSuspensionLiftedEmailNotifier>();
     }
 
     /// <summary>

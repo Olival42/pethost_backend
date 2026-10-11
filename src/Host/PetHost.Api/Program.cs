@@ -18,12 +18,15 @@ using PetHost.Modules.Auth.Presentation;
 using PetHost.Modules.Owners.Application;
 using PetHost.Modules.Owners.Infrastructure;
 using PetHost.Modules.Owners.Presentation;
+using PetHost.Modules.Hosts.Application;
 using PetHost.Modules.Hosts.Infrastructure;
+using PetHost.Modules.Hosts.Presentation;
 using PetHost.Modules.Pets.Application;
 using PetHost.Modules.Pets.Infrastructure;
 using PetHost.Modules.Pets.Presentation;
 using PetHost.Shared.Infrastructure.Email;
 using PetHost.Shared.Infrastructure.Http;
+using PetHost.Shared.Infrastructure.Identity;
 using PetHost.Shared.Infrastructure.RateLimiting;
 using PetHost.Shared.Infrastructure.Storage;
 using Serilog;
@@ -59,6 +62,7 @@ builder.Services
     .AddJsonOptions(json => ConfigureJson(json.JsonSerializerOptions))
     .AddAuthPresentation()
     .AddOwnersPresentation()
+    .AddHostsPresentation()
     .AddPetsPresentation()
     .AddAuditPresentation();
 
@@ -72,11 +76,14 @@ builder.Services.AddOpenApi(openApi => openApi.AddDocumentTransformer<BearerSecu
 // --- TimeProvider injetado: nenhum DateTime.UtcNow no domínio (§9) ---
 builder.Services.AddSingleton(TimeProvider.System);
 
-// --- E-mail: fila em memória + envio SMTP em segundo plano ---
+// --- E-mail: caixa de saída no Postgres + envio SMTP em segundo plano (com novas tentativas) ---
 builder.Services.AddEmail(builder.Configuration);
 
 // --- Imagens: bucket S3 compatível (R2 em produção, RustFS em desenvolvimento) ---
 builder.Services.AddImageStorage(builder.Configuration);
+
+// --- CPF identifica a pessoa: a mesma pessoa (e-mail) em tutor e anfitrião (restrição 9) ---
+builder.Services.AddCpfOwnership();
 
 // --- Módulo Audit (trilha de auditoria, usada pelos outros módulos) ---
 builder.Services.AddAuditApplication();
@@ -90,7 +97,8 @@ builder.Services.AddAuthInfrastructure(builder.Configuration);
 builder.Services.AddOwnersApplication();
 builder.Services.AddOwnersInfrastructure(builder.Configuration);
 
-// --- Módulo Hosts (anfitriões): por enquanto só a tabela e o contrato de leitura ---
+// --- Módulo Hosts (anfitriões): verificação de identidade aprovada pelo admin ---
+builder.Services.AddHostsApplication();
 builder.Services.AddHostsInfrastructure(builder.Configuration);
 
 // --- Módulo Pets ---
@@ -204,6 +212,9 @@ app.MapHealthChecks("/health/ready", new() { Predicate = check => check.Tags.Con
 
 // Migrations no startup só fora de produção; em produção é step do pipeline (§11).
 // O seed do admin é idempotente e roda sempre que estiver habilitado.
+await app.Services.InitializeEmailAsync(
+    applyMigrations: app.Environment.IsDevelopment());
+
 await app.Services.InitializeAuthModuleAsync(
     applyMigrations: app.Environment.IsDevelopment());
 
