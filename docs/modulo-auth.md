@@ -50,7 +50,7 @@ tests/                                      11 projetos de teste (seção 9)
 |---|---|
 | Domain | Regras do usuário. Sem EF, sem ASP.NET. |
 | Application | Orquestra os casos de uso. Fala com portas (`IPasswordHasher`, `IAccessTokenGenerator`, `IRefreshTokenStore`, `IPasswordResetTokenStore`, `IPasswordResetNotifier`, `IPasswordChangedNotifier`, `IAccountSuspensionLiftedNotifier`), não com implementações. |
-| Infrastructure | EF Core + Postgres, Argon2id, JWT, Redis, e-mail, seed. |
+| Infrastructure | EF Core + Postgres, Argon2id, JWT, Redis (conexão registrada pelo `Shared`, `AddRedis`, compartilhada com o Listings), e-mail, seed. |
 | Presentation | Rota → handler → `ToActionResult()`. Não conhece o Domain. |
 
 **Padrões usados:** Result pattern (sem exceção para regra de negócio), Repository + Unit of Work, Decorator (validação antes do handler), Ports & Adapters (portas na Application, adaptadores na Infrastructure), Value Object (`Email`, `Password`, `PasswordHash`, `FullName`, `PhoneNumber`, `AvatarUrl`, `StateCode`, `ZipCode`, `Address`), Factory (`User.Register`, `SessionResponseFactory`), Options pattern com validação na subida.

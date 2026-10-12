@@ -122,6 +122,7 @@ public sealed class ErrorCodeStatusMapperTests
     [InlineData("AUTH_REFRESH_TOKEN_INVALID", StatusCodes.Status401Unauthorized)]
     [InlineData("AUTH_ADMIN_REGISTRATION_FORBIDDEN", StatusCodes.Status403Forbidden)]
     [InlineData("PET_NOT_OWNED_BY_REQUESTER", StatusCodes.Status403Forbidden)]
+    [InlineData("LISTING_GEOCODER_UNAVAILABLE", StatusCodes.Status503ServiceUnavailable)]
     public void ToHttpStatusCode_Should_InferFromSuffix_When_CodeIsFromAModule(string code, int expected)
     {
         code.ToHttpStatusCode().Should().Be(expected);

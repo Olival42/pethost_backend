@@ -35,6 +35,10 @@
     <ProjectReference Include="..\..\src\Modules\Hosts\PetHost.Modules.Hosts.Application\PetHost.Modules.Hosts.Application.csproj" />
     <ProjectReference Include="..\..\src\Modules\Hosts\PetHost.Modules.Hosts.Infrastructure\PetHost.Modules.Hosts.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Modules\Hosts\PetHost.Modules.Hosts.Presentation\PetHost.Modules.Hosts.Presentation.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Listings\PetHost.Modules.Listings.Domain\PetHost.Modules.Listings.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Listings\PetHost.Modules.Listings.Application\PetHost.Modules.Listings.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Listings\PetHost.Modules.Listings.Infrastructure\PetHost.Modules.Listings.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Listings\PetHost.Modules.Listings.Presentation\PetHost.Modules.Listings.Presentation.csproj" />
   </ItemGroup>
 
 </Project>

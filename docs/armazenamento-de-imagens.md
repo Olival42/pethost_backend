@@ -1,6 +1,6 @@
 # Armazenamento de imagens
 
-Fotos de perfil, de pet e, no futuro, do anfitrião e do cantinho ficam num **bucket compatível com S3**:
+Fotos de perfil, de pet, do cantinho e, no futuro, do anfitrião ficam num **bucket compatível com S3**:
 
 | Ambiente | Onde | Como sobe |
 |---|---|---|
@@ -54,7 +54,7 @@ As peças genéricas, que servem a qualquer módulo:
 | `IImageStorage` | `Shared.Contracts/Storage` | Enviar (`SaveAsync`) e apagar (`DeleteAsync`) uma imagem. |
 | `IPrivateImageStorage` | `Shared.Contracts/Storage` | O mesmo no bucket **privado**, mais ler (`OpenAsync`). Guarda e devolve a **chave**, nunca URL (seção 8). |
 | `ImageReplacement` | `Shared.Contracts/Storage` | O fluxo inteiro de trocar/remover: enviar → gravar → apagar a anterior, ou desfazer. |
-| `ImageFolders` | `Shared.Contracts/Storage` | Pastas: `avatars`, `pets`, `hosts`, `listings` (as duas últimas já reservadas). |
+| `ImageFolders` | `Shared.Contracts/Storage` | Pastas: `avatars`, `pets`, `listings` (fotos do cantinho) e `hosts` (reservada). |
 | `ImageRules` / `ImageErrors` | `Shared.Contracts/Storage` | Limites e erros do arquivo, iguais em todo endpoint. |
 | `S3ImageStorage` | `Shared.Infrastructure/Storage` | Implementação S3 (AWS SDK), com a checagem do formato pelo conteúdo. |
 | `ImageMetadataStripper` | `Shared.Infrastructure/Storage` | Tira EXIF/XMP/IPTC e afins antes de gravar (seção 3.1). Usado pelos dois buckets. |
@@ -223,7 +223,7 @@ Exemplo: foto do anfitrião (`hosts`) ou fotos do cantinho (`listing_photos`). N
 2. **Application:** dois comandos, `ChangeXPhoto(…, ImageUpload? Image)` e `RemoveXPhoto(…)`, com validador trivial. O handler:
    1. carrega a entidade e confere a posse (sem isso, um estranho envia arquivos ao bucket);
    2. chama `ImageReplacement.ReplaceAsync(storage, image, ImageFolders.Hosts, apply, ct)`, onde `apply` grava a URL e devolve `ImageChange(resposta, urlAnterior)`. Veja `PetPhoto.SetAsync`.
-   Para várias fotos (o cantinho tem até 5), o `apply` adiciona uma linha em `listing_photos`; remover uma foto é `RemoveAsync` com a URL daquela linha.
+   Para várias fotos (o cantinho tem até 5), o `apply` adiciona uma linha em `listing_photos`; remover uma foto é `RemoveAsync` com a URL daquela linha. **Feito** no módulo Listings, com reordenação (`PUT /listings/{id}/photos/order`) — [`modulo-listings.md`](modulo-listings.md) seção 6.
    Para várias fotos (como o pet, até 3), siga `pet_photos`: tabela própria com vaga única por dono e `content_hash` único por dono (sem foto repetida), `POST` adiciona, `PATCH .../{photoId}` substitui (devolve a URL anterior para apagar), `DELETE .../{photoId}` tira.
 3. **Presentation:** a action com `[ImageUploadEndpoint]` e o parâmetro `IFormFile? file`, chamando `file.ToImageUpload()`.
 4. **Corpo JSON:** não aceite a URL da foto no cadastro nem no PATCH.

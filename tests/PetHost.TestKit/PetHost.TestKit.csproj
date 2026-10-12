@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Modules\Auth\PetHost.Modules.Auth.Domain\PetHost.Modules.Auth.Domain.csproj" />
     <ProjectReference Include="..\..\src\Modules\Pets\PetHost.Modules.Pets.Domain\PetHost.Modules.Pets.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Listings\PetHost.Modules.Listings.Domain\PetHost.Modules.Listings.Domain.csproj" />
   </ItemGroup>
 
   <ItemGroup>

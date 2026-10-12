@@ -2,7 +2,7 @@ namespace PetHost.Shared.Contracts.Hosts;
 
 /// <summary>
 /// Contrato público de leitura do módulo Hosts (§5). Outro módulo que guarda o id do
-/// anfitrião — o Pets, nos pets da casa — usa isto para achar o anfitrião da conta logada
+/// anfitrião — o Pets, nos pets da casa; o Listings, nos cantinhos — usa isto para achar o anfitrião da conta logada
 /// e para conferir anfitriões, sem referenciar o Hosts nem fazer JOIN entre schemas.
 /// </summary>
 public interface IHostDirectory
@@ -14,6 +14,12 @@ public interface IHostDirectory
     Task<IReadOnlyList<HostReference>> GetByIdsAsync(
         IReadOnlyCollection<Guid> hostIds,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Ids dos anfitriões que não podem aparecer para os outros: inativos ou suspensos. A busca
+    /// de cantinhos tira estes da lista. São poucos — a maioria está ativa.
+    /// </summary>
+    Task<IReadOnlyList<Guid>> GetUnavailableIdsAsync(CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -22,4 +28,15 @@ public interface IHostDirectory
 /// </summary>
 /// <param name="PersonType"><c>pf</c> (pessoa física) ou <c>pj</c> (pessoa jurídica).</param>
 /// <param name="TradeName">Nome fantasia, só de empresa. Pessoa física usa o nome da conta.</param>
-public sealed record HostReference(Guid Id, Guid UserId, string PersonType, string? TradeName, bool IsActive);
+/// <param name="IsSuspended">Suspenso pelo admin. Diferente de inativo: só o admin tira.</param>
+public sealed record HostReference(Guid Id, Guid UserId, string PersonType, string? TradeName, bool IsActive, bool IsSuspended = false)
+{
+    /// <summary>Valor de <see cref="PersonType"/> da pessoa jurídica.</summary>
+    public const string CompanyPersonType = "pj";
+
+    /// <summary>Pessoa jurídica (empresa).</summary>
+    public bool IsCompany => PersonType == CompanyPersonType;
+
+    /// <summary>Pode aparecer para os outros: ativo e sem suspensão.</summary>
+    public bool IsAvailable => IsActive && !IsSuspended;
+}

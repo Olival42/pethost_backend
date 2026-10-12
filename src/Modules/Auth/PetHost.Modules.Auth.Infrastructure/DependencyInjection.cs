@@ -23,10 +23,10 @@ using PetHost.Modules.Auth.Infrastructure.Persistence.Repositories;
 using PetHost.Modules.Auth.Infrastructure.Persistence.Seed;
 using PetHost.Modules.Auth.Infrastructure.Security;
 using PetHost.Shared.Contracts.Accounts;
+using PetHost.Shared.Infrastructure.Redis;
 using PetHost.Shared.Infrastructure.Validation;
 using PetHost.Shared.Kernel.Messaging;
 using PetHost.Shared.Kernel.Primitives;
-using StackExchange.Redis;
 
 namespace PetHost.Modules.Auth.Infrastructure;
 
@@ -36,8 +36,8 @@ public static class DependencyInjection
     /// <summary>Nome da connection string do Postgres.</summary>
     public const string PostgresConnectionName = "Postgres";
 
-    /// <summary>Nome da connection string do Redis.</summary>
-    public const string RedisConnectionName = "Redis";
+    /// <summary>Nome da connection string do Redis (a conexão é registrada pelo <c>Shared</c>).</summary>
+    public const string RedisConnectionName = RedisServiceCollectionExtensions.ConnectionName;
 
     public static IServiceCollection AddAuthInfrastructure(
         this IServiceCollection services,
@@ -106,13 +106,8 @@ public static class DependencyInjection
 
     private static void AddAuthSecurity(this IServiceCollection services, IConfiguration configuration)
     {
-        var redisConnectionString = configuration.GetConnectionString(RedisConnectionName)
-            ?? throw new InvalidOperationException(
-                $"Connection string '{RedisConnectionName}' is not configured.");
-
-        // Um multiplexer por processo: a própria biblioteca recomenda reusar a conexão.
-        services.AddSingleton<IConnectionMultiplexer>(
-            _ => ConnectionMultiplexer.Connect(redisConnectionString));
+        // Um multiplexer por processo, compartilhado com os outros módulos.
+        services.AddRedis(configuration);
 
         services.AddSingleton<IPasswordHasher, Argon2PasswordHasher>();
         services.AddSingleton<IAccessTokenGenerator, JwtAccessTokenGenerator>();

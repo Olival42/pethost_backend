@@ -24,6 +24,9 @@ using PetHost.Modules.Hosts.Presentation;
 using PetHost.Modules.Pets.Application;
 using PetHost.Modules.Pets.Infrastructure;
 using PetHost.Modules.Pets.Presentation;
+using PetHost.Modules.Listings.Application;
+using PetHost.Modules.Listings.Infrastructure;
+using PetHost.Modules.Listings.Presentation;
 using PetHost.Shared.Infrastructure.Email;
 using PetHost.Shared.Infrastructure.Http;
 using PetHost.Shared.Infrastructure.Identity;
@@ -64,6 +67,7 @@ builder.Services
     .AddOwnersPresentation()
     .AddHostsPresentation()
     .AddPetsPresentation()
+    .AddListingsPresentation()
     .AddAuditPresentation();
 
 // O mesmo serializador vale para o que não passa pelo MVC — o handler global de
@@ -104,6 +108,10 @@ builder.Services.AddHostsInfrastructure(builder.Configuration);
 // --- Módulo Pets ---
 builder.Services.AddPetsApplication();
 builder.Services.AddPetsInfrastructure(builder.Configuration);
+
+// --- Módulo Listings (cantinhos): cadastro, fotos e busca por raio (geocodificação no Nominatim) ---
+builder.Services.AddListingsApplication();
+builder.Services.AddListingsInfrastructure(builder.Configuration);
 
 // --- Autenticação ---
 var jwtOptions = builder.Configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>()
@@ -228,6 +236,9 @@ await app.Services.InitializeHostsModuleAsync(
     applyMigrations: app.Environment.IsDevelopment());
 
 await app.Services.InitializePetsModuleAsync(
+    applyMigrations: app.Environment.IsDevelopment());
+
+await app.Services.InitializeListingsModuleAsync(
     applyMigrations: app.Environment.IsDevelopment());
 
 await app.RunAsync();

@@ -37,6 +37,9 @@ public static class ErrorCodeStatusMapper
         ("_DEACTIVATED", StatusCodes.Status403Forbidden),
         ("_SUSPENDED", StatusCodes.Status403Forbidden),
         ("_NOT_OWNED_BY_REQUESTER", StatusCodes.Status403Forbidden),
+
+        // Serviço externo fora do ar (ex.: o geocodificador): tente de novo depois.
+        ("_UNAVAILABLE", StatusCodes.Status503ServiceUnavailable),
     ];
 
     public static int ToHttpStatusCode(this string errorCode)
