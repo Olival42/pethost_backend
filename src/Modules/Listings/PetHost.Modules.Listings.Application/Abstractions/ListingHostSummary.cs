@@ -8,4 +8,8 @@ namespace PetHost.Modules.Listings.Application.Abstractions;
 /// <param name="Name">Nome da conta; empresa mostra o nome fantasia.</param>
 /// <param name="IsCompany">Pessoa jurídica.</param>
 /// <param name="IsAvailable">Ativo e sem suspensão.</param>
-public sealed record ListingHostSummary(Guid Id, string Name, string? AvatarUrl, bool IsCompany, bool IsAvailable);
+/// <param name="PayoutsEnabled">
+/// O Stripe liberou os repasses do anfitrião. Sem isso os cantinhos dele não aparecem para os
+/// outros — o próprio anfitrião vê <c>false</c> enquanto o cadastro de recebimento não termina.
+/// </param>
+public sealed record ListingHostSummary(Guid Id, string Name, string? AvatarUrl, bool IsCompany, bool IsAvailable, bool PayoutsEnabled = false);

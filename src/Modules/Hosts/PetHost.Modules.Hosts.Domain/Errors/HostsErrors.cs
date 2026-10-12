@@ -93,6 +93,9 @@ public static class HostsErrors
     public static readonly Error StatusFilterInvalid =
         Error.Validation("status", $"Status must be one of: {string.Join(", ", HostApplicationStatusValues.All)}.");
 
+    public static readonly Error StripeStatusFilterInvalid =
+        Error.Validation("stripeStatus", $"Stripe status must be one of: {string.Join(", ", StripeOnboardingStatusValues.All)}.");
+
     public static readonly Error PersonTypeInvalid =
         Error.Validation("personType", $"Person type must be one of: {PersonTypeValues.Individual}, {PersonTypeValues.Company}.");
 
@@ -186,6 +189,36 @@ public static class HostsErrors
     /// <summary>422: o CPF/CNPJ deste anfitrião foi liberado; a suspensão não sai mais.</summary>
     public static readonly Error IdentityReleased =
         new("HOST_IDENTITY_RELEASED", "This host's CPF/CNPJ was released, so the suspension cannot be lifted.");
+
+    // --- Cadastro de recebimento (Stripe Connect) ---
+
+    /// <summary>422: anfitrião inativo ou suspenso não abre nem mexe no cadastro de recebimento.</summary>
+    public static readonly Error StripeOnboardingNotAllowed =
+        new("HOST_STRIPE_ONBOARDING_NOT_ALLOWED", "The payout setup is only available to an active host that is not suspended.");
+
+    /// <summary>422: o Stripe recusou a conta de vez; só o suporte (admin) libera uma nova tentativa.</summary>
+    public static readonly Error StripeAccountRejected =
+        new("HOST_STRIPE_ACCOUNT_REJECTED", "Stripe did not approve your payout account. Contact support to continue.");
+
+    /// <summary>422: desligar a conta conectada só vale para conta recusada pelo Stripe.</summary>
+    public static readonly Error StripeAccountNotRejected =
+        new("HOST_STRIPE_ACCOUNT_NOT_REJECTED", "Only a Stripe account rejected by Stripe can be reset.");
+
+    /// <summary>404: o anfitrião ainda não abriu o cadastro de recebimento (não há conta conectada).</summary>
+    public static readonly Error StripeAccountNotFound =
+        new("HOST_STRIPE_ACCOUNT_NOT_FOUND", "This host has not started the payout setup yet.");
+
+    /// <summary>409: o anfitrião já tem outra conta conectada (ou a conta já é de outro anfitrião).</summary>
+    public static readonly Error StripeAccountAlreadyLinked =
+        new("HOST_STRIPE_ACCOUNT_ALREADY_EXISTS", "This host is already linked to another Stripe account. Contact support to change it.");
+
+    /// <summary>422: o Stripe recusou os dados enviados (ex.: CPF ou endereço que ele não aceita).</summary>
+    public static readonly Error StripeRequestRejected =
+        new("HOST_STRIPE_REQUEST_REJECTED", "Stripe did not accept the payout setup with the data on this account. Check your profile data or contact support.");
+
+    /// <summary>503: o Stripe está fora do ar, lento ou não configurado neste servidor. Tente de novo depois.</summary>
+    public static readonly Error StripeUnavailable =
+        new("HOST_STRIPE_UNAVAILABLE", "The payment provider is unavailable right now. Try again in a few minutes.");
 
     /// <summary>404: não existe anfitrião com esse id.</summary>
     public static Error NotFound(HostId id) =>

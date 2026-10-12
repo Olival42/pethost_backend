@@ -92,6 +92,28 @@ public sealed class GetListingByIdQueryHandlerTests
         // Assert
         result.FirstError.Should().Be(ListingsErrors.NotFound(listing.Id));
     }
+
+    [Fact]
+    public async Task HandleAsync_Should_HideFromOthersButShowToTheOwner_When_StripeHasNotEnabledPayouts()
+    {
+        // Arrange: anfitrião aprovado pelo admin, mas o Stripe ainda não liberou os repasses.
+        var hosts = ListingsTestData.Hosts();
+        hosts
+            .Setup(h => h.GetSummariesAsync(It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<Guid, ListingHostSummary>
+            {
+                [ListingsTestData.IndividualHostId] = new(ListingsTestData.IndividualHostId, "Dona Cida", null, IsCompany: false, IsAvailable: true, PayoutsEnabled: false),
+            });
+        var sut = new GetListingByIdQueryHandler(_repository.Object, hosts.Object);
+
+        // Act
+        var byOwner = await sut.HandleAsync(new GetListingByIdQuery(ListingsTestData.OwnerUserId, Roles.Owner, _listing.Id.Value), CancellationToken.None);
+        var byHost = await sut.HandleAsync(new GetListingByIdQuery(ListingsTestData.IndividualUserId, Roles.Host, _listing.Id.Value), CancellationToken.None);
+
+        // Assert
+        byOwner.FirstError.Should().Be(ListingsErrors.NotFound(_listing.Id));
+        byHost.Value!.Host!.PayoutsEnabled.Should().BeFalse("o anfitrião vê que falta o cadastro de recebimento");
+    }
 }
 
 public sealed class ListMyListingsQueryHandlerTests

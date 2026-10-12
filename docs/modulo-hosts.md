@@ -4,6 +4,8 @@ _Documento do que foi implementado · outubro de 2026 · complementa o [`PROJECT
 
 O anfitrião — pessoa física ou empresa — é verificado por **aprovação manual do admin**: a pessoa cria a conta, abre uma **solicitação de cadastro** com CPF, tipo de documento, três fotos (na empresa, do representante legal, mais os dados da empresa) (frente, verso e selfie segurando o documento), e o admin confere e aprova ou recusa. O perfil de anfitrião (`host.hosts`) **só nasce na aprovação**: a tabela tem apenas gente verificada. As fotos ficam num **bucket privado** e são apagadas depois da decisão.
 
+Depois da aprovação vem o **cadastro de recebimento** (onboarding do Stripe Connect): a conta conectada é criada já preenchida com os dados conferidos, a pessoa completa no Stripe, e o anfitrião só fica **disponível** — cantinhos na busca — quando o Stripe libera os repasses (seção 9).
+
 ## Sumário
 
 1. [Fluxo](#1-fluxo)
@@ -37,7 +39,11 @@ POST /hosts/me/application ──▶ draft ──PUT .../documents/{front|back|s
    │                        cria o perfil em hosts      motivo + nova tentativa    suspected_fraud:
    │                        e-mail "aprovado"           (até 3 recusas)            sem nova tentativa
    ▼
-Depois da aprovação: onboarding do Stripe Connect → cantinho (próximos passos)
+Depois da aprovação: cadastro de recebimento no Stripe (seção 9)
+   │   POST /hosts/me/stripe-account/onboarding-session (ou /onboarding-link)
+   │   → conta conectada criada e preenchida → a pessoa completa no Stripe
+   ▼
+Stripe libera os repasses (webhook account.updated) → cantinhos aparecem na busca
 ```
 
 Em toda decisão (e na desistência) as fotos são apagadas conforme o prazo de guarda (padrão: na hora).
@@ -70,16 +76,21 @@ src/Modules/Hosts/
 │                    ListHostApplications, GetHostApplicationById, GetHostApplicationDocument,
 │                    ApproveHostApplication, RejectHostApplication, PurgeHostApplications, GetMyHost,
 │                    UpdateMyHost, Change/RemoveMyHostAvatar, DeactivateMyHost, ReactivateHost,
-│                    SuspendHost (suspender, tirar, liberar CPF/CNPJ), GetHostById, ListHosts
-│                    + portas IHostAccounts, IHostApplicationNotifier, IHostVerificationPolicy
+│                    SuspendHost (suspender, tirar, liberar CPF/CNPJ), GetHostById, ListHosts,
+│                    GetMyStripeAccount, StartMyStripeOnboarding, CreateMyStripeOnboardingLink,
+│                    SyncMyStripeAccount, SyncStripeAccount (webhook), HostPayoutSetup
+│                    + portas IHostAccounts, IHostApplicationNotifier, IHostVerificationPolicy,
+│                    IStripeConnect, IHostPayoutsNotifier
 ├── Infrastructure/  HostsDbContext (schema host), migrations, repositórios, UoW (xmin + índices únicos),
-│                    e-mail da decisão, tarefa de limpeza (BackgroundService), seed de demonstração
+│                    e-mail da decisão, tarefa de limpeza (BackgroundService), seed de demonstração,
+│                    Payouts/ (StripeConnectGateway, HostAccountUpdatedWebhookHandler), e-mail "recebimento liberado"
 └── Presentation/    HostsController (/hosts/me, verificação), HostProfileController (perfil, foto, status),
-                     HostsAdminController (/hosts, admin), HostApplicationsController (/host-applications, admin)
+                     HostStripeAccountController (/hosts/me/stripe-account), HostsAdminController (/hosts, admin),
+                     HostApplicationsController (/host-applications, admin)
 tests/Modules/Hosts/  Domain.UnitTests, Application.UnitTests, IntegrationTests
 ```
 
-Mesmas regras de camada do §4. `PetHost.ArchitectureTests` (`HostsModuleBoundaryTests`) garante que o Hosts não referencia nenhum outro módulo: a conta vem do Auth por `IUserDirectory`/`IAccountRegistrar`, a trilha por `IAuditTrail`, as fotos por `IPrivateImageStorage`.
+Mesmas regras de camada do §4. `PetHost.ArchitectureTests` (`HostsModuleBoundaryTests`) garante que o Hosts não referencia nenhum outro módulo: a conta vem do Auth por `IUserDirectory`/`IAccountRegistrar`, a trilha por `IAuditTrail`, as fotos por `IPrivateImageStorage`, o Stripe pelo `IStripeClientProvider` e o webhook pelo `IStripeWebhookHandler` (os dois em `Shared.Infrastructure/Stripe`).
 
 ## 3. Endpoints
 
@@ -107,13 +118,24 @@ Anfitrião verificado (seção 4.2):
 | `DELETE` | `/api/v1/hosts/me/avatar` | anfitrião | Tira a foto de perfil. Idempotente | `200` |
 | `POST` | `/api/v1/hosts/me/deactivate` | anfitrião | Inativa perfil e conta (sessões caem na hora) | `200` |
 | `POST` | `/api/v1/hosts/reactivate` | anônimo | Reativa conta e perfil com e-mail e senha; já com sessão | `200` |
-| `GET` | `/api/v1/hosts` | admin | Todos os anfitriões, com a conta | `200` |
+| `GET` | `/api/v1/hosts` | admin | Todos os anfitriões, com a conta. `?stripeStatus=` filtra pela situação do cadastro de recebimento (ex.: `in_progress`, `rejected`; valor desconhecido: `400` em `stripeStatus`) | `200` |
 | `GET` | `/api/v1/hosts/{hostId}` | admin | Um anfitrião, pelo id do anfitrião | `200` |
 | `POST` | `/api/v1/hosts/{hostId}/suspension` | admin | Suspende perfil e conta, com motivo | `200` |
 | `DELETE` | `/api/v1/hosts/{hostId}/suspension` | admin | Tira a suspensão | `200` |
 | `POST` | `/api/v1/hosts/{hostId}/identity-release` | admin | Libera o CPF/CNPJ de um anfitrião suspenso (disputa), com motivo | `200` |
+| `POST` | `/api/v1/hosts/{hostId}/stripe-account-reset` | admin | Desliga a conta do Stripe **recusada** (`rejected`) para o anfitrião cadastrar o recebimento de novo, com motivo. Outra situação: `422 HOST_STRIPE_ACCOUNT_NOT_REJECTED` | `200` |
 
-Rate limit: as rotas do anfitrião usam a política `account-update` (20 a cada 15 min por usuário); inativar usa `account-sensitive`; reativar, `credentials`.
+Cadastro de recebimento (seção 9):
+
+| Método | Rota | Acesso | O que faz | Sucesso |
+|---|---|---|---|---|
+| `GET` | `/api/v1/hosts/me/stripe-account` | anfitrião | Situação gravada: `status`, `payoutsEnabled`, `disabledReason`, `listingsVisible`… (não chama o Stripe) | `200` |
+| `POST` | `/api/v1/hosts/me/stripe-account/onboarding-session` | anfitrião | Cria a conta conectada na 1ª vez e abre a sessão do componente **embutido** (`clientSecret`, `publishableKey`, `expiresAt`) | `200` |
+| `POST` | `/api/v1/hosts/me/stripe-account/onboarding-link` | anfitrião | Igual, pela página **hospedada** do Stripe (`url`, `expiresAt`) | `200` |
+| `POST` | `/api/v1/hosts/me/stripe-account/synchronization` | anfitrião | Relê a conta no Stripe agora (o app chama ao voltar do cadastro) | `200` |
+| `POST` | `/api/v1/stripe/webhooks` | Stripe (assinatura) | Webhooks do Stripe; o Hosts trata `account.updated` | `200` |
+
+Rate limit: as rotas do anfitrião usam a política `account-update` (20 a cada 15 min por usuário); inativar usa `account-sensitive`; reativar, `credentials`. O webhook fica fora do rate limit (quem prova a origem é a assinatura).
 
 ### 3.1 Abrir — `POST /api/v1/hosts/me/application`
 
@@ -265,6 +287,18 @@ Mesmo molde do tutor ([`modulo-owners.md`](modulo-owners.md) seções 3.3 a 3.7)
 - **Liberar CPF/CNPJ** (admin, com motivo, só de suspenso — `422 HOST_SUSPENSION_REQUIRED`): pessoa física libera o CPF; empresa, o CNPJ e o CPF do representante. Diferente do tutor, os valores **ficam no perfil como evidência** (`identity_released_at`), mas deixam de contar: os índices únicos ignoram o perfil liberado e o `ICpfOwnership` também. A suspensão desse perfil não sai mais (`422 HOST_IDENTITY_RELEASED`).
 - **Trilha:** `host.updated` (campos da empresa, pelo nome), `host.deactivated`, `host.reactivated`, `host.suspended`, `host.suspension_lifted`, `host.identity_released` (CPF mascarado, CNPJ), `host.viewed` e `host.listed` (leitura do admin). Os dados da conta ficam com o Auth (`account.profile_updated`).
 
+### 4.3 Cadastro de recebimento (Stripe Connect)
+
+- **Ordem fixa:** verificação (admin) → cadastro de recebimento (Stripe) → anfitrião disponível. Sem perfil verificado, as rotas respondem `404 HOST_NOT_FOUND`: não existe conta conectada de quem ainda pode ser recusado.
+- **Só anfitrião ativo e sem suspensão** abre ou continua o cadastro (`422 HOST_STRIPE_ONBOARDING_NOT_ALLOWED`).
+- **Uma conta conectada por anfitrião** (domínio + `uq_hosts_stripe_account_id`). A 2ª abertura reaproveita a conta e só cria uma sessão nova. Trocar de conta: `409 HOST_STRIPE_ACCOUNT_ALREADY_EXISTS` (pelo suporte).
+- **Disponível = ativo + sem suspensão + `stripe_payouts_enabled`** (`Host.IsListable`). É o que a busca e o detalhe público de cantinhos usam (`IHostDirectory.GetUnavailableIdsAsync`). **Cantinho só depois do Stripe:** criar cantinho exige os repasses liberados (`422 LISTING_HOST_PAYOUTS_NOT_ENABLED`, [`modulo-listings.md`](modulo-listings.md)). Se o Stripe bloquear depois, os cantinhos já criados ficam com o anfitrião, mas somem da busca até resolver.
+- **Situação** (`status`, calculada do espelho): `not_started` (sem conta) → `in_progress` (cadastro incompleto) → `under_review` (enviado; o Stripe confere — `disabled_reason` vazio, `requirements.pending_verification` ou `under_review`) → `enabled` (repasses liberados). `restricted`: o Stripe bloqueou e pede algo (`disabledReason` diz o quê). `rejected`: o Stripe recusou a conta de vez (`disabledReason` = `rejected.*`: fraude, termos, lista de restrição) — a pessoa não resolve sozinha. Também vem em `GET /hosts/me` (`stripeStatus`).
+- **Quando o cadastro não anda** (seção 9.1): uma tarefa em segundo plano relê no Stripe quem ainda não recebe (webhook perdido) e manda **lembretes** por e-mail nos dias 3 e 7 (depois de abrir o cadastro; quem nem abriu, depois da aprovação). Não lembra quem está em análise nem quem foi recusado. O admin acha quem travou com `GET /hosts?stripeStatus=in_progress`.
+- **Recusa do Stripe (`rejected`):** trilha `host.stripe_account_rejected`, e-mail ao anfitrião ("fale com o suporte") e alerta ao admin (`HostPayouts:AdminAlertEmail`), uma vez só. O admin decide se suspende o anfitrião (seção 4.2). A conta recusada não é mais relida nem lembrada, e o anfitrião não abre mais o cadastro (`422 HOST_STRIPE_ACCOUNT_REJECTED`, "fale com o suporte").
+- **Nova chance (admin):** recusa por engano ou dado digitado errado → `POST /hosts/{hostId}/stripe-account-reset` com motivo. A conta recusada fica no histórico (`stripe_rejected_account_id` e trilha `host.stripe_account_reset`), o anfitrião volta para `not_started` e a próxima abertura do cadastro cria **outra** conta no Stripe (a chave de idempotência leva o número de tentativas, `stripe_account_resets`). Ela vem preenchida de novo com os dados do PetHost; o que estava errado a pessoa corrige no formulário do Stripe — ou, se o erro está no PetHost, antes, pelo `PATCH /hosts/me` (telefone, endereço) ou pelo suporte (nome, nascimento, CPF, que são travados). Fraude (`rejected.fraud`) pede suspensão, não nova chance.
+- **Trilha:** `host.stripe_account_created`, `host.stripe_payouts_enabled` (com e-mail ao anfitrião: "sua conta de recebimento foi aprovada") `host.stripe_payouts_disabled` (com o `disabledReason`), `host.stripe_account_rejected` (com o `disabledReason`) e `host.stripe_reminder_sent` (com a situação e o número do lembrete).
+
 ## 5. Fotos e privacidade (LGPD)
 
 | Medida | Como |
@@ -286,7 +320,7 @@ Mesmo molde do tutor ([`modulo-owners.md`](modulo-owners.md) seções 3.3 a 3.7)
 
 ## 6. Banco
 
-Schema `host`. Migrations: `CreateHostsTable`, `AddHostApplications`.
+Schema `host`. Migrations: `CreateHostsTable`, `AddHostApplications`, `AddStripeOnboardingTracking`, `AddStripeAccountReset`. O espelho `stripe_*` e o índice único `uq_hosts_stripe_account_id` (usado também na busca do webhook pelo `acct_...`) já existiam; `AddStripeOnboardingTracking` acrescentou o acompanhamento dos lembretes — `stripe_account_created_at` (quando o cadastro foi aberto; contas que já existiam recebem `updated_at`), `stripe_reminders_sent` (padrão `0`) e `stripe_reminded_at`; `AddStripeAccountReset`, o reset do admin — `stripe_rejected_account_id` (a conta recusada desligada, histórico) e `stripe_account_resets` (padrão `0`).
 
 ```sql
 CREATE TABLE host.host_applications (
@@ -357,6 +391,16 @@ dotnet dotnet-ef migrations add <Nome> --project src/Modules/Hosts/PetHost.Modul
 | `HostVerification:PurgeEnabled` | — | `true` | Liga a limpeza em segundo plano (os testes desligam). |
 | `HostVerification:PurgeIntervalMinutes` | — | `60` | Intervalo da limpeza. |
 | `Seed:DemoHost:*` | `SEED_DEMO_HOST_*` | desligado | Seção 8. |
+| `Stripe:SecretKey` | `STRIPE_SECRET_KEY` | vazio | Chave secreta **de teste** (`sk_test_...`). Vazia: a API sobe, mas o cadastro de recebimento responde `503 HOST_STRIPE_UNAVAILABLE`. |
+| `Stripe:PublishableKey` | `STRIPE_PUBLISHABLE_KEY` | vazio | `pk_test_...`; vai na resposta da sessão embutida. |
+| `Stripe:WebhookSecret` | `STRIPE_WEBHOOK_SECRET` | vazio | `whsec_...` do destino do webhook. Vazio: o webhook responde `503 STRIPE_WEBHOOK_UNAVAILABLE`. |
+| `Stripe:ConnectWebhookSecret` | `STRIPE_CONNECT_WEBHOOK_SECRET` | vazio | Segredo do destino "contas conectadas", se for separado no Dashboard. Vazio = vale o de cima. |
+| `HostPayouts:MaintenanceEnabled` | — | `true` | Liga a manutenção do cadastro de recebimento (os testes desligam). |
+| `HostPayouts:MaintenanceIntervalMinutes` | `HOST_PAYOUTS_MAINTENANCE_INTERVAL_MINUTES` | `60` | Intervalo da rodada (releitura no Stripe + lembretes). |
+| `HostPayouts:ReminderDays` | `HOST_PAYOUTS_REMINDER_DAYS` | `3,7` | Dias de cada lembrete, separados por vírgula (texto, não lista: o binder soma itens a lista com padrão). Vazio = sem lembrete. |
+| `HostPayouts:EnabledResyncHours` | — | `24` | De quanto em quanto tempo quem já recebe é relido (bloqueio cujo webhook se perdeu). |
+| `HostPayouts:AdminAlertEmail` | `HOST_PAYOUTS_ADMIN_ALERT_EMAIL` | vazio | Quem recebe o alerta de conta recusada pelo Stripe. Vazio = só trilha e filtro. |
+| `Stripe:ConnectReturnUrl` / `:ConnectRefreshUrl` | `STRIPE_CONNECT_RETURN_URL` / `_REFRESH_URL` | `http://localhost:3000/anfitriao/recebimentos?stripe=...` | Para onde o Stripe devolve no fim do onboarding hospedado / quando o link venceu. Fixos na configuração (nunca do cliente: seria redirecionamento aberto). |
 
 Configuração inválida (prazo negativo, intervalo zero, bucket privado igual ao público) **derruba a subida**.
 
@@ -376,23 +420,71 @@ SEED_DEMO_HOST_STRIPE_ACCOUNT_ID=acct_...   # opcional: conta conectada criada n
 - Idempotente pelo e-mail; nunca troca a senha de uma conta que já existe. Se o perfil não puder ser gravado, a conta é desfeita.
 - Nome, telefone, nascimento e endereço têm padrão fictício (`Seed:DemoHost:FullName`, `:Phone`, `:BirthDate`, `:ZipCode`, `:Street`, `:Number`, `:Neighborhood`, `:City`, `:State`).
 - **Só dados fictícios.** Com Stripe em modo de teste, a conta conectada também é de teste.
+- Com `SEED_DEMO_HOST_STRIPE_ACCOUNT_ID` e `STRIPE_SECRET_KEY`, o seed lê a situação da conta no Stripe logo depois de criar o anfitrião: conta de teste já aprovada põe os cantinhos na busca na hora, sem esperar webhook. Stripe fora do ar ou sem chave: só fica no log.
 
 ## 9. Stripe
 
-Ordem: **verificação (admin) → onboarding do Stripe Connect → cantinho**. O onboarding só é liberado depois da aprovação, para não criar conta conectada de quem será recusado. O cantinho aparece na busca com anfitrião verificado + `stripe_payouts_enabled` + cantinho ativo. O cantinho já existe ([`modulo-listings.md`](modulo-listings.md)): pessoa física tem um, empresa tem um por filial; enquanto o onboarding do Stripe não existe, a busca filtra só anfitrião ativo e sem suspensão.
+Ordem: **verificação (admin) → cadastro de recebimento (Stripe Connect) → anfitrião disponível**. O cadastro só abre depois da aprovação (o `Host` só existe aprovado), para não criar conta conectada de quem será recusado; o anfitrião só fica disponível — cantinhos na busca e no detalhe público — quando o Stripe libera os repasses (`stripe_payouts_enabled`). Regras na seção 4.3.
 
-- `Host.LinkStripeAccount` guarda o `acct_...` (usado hoje pelo seed; amanhã pelo módulo de pagamentos no onboarding).
-- O webhook `account.updated` atualizará o espelho (`stripe_*`) — responsabilidade do módulo de pagamentos, ainda não implementado.
-- Pessoa física → `individual` com nome, nascimento, CPF (`id_number`), telefone e endereço da conta. O que o Stripe pedir além disso é coletado no onboarding dele.
-- Pessoa jurídica → `company` com razão social (`company.name`), CNPJ (`tax_id`), endereço da empresa e telefone, mais o **representante** (`relationship.representative`) com os dados da conta e o CPF da solicitação.
+```
+anfitrião aprovado ──POST .../onboarding-session──▶ cria a conta conectada (1ª vez, preenchida)
+                                                    + sessão do componente embutido
+        app abre o componente account-onboarding (Connect.js) e a pessoa completa no Stripe
+                                    │
+          Stripe ──webhook account.updated──▶ POST /api/v1/stripe/webhooks
+                                    │          (assinatura conferida; a conta é RELIDA na API)
+                                    ▼
+          espelho stripe_* gravado ── payouts_enabled? ──▶ cantinhos na busca + e-mail + trilha
+```
+
+**Conta conectada** (`StripeConnectGateway`): criada pela **Accounts v2** (`POST /v2/core/accounts`) — o Stripe recusa a criação pela v1 em integração nova ("Stripe no longer recommends Accounts v1 for new Connect integrations"). Configuração **`recipient`** com `stripe_balance.stripe_transfers` (cobrança e transferência separadas: o PetHost cobra o tutor e transfere ao anfitrião) e **`merchant`** com `card_payments` — numa conta brasileira o Stripe não libera `stripe_transfers` sem ela —, `dashboard = express` (o anfitrião tem o painel simples do Stripe para ver os repasses), `identity.country = BR`. Taxas do Stripe e perdas (estorno, chargeback) com a plataforma (`defaults.responsibilities.fees_collector` e `losses_collector` = `application`, obrigatório com o painel Express). `display_name` = nome da pessoa ou nome fantasia; metadados `host_id` e `user_id`. Criada com **chave de idempotência** pelo id do anfitrião: clique duplo ou nova tentativa devolvem a mesma conta.
+
+O resto continua nos endpoints **v1**, que o Stripe mantém compatíveis com contas v2: leitura da conta (`GET /v1/accounts/{id}`, de onde vêm `details_submitted`, `charges_enabled`, `payouts_enabled` e `requirements.disabled_reason`), sessão do componente embutido (`/v1/account_sessions`), link hospedado (`/v1/account_links`), representante da empresa (`/v1/accounts/{id}/persons`) e o webhook v1 `account.updated` (escopo "contas conectadas"). Os eventos v2 (`v2.core.account[...]`, "thin") ficam para quando precisarmos.
+
+**Pré-preenchimento** (a pessoa não digita de novo o que o PetHost já conferiu):
+
+- Pessoa física → `identity.entity_type = individual` e `identity.individual` com nome (`given_name` = primeiro nome, `surname` = sobrenomes), nascimento (`date_of_birth`), CPF (`id_numbers: [{ type: br_cpf }]`), e-mail, telefone (`+55` + DDD + número) e endereço da conta (`line1` = rua + número, `line2` = complemento, CEP `00000-000`).
+- Pessoa jurídica → `identity.entity_type = company` e `identity.business_details` com razão social (`registered_name`), CNPJ (`id_numbers: [{ type: br_cnpj }]`), telefone e endereço da empresa; nome fantasia em `display_name`; e o **representante** como `person` (`relationship.representative`) com os dados da conta e o CPF verificado. Se o Stripe recusar o pré-preenchimento do representante, segue (log `Warning`): o onboarding pede.
+- O resto (conta bancária, documento, sócios, MCC) o Stripe coleta no onboarding dele.
+
+**Dois jeitos de abrir o onboarding** (mesmas regras):
+
+| Rota | Para | Devolve |
+|---|---|---|
+| `POST /hosts/me/stripe-account/onboarding-session` | Componente **embutido** (`account-onboarding` do Connect.js) dentro do app — o padrão do escopo | `clientSecret`, `publishableKey`, `expiresAt` (Unix, s) e a situação (`account`) |
+| `POST /hosts/me/stripe-account/onboarding-link` | Página **hospedada** do Stripe (útil no Swagger/apresentação, sem front) | `url` (uso único, vence em minutos), `expiresAt` e `account`. Pede de uma vez tudo o que será exigido (`collection_options.fields = eventually_due`) |
+
+As duas respostas vão com `Cache-Control: no-store`; o segredo e o link não são guardados nem logados.
+
+**Webhook** (`POST /api/v1/stripe/webhooks`, um só para a API inteira, em `Shared.Infrastructure/Stripe`):
+
+- Anônimo e fora do rate limit; a origem é provada pela assinatura `Stripe-Signature` (HMAC com `Stripe:WebhookSecret` ou `Stripe:ConnectWebhookSecret`, tolerância de 5 min contra reenvio). Assinatura ausente, errada ou velha: `400` no campo `stripeSignature`.
+- O processador (`StripeWebhookProcessor`) entrega o evento aos `IStripeWebhookHandler` que aceitam o tipo; tipo que ninguém trata: `200`, ignorado. O Hosts registra `HostAccountUpdatedWebhookHandler` (`account.updated`). O módulo de pagamentos vai registrar os dele no mesmo endpoint.
+- **O evento é só um aviso:** a conta é relida na API (`GET /v1/accounts/{id}`) e o espelho gravado com o que veio. Evento repetido ou fora de ordem não estraga nada — por isso não precisou da tabela `stripe_events` aqui (ela continua prevista para os pagamentos).
+- Conta que não é de nenhum anfitrião: `200`, ignorada. Stripe fora do ar na releitura: `500`, e o Stripe reenvia mais tarde.
+
+**Sem esperar o webhook:** `POST /hosts/me/stripe-account/synchronization` relê a conta na hora (o app chama ao voltar do cadastro; útil em desenvolvimento sem webhook configurado).
+
+### 9.1 Quando o cadastro não anda
+
+| Situação | O que acontece |
+|---|---|
+| **Webhook perdido** (o Stripe desistiu de reenviar) | `HostPayoutsMaintenanceService` roda a cada `HostPayouts:MaintenanceIntervalMinutes` (padrão 60) o `RunPayoutsMaintenanceCommand`: relê no Stripe todo anfitrião ativo que ainda não recebe e, a cada `EnabledResyncHours` (24), quem já recebe (para pegar um bloqueio). Stripe fora do ar ou sem chave: para na primeira falha e tenta na próxima rodada. |
+| **Parou no meio / nem começou** | Lembrete por e-mail nos dias `HostPayouts:ReminderDays` (3 e 7) depois de abrir o cadastro — ou da aprovação, se nem abriu —, com texto conforme a situação (`not_started`, `in_progress`, `restricted`). Grava antes de enviar, para não repetir. Para quem está em análise, recusado, inativo ou suspenso, não vai. |
+| **Desistiu de vez** | Continua anfitrião verificado, mas sem cantinho e invisível na busca: nada dele é reservável. O suporte acha pelo filtro `GET /hosts?stripeStatus=not_started` ou `in_progress`. Pode continuar o cadastro quando quiser (mesma conta). |
+| **Recusado pelo Stripe** (`rejected.*`) | Situação `rejected`, trilha, e-mail ao anfitrião e alerta ao admin; o anfitrião não abre mais o cadastro. O admin decide: suspender (seção 4.2) ou, se foi engano, dar nova chance com `stripe-account-reset` (seção 4.3). Os cantinhos — que só existem se o Stripe aprovou antes — saem da busca. |
+
+**Erros do Stripe** (`StripeConnectGateway`): pedido recusado (HTTP 400/402/404) → `422 HOST_STRIPE_REQUEST_REJECTED` (o código e o campo do Stripe vão só para o log); fora do ar, lento, limite, chave errada ou sem chave → `503 HOST_STRIPE_UNAVAILABLE`. Nada é gravado em nenhum dos dois.
+
+**Desenvolvimento local:** com a [Stripe CLI](https://docs.stripe.com/stripe-cli), `stripe listen --events account.updated --forward-to localhost:8080/api/v1/stripe/webhooks --forward-connect-to localhost:8080/api/v1/stripe/webhooks` (o `--events` é obrigatório nas versões novas da CLI; os eventos de pagamento entram na lista, separados por vírgula, quando o módulo de pagamentos existir) e o `whsec_...` que ela imprime em `STRIPE_WEBHOOK_SECRET`. Pelo ngrok do compose: destino `<URL pública>/api/v1/stripe/webhooks` no Dashboard, com "eventos das contas conectadas" ligado. No modo de teste, os dados de teste do Stripe (ex.: conta bancária e documento de teste) aprovam a conta na hora.
 
 ## 10. Testes
 
 | Projeto | O que cobre | Resultado |
 |---|---|---|
-| `Hosts.Domain.UnitTests` | `HostApplication` (abrir com histórico, tentativas, bloqueio, rascunho, fotos, foto repetida, enviar, aprovar criando o `Host`, recusar comum/definitiva, desistir, expirar, apagar fotos), valores dos enums, `Host` (verificação, `LinkStripeAccount`), `Cpf`, `Cnpj`, `CompanyAddress`, `CompanyDetails`; solicitação de empresa (abrir, corrigir os dados, recusar dados de empresa em pessoa física, aprovar criando o anfitrião empresa); ciclo do `Host` (inativar/reativar idempotentes, suspender, liberar CPF/CNPJ só de suspenso, suspensão que não sai depois da liberação, contato da empresa) | 126 ✅ |
-| `Hosts.Application.UnitTests` | Todos os casos de uso: abrir (CPF em uso, já anfitriã, corrida), corrigir, fotos (posse antes do upload, troca apaga a anterior, compensação quando gravar falha ou lança), enviar, desistir (prazo de guarda), fila/detalhe/foto do admin com trilha, aprovar (cria o host, apaga fotos, e-mail, conflito), recusar (pode ou não tentar de novo), limpeza, validadores, pessoa jurídica (CNPJ em uso, campos de empresa todos juntos na abertura, correção parcial da empresa completada com o rascunho, dado de empresa em pessoa física), CPF de outra pessoa pelo `ICpfOwnership`; perfil com a identidade travada (valor igual passa), contato da empresa, compensação, foto, inativar/reativar (com e sem perfil), suspender/tirar/liberar com compensação e trilha, leitura do admin | 96 ✅ |
-| `Hosts.IntegrationTests` | Ponta a ponta com Postgres, Redis e RustFS: fluxo completo até a aprovação, fotos no bucket privado e não no público, bucket privado sem leitura anônima, resposta da pessoa sem link, link assinado do admin abrindo a foto direto do bucket (`no-store`, vence em 5 min, URL adulterada dá 403), 403 para não admin, 400/409/422 das regras, recusa e nova tentativa, bloqueio por fraude, desistência apagando fotos, limpeza de rascunho abandonado, trilha, seed de demonstração (verificado, com Stripe, idempotente), empresa ponta a ponta até o anfitrião PJ, 400/409 de empresa, restrição 9 nos dois sentidos (tutor e anfitrião: mesmo e-mail pode, outro e-mail não), e o ciclo do anfitrião (PATCH com trava, foto no bucket, inativar e reativar, suspensão que a senha não desfaz, liberação do CPF para a dona verdadeira, 403 para não admin, trilha) | 38 ✅ |
+| `Hosts.Domain.UnitTests` | Cadastro de recebimento (situação `rejected` para `rejected.*`, lembrete devido conforme a agenda — conta da aprovação se nem abriu, para em análise/recusado/inativo/suspenso, acaba depois do último —, pode abrir só ativo e sem suspensão, ligar a mesma conta de novo, recusar outra conta, espelho do Stripe: liberar/bloquear repasses, data da 1ª liberação, motivo normalizado, situação `not_started`…`enabled`, `IsListable`); `HostApplication` (abrir com histórico, tentativas, bloqueio, rascunho, fotos, foto repetida, enviar, aprovar criando o `Host`, recusar comum/definitiva, desistir, expirar, apagar fotos), valores dos enums, `Host` (verificação, `LinkStripeAccount`), `Cpf`, `Cnpj`, `CompanyAddress`, `CompanyDetails`; solicitação de empresa (abrir, corrigir os dados, recusar dados de empresa em pessoa física, aprovar criando o anfitrião empresa); ciclo do `Host` (inativar/reativar idempotentes, suspender, liberar CPF/CNPJ só de suspenso, suspensão que não sai depois da liberação, contato da empresa) | 171 ✅ |
+| `Hosts.Application.UnitTests` | Todos os casos de uso: abrir (CPF em uso, já anfitriã, corrida), corrigir, fotos (posse antes do upload, troca apaga a anterior, compensação quando gravar falha ou lança), enviar, desistir (prazo de guarda), fila/detalhe/foto do admin com trilha, aprovar (cria o host, apaga fotos, e-mail, conflito), recusar (pode ou não tentar de novo), limpeza, validadores, pessoa jurídica (CNPJ em uso, campos de empresa todos juntos na abertura, correção parcial da empresa completada com o rascunho, dado de empresa em pessoa física), CPF de outra pessoa pelo `ICpfOwnership`; perfil com a identidade travada (valor igual passa), contato da empresa, compensação, foto, inativar/reativar (com e sem perfil), suspender/tirar/liberar com compensação e trilha, leitura do admin; cadastro de recebimento (404 antes da aprovação, recusa de suspenso sem chamar o Stripe, conta criada uma vez e preenchida — PF e empresa —, reaproveitada depois, Stripe fora do ar sem gravar nada, link hospedado, sincronização liberando cantinhos com e-mail e trilha uma vez só, bloqueio na trilha, webhook de conta desconhecida); manutenção (releitura liberando quem perdeu o webhook, para no Stripe fora do ar, pula recusado e quem não tem conta, lembrete uma vez por etapa e não repetido se gravar falhar, lembrete para quem nem começou), recusa definitiva avisando anfitrião e admin uma vez só, filtro `stripeStatus` do admin (e 400), reset da conta recusada (nova tentativa com trilha e motivo, recusa de conta não recusada, 404, motivo obrigatório) | 128 ✅ |
+| `Hosts.IntegrationTests` | Ponta a ponta com Postgres, Redis e RustFS: fluxo completo até a aprovação, fotos no bucket privado e não no público, bucket privado sem leitura anônima, resposta da pessoa sem link, link assinado do admin abrindo a foto direto do bucket (`no-store`, vence em 5 min, URL adulterada dá 403), 403 para não admin, 400/409/422 das regras, recusa e nova tentativa, bloqueio por fraude, desistência apagando fotos, limpeza de rascunho abandonado, trilha, seed de demonstração (verificado, com Stripe, idempotente), empresa ponta a ponta até o anfitrião PJ, 400/409 de empresa, restrição 9 nos dois sentidos (tutor e anfitrião: mesmo e-mail pode, outro e-mail não), o ciclo do anfitrião (PATCH com trava, foto no bucket, inativar e reativar, suspensão que a senha não desfaz, liberação do CPF para a dona verdadeira, 403 para não admin, trilha) e o cadastro de recebimento com o **SDK do Stripe de verdade contra uma API do Stripe de mentira** (`FakeStripeApi`): 404 antes da aprovação, 403 para tutor, conta criada uma vez com o que foi enviado ao Stripe (país, CPF, nome, telefone, endereço, capacidades, chave de idempotência), link hospedado, 503 sem gravar nada, webhook assinado liberando o anfitrião na busca, bloqueio escondendo de novo, assinatura errada 400, conta desconhecida 200, Stripe fora na releitura 500; manutenção liberando o anfitrião sem webhook, lembrete por e-mail uma vez (dia 3), recusa (`rejected.fraud`) com e-mail ao anfitrião e ao admin, filtro `?stripeStatus=` do admin (e 400), recusado bloqueado no cadastro até o admin dar nova chance — conta nova com outra chave de idempotência, a recusada no histórico | 56 ✅ |
 
 ## 11. Decisões e pendências
 
@@ -410,6 +502,12 @@ Ordem: **verificação (admin) → onboarding do Stripe Connect → cantinho**. 
 | Base legal art. 11, II, "g" em vez de consentimento | Consentimento revogável quebraria a análise; o aviso continua obrigatório. |
 | Bucket privado no mesmo provedor/credencial do público | Simples para o MVP. Em produção, um projeto/credencial separado reduz o impacto de uma chave vazada. |
 | Motivo obrigatório também na aprovação | §15: toda ação do admin sobre dado de outra pessoa leva motivo. |
+| Onboarding do Stripe no módulo Hosts (não num módulo de pagamentos) | A conta conectada e o espelho `stripe_*` são do anfitrião (já estavam em `host.hosts`). O que é de Stripe e serve a mais de um módulo — cliente da API e o endpoint único do webhook — ficou em `Shared.Infrastructure/Stripe`, como e-mail e bucket. |
+| Conta Express | O anfitrião (público 60+) ganha o painel simples do Stripe para ver os repasses; o PetHost não precisa construir essa tela. |
+| Criação pela Accounts v2, o resto em v1 | Decisão sua, depois que o Stripe recusou a criação v1 em integração nova. A v2 é o caminho recomendado; leitura, sessão, link e `account.updated` continuam v1 porque o Stripe garante a compatibilidade com contas v2 — mudança mínima e testada. |
+| Webhook só como aviso, relendo a conta | Idempotente e imune a evento fora de ordem sem tabela de eventos. |
+| Disponível só com `payouts_enabled` | Sem repasses liberados não dá para pagar a reserva ao anfitrião; o cantinho não pode ser reservado. |
+| Criar cantinho só depois do Stripe aprovar | Decisão sua: o cantinho só existe quando já pode ser reservado e pago. A ordem fica verificação → recebimento → cantinho. |
 
 | # | Pendência | Impacto |
 |---|---|---|
@@ -418,4 +516,5 @@ Ordem: **verificação (admin) → onboarding do Stripe Connect → cantinho**. 
 | 3 | ~~Pessoa jurídica.~~ | Feito: seção 3.1. Falta só o anfitrião de demonstração em versão empresa (o seed cria pessoa física). |
 | 4 | ~~Trava de identidade depois da aprovação.~~ | Feito: seção 4.2. Falta corrigir nome/nascimento **antes** da aprovação (a conta ainda não tem rota de edição; hoje é cancelar e falar com o suporte). |
 | 5 | ~~Inativar, reativar e suspender anfitrião.~~ | Feito: seção 4.2 (também liberar CPF/CNPJ, foto e listagem do admin). Feito no cantinho: anfitrião inativo ou suspenso some da busca e do detalhe (`IHostDirectory.GetUnavailableIdsAsync`, `HostReference.IsSuspended`). |
-| 6 | Onboarding do Stripe e webhook `account.updated`. | Módulo de pagamentos. |
+| 6 | ~~Onboarding do Stripe e webhook `account.updated`.~~ | Feito: seção 9 (com releitura periódica, lembretes, recusa definitiva e filtro do admin: 9.1). Falta o painel Express (login link) no app e o tratamento de `account.application.deauthorized` (anfitrião desconectando a conta). |
+| 7 | Anfitrião aprovado que recebe reservas e **depois** é recusado/bloqueado pelo Stripe. | Módulo de reservas: bloquear repasses pendentes e avisar o admin para reembolsar |

@@ -14,7 +14,10 @@ public interface IListingHosts
         IReadOnlyCollection<Guid> hostIds,
         CancellationToken cancellationToken);
 
-    /// <summary>Anfitriões inativos ou suspensos: os cantinhos deles não aparecem para os outros.</summary>
+    /// <summary>
+    /// Anfitriões inativos, suspensos ou ainda sem repasses liberados pelo Stripe: os cantinhos
+    /// deles não aparecem para os outros.
+    /// </summary>
     Task<IReadOnlyList<Guid>> GetUnavailableIdsAsync(CancellationToken cancellationToken);
 }
 
@@ -22,4 +25,5 @@ public interface IListingHosts
 /// <param name="Id">Id do anfitrião (<c>host.hosts.id</c>), nunca o da conta.</param>
 /// <param name="IsCompany">Pessoa jurídica: pode ter vários cantinhos (um por filial).</param>
 /// <param name="IsAvailable">Ativo e sem suspensão.</param>
-public sealed record HostProfile(Guid Id, bool IsCompany, bool IsAvailable);
+/// <param name="PayoutsEnabled">O Stripe aprovou o cadastro de recebimento (repasses liberados). Sem isso não cria cantinho.</param>
+public sealed record HostProfile(Guid Id, bool IsCompany, bool IsAvailable, bool PayoutsEnabled = false);

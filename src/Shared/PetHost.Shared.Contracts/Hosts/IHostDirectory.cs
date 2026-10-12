@@ -16,8 +16,9 @@ public interface IHostDirectory
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// Ids dos anfitriões que não podem aparecer para os outros: inativos ou suspensos. A busca
-    /// de cantinhos tira estes da lista. São poucos — a maioria está ativa.
+    /// Ids dos anfitriões que não podem aparecer para os outros: inativos, suspensos ou ainda sem
+    /// os repasses liberados pelo Stripe (cadastro de recebimento não concluído). A busca de
+    /// cantinhos tira estes da lista.
     /// </summary>
     Task<IReadOnlyList<Guid>> GetUnavailableIdsAsync(CancellationToken cancellationToken);
 }
@@ -29,7 +30,15 @@ public interface IHostDirectory
 /// <param name="PersonType"><c>pf</c> (pessoa física) ou <c>pj</c> (pessoa jurídica).</param>
 /// <param name="TradeName">Nome fantasia, só de empresa. Pessoa física usa o nome da conta.</param>
 /// <param name="IsSuspended">Suspenso pelo admin. Diferente de inativo: só o admin tira.</param>
-public sealed record HostReference(Guid Id, Guid UserId, string PersonType, string? TradeName, bool IsActive, bool IsSuspended = false)
+/// <param name="PayoutsEnabled">O Stripe liberou os repasses (cadastro de recebimento concluído).</param>
+public sealed record HostReference(
+    Guid Id,
+    Guid UserId,
+    string PersonType,
+    string? TradeName,
+    bool IsActive,
+    bool IsSuspended = false,
+    bool PayoutsEnabled = false)
 {
     /// <summary>Valor de <see cref="PersonType"/> da pessoa jurídica.</summary>
     public const string CompanyPersonType = "pj";
@@ -37,6 +46,12 @@ public sealed record HostReference(Guid Id, Guid UserId, string PersonType, stri
     /// <summary>Pessoa jurídica (empresa).</summary>
     public bool IsCompany => PersonType == CompanyPersonType;
 
-    /// <summary>Pode aparecer para os outros: ativo e sem suspensão.</summary>
+    /// <summary>Ativo e sem suspensão: pode usar a conta (cadastrar cantinho, pets da casa).</summary>
     public bool IsAvailable => IsActive && !IsSuspended;
+
+    /// <summary>
+    /// Pode aparecer para os outros: ativo, sem suspensão e com os repasses liberados pelo Stripe
+    /// (só assim dá para pagar uma reserva com ele).
+    /// </summary>
+    public bool IsListable => IsAvailable && PayoutsEnabled;
 }

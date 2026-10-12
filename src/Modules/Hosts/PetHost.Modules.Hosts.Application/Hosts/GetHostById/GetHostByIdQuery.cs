@@ -12,8 +12,12 @@ namespace PetHost.Modules.Hosts.Application.Hosts.GetHostById;
 /// <summary>Um anfitrião com os dados da conta. Uso do admin.</summary>
 public sealed record GetHostByIdQuery(Guid HostId) : IQuery<HostResponse>;
 
-/// <summary>Todos os anfitriões com os dados da conta. Uso do admin; sem paginação nem filtro no MVP.</summary>
-public sealed record ListHostsQuery : IQuery<IReadOnlyList<HostResponse>>;
+/// <summary>Todos os anfitriões com os dados da conta. Uso do admin; sem paginação no MVP.</summary>
+/// <param name="StripeStatus">
+/// Filtra pela situação do cadastro de recebimento (<c>not_started</c>, <c>in_progress</c>,
+/// <c>under_review</c>, <c>restricted</c>, <c>rejected</c>, <c>enabled</c>): o suporte acha quem travou.
+/// </param>
+public sealed record ListHostsQuery(string? StripeStatus = null) : IQuery<IReadOnlyList<HostResponse>>;
 
 public sealed class GetHostByIdQueryHandler(
     IHostRepository hostRepository,
@@ -43,7 +47,21 @@ public sealed class ListHostsQueryHandler(
 {
     public async Task<Result<IReadOnlyList<HostResponse>>> HandleAsync(ListHostsQuery query, CancellationToken cancellationToken)
     {
-        var hosts = await hostRepository.ListAsync(cancellationToken).ConfigureAwait(false);
+        ArgumentNullException.ThrowIfNull(query);
+
+        StripeOnboardingStatus? stripeStatus = null;
+        if (!string.IsNullOrWhiteSpace(query.StripeStatus))
+        {
+            if (!StripeOnboardingStatusValues.TryFromWire(query.StripeStatus, out var parsed))
+                return Result<IReadOnlyList<HostResponse>>.Failure(HostsErrors.StripeStatusFilterInvalid);
+
+            stripeStatus = parsed;
+        }
+
+        var all = await hostRepository.ListAsync(cancellationToken).ConfigureAwait(false);
+
+        // A situação é calculada do espelho do Stripe; a lista do admin é pequena, filtra na memória.
+        var hosts = stripeStatus is null ? all : [.. all.Where(h => h.StripeOnboardingStatus == stripeStatus)];
 
         // Uma consulta ao Auth para a lista inteira.
         var found = await accounts.GetByIdsAsync([.. hosts.Select(h => h.UserId)], cancellationToken).ConfigureAwait(false);
@@ -57,7 +75,11 @@ public sealed class ListHostsQueryHandler(
                     AuditActions.HostsListed,
                     AuditTargets.Host,
                     TargetId: null,
-                    Details: new Dictionary<string, string?> { ["count"] = response.Count.ToString(CultureInfo.InvariantCulture) }),
+                    Details: new Dictionary<string, string?>
+                    {
+                        ["count"] = response.Count.ToString(CultureInfo.InvariantCulture),
+                        ["stripeStatus"] = stripeStatus is null ? null : StripeOnboardingStatusValues.ToWire(stripeStatus.Value),
+                    }),
                 cancellationToken)
             .ConfigureAwait(false);
 

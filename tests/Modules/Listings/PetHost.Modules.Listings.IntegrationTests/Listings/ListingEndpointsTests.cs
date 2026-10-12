@@ -305,6 +305,35 @@ public sealed class ListingEndpointsTests(ListingsApiFixture fixture) : IAsyncLi
     }
 
     [Fact]
+    public async Task Create_Should_Return422_When_StripeHasNotApprovedThePayoutSetupYet()
+    {
+        var cida = await RegisterIndividualHostAsync(payoutsEnabled: false);
+
+        var response = await SendAsync(HttpMethod.Post, ListingsRoute, cida.Token, Cantinho());
+
+        response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+        (await ReadAsync(response)).GetProperty("error").GetProperty("code").GetString().Should().Be("LISTING_HOST_PAYOUTS_NOT_ENABLED");
+        (await ListMineAsync(cida.Token)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Search_Should_HideTheListingButKeepItForTheOwner_When_StripeBlocksPayoutsLater()
+    {
+        var cida = await RegisterIndividualHostAsync();
+        var listingId = await CreateListingAsync(cida.Token, Cantinho(neighborhood: "Zona 5"));
+        await BlockPayoutsAsync(cida.HostId);
+        var owner = await RegisterOwnerAsync();
+
+        var result = await SearchAsync(owner, "radiusKm=20&latitude=-23.41&longitude=-51.933");
+        var detail = await SendAsync(HttpMethod.Get, $"{ListingsRoute}/{listingId}", owner);
+        var mine = await ListMineAsync(cida.Token);
+
+        result.GetProperty("items").GetArrayLength().Should().Be(0, "sem repasses liberados o cantinho não pode ser reservado");
+        detail.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        mine.Should().ContainSingle("o anfitrião continua vendo o próprio cantinho enquanto resolve com o Stripe");
+    }
+
+    [Fact]
     public async Task Search_Should_Return400_When_RadiusIsOutOfRange()
     {
         var owner = await RegisterOwnerAsync();
@@ -498,12 +527,12 @@ public sealed class ListingEndpointsTests(ListingsApiFixture fixture) : IAsyncLi
         return (data.GetProperty("accessToken").GetString()!, data.GetProperty("user").GetProperty("id").GetGuid());
     }
 
-    private async Task<RegisteredHost> RegisterIndividualHostAsync()
+    private async Task<RegisteredHost> RegisterIndividualHostAsync(bool payoutsEnabled = true)
     {
         var (token, userId) = await RegisterHostAccountAsync("cida@exemplo.com", "Dona Cida");
         var host = Host.CreateIndividual(userId, Cpf.Create("12345678909").Value!, Guid.CreateVersion7(), Guid.CreateVersion7(), DateTimeOffset.UtcNow);
 
-        return new RegisteredHost(token, await SaveHostAsync(host));
+        return new RegisteredHost(token, await SaveHostAsync(host, payoutsEnabled));
     }
 
     private async Task<RegisteredHost> RegisterCompanyHostAsync()
@@ -523,14 +552,32 @@ public sealed class ListingEndpointsTests(ListingsApiFixture fixture) : IAsyncLi
         return new RegisteredHost(token, await SaveHostAsync(host));
     }
 
-    private async Task<Guid> SaveHostAsync(Host host)
+    /// <summary>
+    /// Grava o anfitrião já com o cadastro de recebimento aprovado pelo Stripe (sem isso os
+    /// cantinhos não aparecem para os outros). <paramref name="payoutsEnabled"/> = <c>false</c>:
+    /// aprovado pelo admin, mas o Stripe ainda não liberou.
+    /// </summary>
+    private async Task<Guid> SaveHostAsync(Host host, bool payoutsEnabled = true)
     {
+        host.LinkStripeAccount($"acct_test_{host.Id.Value:N}", DateTimeOffset.UtcNow);
+        host.ApplyStripeSnapshot(new StripeAccountSnapshot(payoutsEnabled, payoutsEnabled, payoutsEnabled, payoutsEnabled ? null : "requirements.past_due"), DateTimeOffset.UtcNow);
+
         await using var scope = fixture.Services.CreateAsyncScope();
         var hosts = scope.ServiceProvider.GetRequiredService<HostsDbContext>();
         hosts.Hosts.Add(host);
         await hosts.SaveChangesAsync(Ct);
 
         return host.Id.Value;
+    }
+
+    /// <summary>O Stripe bloqueou os repasses depois (ex.: pediu um documento novo).</summary>
+    private async Task BlockPayoutsAsync(Guid hostId)
+    {
+        await using var scope = fixture.Services.CreateAsyncScope();
+        var hosts = scope.ServiceProvider.GetRequiredService<HostsDbContext>();
+        var host = await hosts.Hosts.FirstAsync(h => h.Id == new HostId(hostId), Ct);
+        host.ApplyStripeSnapshot(new StripeAccountSnapshot(true, false, false, "requirements.past_due"), DateTimeOffset.UtcNow);
+        await hosts.SaveChangesAsync(Ct);
     }
 
     private async Task SuspendHostAsync(Guid hostId)

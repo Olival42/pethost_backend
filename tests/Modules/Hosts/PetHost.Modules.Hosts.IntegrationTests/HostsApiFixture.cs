@@ -13,6 +13,7 @@ using PetHost.Modules.Owners.Infrastructure;
 using PetHost.Modules.Owners.Infrastructure.Persistence;
 using PetHost.Shared.Infrastructure.Email;
 using PetHost.Shared.Infrastructure.Email.Persistence;
+using PetHost.Shared.Infrastructure.Stripe;
 using PetHost.TestKit;
 using Respawn;
 using Respawn.Graph;
@@ -62,6 +63,12 @@ public sealed class HostsApiFixture : IAsyncLifetime
     /// <summary>Os buckets (público e privado) que a API usa.</summary>
     public TestImageBucket Bucket => _bucket;
 
+    /// <summary>E-mails que a API entregou (o SMTP é de mentira): o despachante grava aqui.</summary>
+    public System.Collections.Concurrent.ConcurrentQueue<EmailMessage> SentEmails { get; } = new();
+
+    /// <summary>A API do Stripe de mentira que o SDK usa nos testes.</summary>
+    public FakeStripeApi Stripe { get; } = new();
+
     private WebApplicationFactory<Program> Factory =>
         _factory ?? throw new InvalidOperationException("Fixture was not initialized.");
 
@@ -107,8 +114,19 @@ public sealed class HostsApiFixture : IAsyncLifetime
             foreach (var (key, value) in _bucket.Settings)
                 builder.UseSetting(key, value);
 
+            builder.UseSetting("Stripe:WebhookSecret", StripeWebhookSigner.Secret);
+
+            // A manutenção do cadastro de recebimento também: os testes chamam a rodada direto.
+            builder.UseSetting("HostPayouts:MaintenanceEnabled", "false");
+            builder.UseSetting("HostPayouts:AdminAlertEmail", AdminEmail);
+
             builder.ConfigureTestServices(services =>
-                services.AddSingleton<IEmailSender, NoOpEmailSender>());
+            {
+                services.AddSingleton<IEmailSender>(new RecordingEmailSender(SentEmails));
+
+                // O SDK do Stripe de verdade, falando com a API de mentira em vez da rede.
+                services.AddSingleton(Stripe.ClientProvider());
+            });
         });
 
         await Services.InitializeEmailAsync(applyMigrations: true);
@@ -138,6 +156,9 @@ public sealed class HostsApiFixture : IAsyncLifetime
     /// <summary>Limpa os schemas e recria o admin e o anfitrião de demonstração do seed.</summary>
     public async Task ResetAsync()
     {
+        Stripe.Reset();
+        SentEmails.Clear();
+
         if (_respawner is not null && _connection is not null)
             await _respawner.ResetAsync(_connection);
 
@@ -151,15 +172,21 @@ public sealed class HostsApiFixture : IAsyncLifetime
             await _connection.DisposeAsync();
 
         _factory?.Dispose();
+        Stripe.Dispose();
 
         await _redis.DisposeAsync();
         await _bucket.DisposeAsync();
         await _postgres.DisposeAsync();
     }
 
-    private sealed class NoOpEmailSender : IEmailSender
+    /// <summary>Não envia nada: só guarda o que seria enviado, para o teste conferir.</summary>
+    private sealed class RecordingEmailSender(System.Collections.Concurrent.ConcurrentQueue<EmailMessage> sent) : IEmailSender
     {
-        public Task SendAsync(EmailMessage message, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task SendAsync(EmailMessage message, CancellationToken cancellationToken)
+        {
+            sent.Enqueue(message);
+            return Task.CompletedTask;
+        }
     }
 }
 

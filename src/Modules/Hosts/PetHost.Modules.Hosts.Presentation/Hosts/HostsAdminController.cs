@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using PetHost.Modules.Hosts.Application.Hosts.GetHostById;
+using PetHost.Modules.Hosts.Application.Hosts.ResetHostStripeAccount;
 using PetHost.Modules.Hosts.Application.Hosts.Responses;
 using PetHost.Modules.Hosts.Application.Hosts.SuspendHost;
 using PetHost.Shared.Contracts.Authorization;
@@ -23,16 +24,23 @@ public sealed class HostsAdminController(
     IQueryHandler<GetHostByIdQuery, HostResponse> getHostById,
     ICommandHandler<SuspendHostCommand, HostResponse> suspendHost,
     ICommandHandler<LiftHostSuspensionCommand, HostResponse> liftHostSuspension,
-    ICommandHandler<ReleaseHostIdentityCommand, HostResponse> releaseHostIdentity) : ControllerBase
+    ICommandHandler<ReleaseHostIdentityCommand, HostResponse> releaseHostIdentity,
+    ICommandHandler<ResetHostStripeAccountCommand, HostResponse> resetHostStripeAccount) : ControllerBase
 {
-    /// <summary>Todos os anfitriões, com os dados da conta. Sem paginação nem filtro no MVP.</summary>
+    /// <summary>Todos os anfitriões, com os dados da conta. Sem paginação no MVP.</summary>
+    /// <remarks>
+    /// <c>?stripeStatus=</c> filtra pela situação do cadastro de recebimento: <c>not_started</c>,
+    /// <c>in_progress</c>, <c>under_review</c>, <c>restricted</c>, <c>rejected</c> ou <c>enabled</c>
+    /// (ex.: <c>in_progress</c> = quem começou e travou). Valor desconhecido: 400 em <c>stripeStatus</c>.
+    /// </remarks>
     [HttpGet]
     [ProducesResponseType<ApiResponse<IReadOnlyList<HostResponse>>>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ApiResponse<IReadOnlyList<HostResponse>>>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<ApiResponse<IReadOnlyList<HostResponse>>>(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType<ApiResponse<IReadOnlyList<HostResponse>>>(StatusCodes.Status403Forbidden)]
-    public async Task<IActionResult> ListAsync(CancellationToken cancellationToken)
+    public async Task<IActionResult> ListAsync([FromQuery] string? stripeStatus, CancellationToken cancellationToken)
     {
-        var result = await listHosts.HandleAsync(new ListHostsQuery(), cancellationToken);
+        var result = await listHosts.HandleAsync(new ListHostsQuery(stripeStatus), cancellationToken);
 
         return result.ToActionResult();
     }
@@ -103,6 +111,30 @@ public sealed class HostsAdminController(
         ArgumentNullException.ThrowIfNull(request);
 
         var result = await releaseHostIdentity.HandleAsync(new ReleaseHostIdentityCommand(User.GetUserId(), hostId, request.Reason), cancellationToken);
+
+        return result.ToActionResult();
+    }
+
+    /// <summary>Desliga a conta do Stripe recusada, para o anfitrião cadastrar o recebimento de novo. Com motivo.</summary>
+    /// <remarks>
+    /// Para recusa por engano ou por dado digitado errado (<c>rejected.other</c>, por exemplo). Fraude
+    /// (<c>rejected.fraud</c>) pede suspensão, não nova chance. A conta recusada fica no histórico
+    /// (<c>host.stripe_account_reset</c> na trilha); o anfitrião volta para <c>not_started</c> e a
+    /// próxima abertura do cadastro cria uma conta nova no Stripe. Só de conta recusada:
+    /// 422 <c>HOST_STRIPE_ACCOUNT_NOT_REJECTED</c>.
+    /// </remarks>
+    [HttpPost("{hostId:guid}/stripe-account-reset")]
+    [ProducesResponseType<ApiResponse<HostResponse>>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ApiResponse<HostResponse>>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ApiResponse<HostResponse>>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ApiResponse<HostResponse>>(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType<ApiResponse<HostResponse>>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ApiResponse<HostResponse>>(StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> ResetStripeAccountAsync(Guid hostId, [FromBody] HostAdminReasonRequest request, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var result = await resetHostStripeAccount.HandleAsync(new ResetHostStripeAccountCommand(User.GetUserId(), hostId, request.Reason), cancellationToken);
 
         return result.ToActionResult();
     }

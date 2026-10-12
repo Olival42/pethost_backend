@@ -29,11 +29,11 @@ internal static class ListingsTestData
         var hosts = new Mock<IListingHosts>();
 
         hosts.Setup(h => h.FindByAccountAsync(IndividualUserId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new HostProfile(IndividualHostId, IsCompany: false, IsAvailable: true));
+            .ReturnsAsync(new HostProfile(IndividualHostId, IsCompany: false, IsAvailable: true, PayoutsEnabled: true));
         hosts.Setup(h => h.FindByAccountAsync(CompanyUserId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new HostProfile(CompanyHostId, IsCompany: true, IsAvailable: true));
+            .ReturnsAsync(new HostProfile(CompanyHostId, IsCompany: true, IsAvailable: true, PayoutsEnabled: true));
         hosts.Setup(h => h.FindByAccountAsync(SuspendedUserId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new HostProfile(SuspendedHostId, IsCompany: false, IsAvailable: false));
+            .ReturnsAsync(new HostProfile(SuspendedHostId, IsCompany: false, IsAvailable: false, PayoutsEnabled: true));
         hosts.Setup(h => h.FindByAccountAsync(OwnerUserId, It.IsAny<CancellationToken>()))
             .ReturnsAsync((HostProfile?)null);
 
@@ -67,6 +67,6 @@ internal static class ListingsTestData
 
     private static ListingHostSummary Summary(Guid hostId) =>
         hostId == CompanyHostId
-            ? new ListingHostSummary(hostId, "Hotel Pet Feliz", null, IsCompany: true, IsAvailable: true)
-            : new ListingHostSummary(hostId, "Dona Cida", "https://cdn.pethost.test/cida.png", IsCompany: false, IsAvailable: hostId != SuspendedHostId);
+            ? new ListingHostSummary(hostId, "Hotel Pet Feliz", null, IsCompany: true, IsAvailable: true, PayoutsEnabled: true)
+            : new ListingHostSummary(hostId, "Dona Cida", "https://cdn.pethost.test/cida.png", IsCompany: false, IsAvailable: hostId != SuspendedHostId, PayoutsEnabled: true);
 }

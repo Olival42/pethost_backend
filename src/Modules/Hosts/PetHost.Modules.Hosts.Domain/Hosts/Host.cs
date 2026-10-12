@@ -93,8 +93,8 @@ public sealed class Host : Entity<HostId>
     /// <summary>O admin que aprovou (users.id). Sem FK, como <c>suspended_by</c>.</summary>
     public Guid VerifiedBy { get; private set; }
 
-    // --- Espelho da conta conectada no Stripe (webhook account.updated). Quem grava é o
-    //     módulo de pagamentos, quando existir; por enquanto ficam no padrão. ---
+    // --- Espelho da conta conectada no Stripe. Atualizado a cada sincronização
+    //     (webhook account.updated ou pedido do próprio anfitrião), sempre relendo a conta na API. ---
 
     /// <summary>A pessoa terminou o onboarding do Stripe (<c>details_submitted</c>).</summary>
     public bool StripeDetailsSubmitted { get; private set; }
@@ -116,6 +116,53 @@ public sealed class Host : Entity<HostId>
 
     /// <summary>Última sincronização com o Stripe.</summary>
     public DateTimeOffset? StripeSyncedAt { get; private set; }
+
+    /// <summary>Quando a conta conectada foi criada (o anfitrião abriu o cadastro de recebimento).</summary>
+    public DateTimeOffset? StripeAccountCreatedAt { get; private set; }
+
+    /// <summary>Quantos lembretes de "termine o cadastro de recebimento" já foram enviados.</summary>
+    public int StripeRemindersSent { get; private set; }
+
+    /// <summary>Quando foi o último lembrete.</summary>
+    public DateTimeOffset? StripeRemindedAt { get; private set; }
+
+    /// <summary>
+    /// A última conta conectada que o Stripe recusou e o admin desligou (<see cref="ResetStripeAccount"/>).
+    /// Fica como histórico.
+    /// </summary>
+    public string? StripeRejectedAccountId { get; private set; }
+
+    /// <summary>Quantas vezes o admin desligou uma conta recusada para o anfitrião tentar de novo.</summary>
+    public int StripeAccountResets { get; private set; }
+
+    /// <summary>Em que pé está o cadastro de recebimento. Calculado do espelho acima.</summary>
+    public StripeOnboardingStatus StripeOnboardingStatus
+    {
+        get
+        {
+            if (StripeAccountId is null)
+                return StripeOnboardingStatus.NotStarted;
+
+            if (StripePayoutsEnabled)
+                return StripeOnboardingStatus.Enabled;
+
+            if (StripeAccountSnapshot.IsRejection(StripeDisabledReason))
+                return StripeOnboardingStatus.Rejected;
+
+            if (!StripeDetailsSubmitted)
+                return StripeOnboardingStatus.InProgress;
+
+            return StripeDisabledReason is null || StripeAccountSnapshot.ReviewReasons.Contains(StripeDisabledReason)
+                ? StripeOnboardingStatus.UnderReview
+                : StripeOnboardingStatus.Restricted;
+        }
+    }
+
+    /// <summary>
+    /// Os cantinhos podem aparecer para os outros: perfil ativo, sem suspensão e com os repasses
+    /// liberados pelo Stripe.
+    /// </summary>
+    public bool IsListable => IsActive && !IsSuspended && StripePayoutsEnabled;
 
     public bool IsActive { get; private set; }
 
@@ -193,10 +240,6 @@ public sealed class Host : Entity<HostId>
         return Result<Host>.Success(host);
     }
 
-    /// <summary>
-    /// Liga a conta conectada do Stripe (<c>acct_...</c>), criada no onboarding. Os status
-    /// (<see cref="StripePayoutsEnabled"/>...) chegam depois, pelo webhook.
-    /// </summary>
     /// <summary>
     /// Troca o que a empresa pode mudar sem nova verificação: nome fantasia e endereço da
     /// empresa (<c>null</c> = não mexer). CNPJ e razão social são identidade: travados.
@@ -299,7 +342,29 @@ public sealed class Host : Entity<HostId>
         return Result.Success();
     }
 
-    public void LinkStripeAccount(string stripeAccountId, DateTimeOffset now)
+    /// <summary>
+    /// O cadastro de recebimento no Stripe só abre para anfitrião ativo e sem suspensão. A
+    /// verificação já está garantida: só existe <see cref="Host"/> aprovado pelo admin.
+    /// </summary>
+    public Result EnsureCanStartStripeOnboarding()
+    {
+        if (!IsActive || IsSuspended)
+            return Result.Failure(HostsErrors.StripeOnboardingNotAllowed);
+
+        // Conta recusada de vez: não há o que preencher. Só o admin libera uma nova tentativa.
+        if (StripeOnboardingStatus == StripeOnboardingStatus.Rejected)
+            return Result.Failure(HostsErrors.StripeAccountRejected);
+
+        return Result.Success();
+    }
+
+    /// <summary>
+    /// Liga a conta conectada do Stripe (<c>acct_...</c>), criada no onboarding. Os status
+    /// (<see cref="StripePayoutsEnabled"/>...) chegam depois, em <see cref="ApplyStripeSnapshot"/>.
+    /// Ligar a mesma conta de novo não muda nada; trocar por outra é recusado (uma conta por
+    /// anfitrião — trocar é pelo suporte).
+    /// </summary>
+    public Result LinkStripeAccount(string stripeAccountId, DateTimeOffset now)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(stripeAccountId);
 
@@ -307,7 +372,113 @@ public sealed class Host : Entity<HostId>
         if (trimmed.Length > StripeAccountIdMaxLength)
             throw new ArgumentException($"Stripe account id must be at most {StripeAccountIdMaxLength} characters.", nameof(stripeAccountId));
 
+        if (StripeAccountId == trimmed)
+            return Result.Success();
+
+        if (StripeAccountId is not null)
+            return Result.Failure(HostsErrors.StripeAccountAlreadyLinked);
+
         StripeAccountId = trimmed;
+        StripeAccountCreatedAt = now;
+        UpdatedAt = now;
+
+        return Result.Success();
+    }
+
+    /// <summary>
+    /// Grava o que o Stripe diz da conta conectada agora. A primeira vez que os repasses são
+    /// liberados fica em <see cref="StripeOnboardedAt"/>. Devolve se a liberação mudou — é o que
+    /// tira ou põe os cantinhos na busca.
+    /// </summary>
+    public StripePayoutsChange ApplyStripeSnapshot(StripeAccountSnapshot snapshot, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+
+        if (StripeAccountId is null)
+            throw new InvalidOperationException("A Stripe snapshot needs a linked Stripe account.");
+
+        var reason = snapshot.NormalizedDisabledReason;
+        var wasEnabled = StripePayoutsEnabled;
+        var changed = StripeDetailsSubmitted != snapshot.DetailsSubmitted
+            || StripeChargesEnabled != snapshot.ChargesEnabled
+            || StripePayoutsEnabled != snapshot.PayoutsEnabled
+            || StripeDisabledReason != reason;
+
+        StripeDetailsSubmitted = snapshot.DetailsSubmitted;
+        StripeChargesEnabled = snapshot.ChargesEnabled;
+        StripePayoutsEnabled = snapshot.PayoutsEnabled;
+        StripeDisabledReason = reason;
+        StripeSyncedAt = now;
+
+        if (snapshot.PayoutsEnabled && StripeOnboardedAt is null)
+            StripeOnboardedAt = now;
+
+        if (changed)
+            UpdatedAt = now;
+
+        return (wasEnabled, snapshot.PayoutsEnabled) switch
+        {
+            (false, true) => StripePayoutsChange.Enabled,
+            (true, false) => StripePayoutsChange.Disabled,
+            _ => StripePayoutsChange.None,
+        };
+    }
+
+    /// <summary>
+    /// Está na hora de lembrar o anfitrião de terminar o cadastro de recebimento? Só de anfitrião
+    /// ativo, sem suspensão, sem repasses liberados e que ainda pode resolver (não começou, está no
+    /// meio ou o Stripe pede algo — não quem está em análise nem quem foi recusado). O
+    /// <paramref name="schedule"/> diz quanto tempo depois de abrir o cadastro (ou, sem conta, da
+    /// aprovação) vai cada lembrete: <c>[3 dias, 7 dias]</c> = dois lembretes.
+    /// </summary>
+    public bool IsStripeReminderDue(DateTimeOffset now, IReadOnlyList<TimeSpan> schedule)
+    {
+        ArgumentNullException.ThrowIfNull(schedule);
+
+        if (!IsActive || IsSuspended || StripeRemindersSent >= schedule.Count)
+            return false;
+
+        if (StripeOnboardingStatus is not (StripeOnboardingStatus.NotStarted or StripeOnboardingStatus.InProgress or StripeOnboardingStatus.Restricted))
+            return false;
+
+        var startedAt = StripeAccountCreatedAt ?? VerifiedAt;
+
+        return now >= startedAt + schedule[StripeRemindersSent];
+    }
+
+    /// <summary>
+    /// Admin desliga a conta conectada que o Stripe recusou (ex.: recusa por dado digitado errado),
+    /// para o anfitrião abrir um cadastro de recebimento novo. A conta recusada fica em
+    /// <see cref="StripeRejectedAccountId"/>; o espelho e os lembretes recomeçam do zero. Só de conta
+    /// recusada: as outras o anfitrião resolve pelo próprio cadastro.
+    /// </summary>
+    public Result ResetStripeAccount(DateTimeOffset now)
+    {
+        if (StripeOnboardingStatus != StripeOnboardingStatus.Rejected)
+            return Result.Failure(HostsErrors.StripeAccountNotRejected);
+
+        StripeRejectedAccountId = StripeAccountId;
+        StripeAccountId = null;
+        StripeAccountCreatedAt = null;
+        StripeDetailsSubmitted = false;
+        StripeChargesEnabled = false;
+        StripePayoutsEnabled = false;
+        StripeDisabledReason = null;
+        StripeOnboardedAt = null;
+        StripeSyncedAt = null;
+        StripeRemindersSent = 0;
+        StripeRemindedAt = null;
+        StripeAccountResets++;
+        UpdatedAt = now;
+
+        return Result.Success();
+    }
+
+    /// <summary>Registra que um lembrete foi enviado.</summary>
+    public void RecordStripeReminder(DateTimeOffset now)
+    {
+        StripeRemindersSent++;
+        StripeRemindedAt = now;
         UpdatedAt = now;
     }
 

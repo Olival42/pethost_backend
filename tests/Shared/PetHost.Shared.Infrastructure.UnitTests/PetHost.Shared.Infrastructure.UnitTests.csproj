@@ -14,6 +14,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\src\Shared\PetHost.Shared.Infrastructure\PetHost.Shared.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\PetHost.TestKit\PetHost.TestKit.csproj" />
   </ItemGroup>
 
 </Project>

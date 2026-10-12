@@ -177,6 +177,11 @@ erDiagram
         varchar stripe_disabled_reason "nullable"
         timestamp stripe_onboarded_at "nullable"
         timestamp stripe_synced_at "nullable"
+        timestamp stripe_account_created_at "nullable"
+        int stripe_reminders_sent
+        timestamp stripe_reminded_at "nullable"
+        varchar stripe_rejected_account_id "nullable"
+        int stripe_account_resets
         boolean is_active
         timestamp deactivated_at "nullable"
         timestamp suspended_at "nullable"
@@ -456,7 +461,7 @@ O que só o anfitrião tem. 1:1 com `users` de role `host`: tem id próprio e ap
 | `legal_name` | `varchar(160)` |  | sim | Razão social. Só pessoa jurídica (obrigatório nela). Stripe: `company.name`. |
 | `trade_name` | `varchar(120)` |  | sim | Nome fantasia: o nome que o tutor vê. Só pessoa jurídica (obrigatório nela). |
 | `company_zip_code` … `company_state` |  |  | sim | Endereço da empresa (CEP, rua, número, complemento, bairro, cidade, UF), mesmos tamanhos do endereço de `users`. Só pessoa jurídica (obrigatório nela, exceto o complemento). Stripe: `company.address`. |
-| `stripe_account_id` | `varchar(255)` | `UK` | sim | Conta conectada no Stripe (acct_...). Criada no onboarding, que só é liberado depois da verificação. Fica no anfitrião, não no cantinho. |
+| `stripe_account_id` | `varchar(255)` | `UK` | sim | Conta conectada no Stripe (acct_...). Criada na primeira abertura do cadastro de recebimento, que só existe depois da verificação (sem perfil, sem cadastro). Uma por anfitrião; trocar é pelo suporte. Fica no anfitrião, não no cantinho. |
 | `application_id` | `uuid` | `UK` | não | A solicitação aprovada que criou o perfil → host_applications.id (mesmo schema, sem constraint física: é só a referência histórica). |
 | `verified_at` | `timestamptz` |  | não | Quando o admin aprovou a identidade. |
 | `verified_by` | `uuid` |  | não | O admin que aprovou (users.id). Sem FK, como `suspended_by`. |
@@ -465,7 +470,12 @@ O que só o anfitrião tem. 1:1 com `users` de role `host`: tem id próprio e ap
 | `stripe_payouts_enabled` | `boolean` |  | não | Espelho do Stripe (`payouts_enabled`): pode receber repasses. **Cantinho só aparece na busca com isto ligado.** Default `false`. (Antes ficava em `listings.payouts_enabled`; mudou para cá porque a conta conectada é do anfitrião.) |
 | `stripe_disabled_reason` | `varchar(100)` |  | sim | Por que o Stripe bloqueou (`requirements.disabled_reason`), para o painel mostrar o que falta. |
 | `stripe_onboarded_at` | `timestamptz` |  | sim | Quando a conta passou a poder receber repasses pela primeira vez. |
-| `stripe_synced_at` | `timestamptz` |  | sim | Última sincronização pelo webhook `account.updated`. |
+| `stripe_synced_at` | `timestamptz` |  | sim | Última sincronização: webhook `account.updated` ou `POST /hosts/me/stripe-account/synchronization`. Sempre relendo a conta na API do Stripe. |
+| `stripe_account_created_at` | `timestamptz` |  | sim | Quando o anfitrião abriu o cadastro de recebimento (conta conectada criada). Base dos lembretes. |
+| `stripe_reminders_sent` | `integer` |  | não | Quantos lembretes de "termine o cadastro de recebimento" já foram enviados. Default `0`. |
+| `stripe_reminded_at` | `timestamptz` |  | sim | Último lembrete. |
+| `stripe_rejected_account_id` | `varchar(255)` |  | sim | A última conta conectada recusada pelo Stripe que o admin desligou para o anfitrião tentar de novo (histórico). |
+| `stripe_account_resets` | `integer` |  | não | Quantas vezes o admin deu nova chance (entra na chave de idempotência da criação da conta). Default `0`. |
 | `is_active` | `boolean` |  | não | Default `true`. Anda junto com `users.is_active`. |
 | `deactivated_at` | `timestamptz` |  | sim | Quando foi inativado pela última vez. |
 | `suspended_at` | `timestamptz` |  | sim | Quando o admin suspendeu. Anda junto com `users.suspended_at`. |
@@ -477,7 +487,7 @@ O que só o anfitrião tem. 1:1 com `users` de role `host`: tem id próprio e ap
 >
 > CHECK `ck_hosts_company_data`: pessoa jurídica tem CNPJ, razão social, nome fantasia e endereço da empresa; pessoa física não tem nenhum deles.
 >
-> **Para o Stripe Connect:** pessoa física → `individual` com nome, nascimento, CPF (`id_number`), telefone e endereço (os da conta). Pessoa jurídica → `company` com razão social, CNPJ (`tax_id`), endereço da empresa e telefone; mais o **representante** (`relationship.representative`) com nome, nascimento, CPF, e-mail, telefone e endereço — os da conta. O que o Stripe pedir além disso (sócios com 25%+, cargo do representante, site/descrição do negócio, MCC, conta bancária e documentos) é coletado no onboarding hospedado do Stripe, não por nós.
+> **Para o Stripe Connect** (conta criada pela Accounts v2, `POST /v2/core/accounts`): pessoa física → `identity.individual` com nome, nascimento, CPF (`br_cpf`), telefone e endereço (os da conta). Pessoa jurídica → `identity.business_details` com razão social (`registered_name`), CNPJ (`br_cnpj`), endereço da empresa e telefone; mais o **representante** (`relationship.representative`) com nome, nascimento, CPF, e-mail, telefone e endereço — os da conta. O que o Stripe pedir além disso (sócios com 25%+, cargo do representante, site/descrição do negócio, MCC, conta bancária e documentos) é coletado no onboarding do Stripe (embutido ou hospedado), não por nós. Implementado em `StripeConnectGateway` ([`modulo-hosts.md`](modulo-hosts.md) seção 9).
 
 ### `host_applications` · Solicitações de cadastro de anfitrião
 
@@ -614,7 +624,7 @@ O espaço que o anfitrião oferece (no app: "cantinho"). Schema `listing` (módu
 | `created_at` | `timestamptz` |  | não | Quando o registro foi criado (UTC). |
 | `updated_at` | `timestamptz` |  | não | Última alteração do registro (UTC). |
 
-> Índices: `ix_listings_host_id` ("meus cantinhos" e o limite da pessoa física) e o parcial `ix_listings_latitude_longitude_active` (`latitude, longitude` `WHERE is_active`), que filtra a caixa em volta do círculo na busca por raio. Extensão `unaccent` (schema `public`, migration `AddUnaccentExtension`) para os filtros de cidade e bairro. CHECKs: `ck_listings_home_type`, `ck_listings_capacity` (1–200), `ck_listings_nightly_rate` (10–10000), `ck_listings_accepted_species` (1–4095), `ck_listings_available_weekdays` (1–127), `ck_listings_latitude`, `ck_listings_longitude`. Só cantinho ativo de anfitrião ativo e sem suspensão aparece na busca; o filtro por `hosts.stripe_payouts_enabled` entra quando o onboarding do Stripe existir.
+> Índices: `ix_listings_host_id` ("meus cantinhos" e o limite da pessoa física) e o parcial `ix_listings_latitude_longitude_active` (`latitude, longitude` `WHERE is_active`), que filtra a caixa em volta do círculo na busca por raio. Extensão `unaccent` (schema `public`, migration `AddUnaccentExtension`) para os filtros de cidade e bairro. CHECKs: `ck_listings_home_type`, `ck_listings_capacity` (1–200), `ck_listings_nightly_rate` (10–10000), `ck_listings_accepted_species` (1–4095), `ck_listings_available_weekdays` (1–127), `ck_listings_latitude`, `ck_listings_longitude`. Só cantinho ativo de anfitrião ativo, sem suspensão e com `hosts.stripe_payouts_enabled` aparece na busca.
 
 ### `listing_photos` · Fotos do cantinho
 

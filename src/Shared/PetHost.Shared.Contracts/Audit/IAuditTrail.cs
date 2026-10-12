@@ -110,6 +110,24 @@ public static class AuditActions
     public const string HostSuspensionLifted = "host.suspension_lifted";
     public const string HostIdentityReleased = "host.identity_released";
 
+    /// <summary>O anfitrião abriu o cadastro de recebimento: a conta conectada foi criada no Stripe.</summary>
+    public const string HostStripeAccountCreated = "host.stripe_account_created";
+
+    /// <summary>O Stripe liberou os repasses: os cantinhos do anfitrião entram na busca.</summary>
+    public const string HostStripePayoutsEnabled = "host.stripe_payouts_enabled";
+
+    /// <summary>O Stripe bloqueou os repasses: os cantinhos saem da busca até resolver.</summary>
+    public const string HostStripePayoutsDisabled = "host.stripe_payouts_disabled";
+
+    /// <summary>O Stripe recusou a conta conectada de vez (<c>rejected.*</c>): o admin decide o que fazer.</summary>
+    public const string HostStripeAccountRejected = "host.stripe_account_rejected";
+
+    /// <summary>Admin desligou a conta recusada pelo Stripe para o anfitrião tentar de novo. Com motivo.</summary>
+    public const string HostStripeAccountReset = "host.stripe_account_reset";
+
+    /// <summary>Lembrete enviado para o anfitrião terminar o cadastro de recebimento.</summary>
+    public const string HostStripeReminderSent = "host.stripe_reminder_sent";
+
     /// <summary>Admin abriu os dados de um anfitrião (CPF/CNPJ completo): acesso a dado pessoal (LGPD).</summary>
     public const string HostViewed = "host.viewed";
 

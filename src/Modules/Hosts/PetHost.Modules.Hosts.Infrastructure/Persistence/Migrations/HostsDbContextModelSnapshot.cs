@@ -316,10 +316,20 @@ namespace PetHost.Modules.Hosts.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(10)")
                         .HasColumnName("person_type");
 
+                    b.Property<DateTimeOffset?>("StripeAccountCreatedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("stripe_account_created_at");
+
                     b.Property<string>("StripeAccountId")
                         .HasMaxLength(255)
                         .HasColumnType("character varying(255)")
                         .HasColumnName("stripe_account_id");
+
+                    b.Property<int>("StripeAccountResets")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("stripe_account_resets");
 
                     b.Property<bool>("StripeChargesEnabled")
                         .ValueGeneratedOnAdd()
@@ -347,6 +357,21 @@ namespace PetHost.Modules.Hosts.Infrastructure.Persistence.Migrations
                         .HasColumnType("boolean")
                         .HasDefaultValue(false)
                         .HasColumnName("stripe_payouts_enabled");
+
+                    b.Property<string>("StripeRejectedAccountId")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("stripe_rejected_account_id");
+
+                    b.Property<DateTimeOffset?>("StripeRemindedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("stripe_reminded_at");
+
+                    b.Property<int>("StripeRemindersSent")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("stripe_reminders_sent");
 
                     b.Property<DateTimeOffset?>("StripeSyncedAt")
                         .HasColumnType("timestamptz")

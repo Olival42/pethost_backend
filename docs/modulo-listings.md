@@ -30,6 +30,7 @@ Só **anfitrião verificado** (perfil em `host.hosts`, que nasce na aprovação 
 
 - Conta de anfitrião sem perfil (ainda não aprovada): `404 LISTING_HOST_NOT_FOUND`.
 - Anfitrião inativo ou suspenso não cadastra nem reativa cantinho: `403 LISTING_HOST_DEACTIVATED`.
+- Anfitrião aprovado pelo admin, mas com o cadastro de recebimento ainda não aprovado pelo Stripe (repasses não liberados): não cadastra cantinho — `422 LISTING_HOST_PAYOUTS_NOT_ENABLED` ([`modulo-hosts.md`](modulo-hosts.md) seção 9). Ordem: verificação → Stripe → cantinho.
 - Pessoa física com cantinho tentando outro: `422 LISTING_LIMIT_REACHED`.
 
 ## 2. Estrutura
@@ -146,7 +147,7 @@ Listas aceitam o parâmetro repetido (`species=dog&species=cat`) ou separado por
 
 **Origem da busca por raio:** se o cliente manda `latitude` e `longitude` (as duas juntas), é esse ponto (ex.: GPS do celular); só uma das duas: `400` em `latitude`. Sem elas, é o **endereço da conta logada** (`IUserDirectory`), geocodificado. Conta sem endereço: `422 LISTING_SEARCH_ADDRESS_REQUIRED`; endereço fora do mapa: `422 LISTING_SEARCH_ADDRESS_NOT_LOCATED`.
 
-**O que aparece:** só cantinhos **ativos** de anfitrião **ativo e sem suspensão** (`IHostDirectory.GetUnavailableIdsAsync`). Paginação padrão (§13).
+**O que aparece:** só cantinhos **ativos** de anfitrião **ativo, sem suspensão e com os repasses liberados pelo Stripe** (`hosts.stripe_payouts_enabled`, cadastro de recebimento concluído — [`modulo-hosts.md`](modulo-hosts.md) seção 9) — `IHostDirectory.GetUnavailableIdsAsync`. Vale também para o detalhe (`GET /listings/{id}`) visto por outra conta: `404`. Se o Stripe bloquear os repasses **depois**, os cantinhos já criados somem para os outros, mas o anfitrião continua vendo e editando (em `host.payoutsEnabled` da resposta ele vê `false`). Paginação padrão (§13).
 
 **No banco** (`ListingRepository.SearchAsync`): (1) cada filtro enviado vira mais um `AND` (espécies e dias por máscara de bits: `(accepted_species & x) = x`); (2) na busca por raio, uma caixa em volta do círculo filtra por `latitude`/`longitude` (índice parcial `ix_listings_latitude_longitude_active`) e a distância exata é calculada no Postgres pela fórmula de **haversine** (`asin`, `sin`, `cos`, `power`, `LEAST`); (3) conta, ordena e pagina; (4) carrega só os cantinhos da página, com as fotos. Sem PostGIS: para o volume do MVP (uma cidade) é suficiente.
 
@@ -200,17 +201,17 @@ Nenhuma referência a outro módulo (§5, verificado em `ListingsModuleBoundaryT
 
 | Porta (Application) | Adaptador (Infrastructure) | Contrato |
 |---|---|---|
-| `IListingHosts` | `ListingHosts` | `IHostDirectory` (anfitrião, PF/PJ, ativo/suspenso, ids indisponíveis) + `IUserDirectory` (nome e foto) |
+| `IListingHosts` | `ListingHosts` | `IHostDirectory` (anfitrião, PF/PJ, ativo/suspenso, repasses liberados, ids indisponíveis) + `IUserDirectory` (nome e foto) |
 | `IAccountAddresses` | `AccountAddresses` | `IUserDirectory` (endereço da conta, origem da busca) |
 | `IGeocoder` | `CachedGeocoder` (Redis) → `NominatimGeocoder` | HTTP externo + `IConnectionMultiplexer` do `Shared` |
 
-O `IHostDirectory` ganhou `HostReference.IsSuspended` (com `IsCompany` e `IsAvailable`) e `GetUnavailableIdsAsync()`.
+O `IHostDirectory` ganhou `HostReference.IsSuspended` (com `IsCompany` e `IsAvailable`), `HostReference.PayoutsEnabled` (com `IsListable` = disponível + repasses liberados) e `GetUnavailableIdsAsync()` (inativo, suspenso **ou sem repasses liberados**). `ListingHostSummary` (o `host` da resposta) ganhou `payoutsEnabled`.
 
 ## 9. Testes
 
 - **Domínio** (`Listings.Domain.UnitTests`): `ListingDetails` (cada regra, PF × PJ, diária, porte), `ListingAddress`, `GeoPoint` (faixas, haversine Maringá–Londrina), valores dos enums, `Listing` (limite PF/PJ, alterações, ativo/inativo, fotos e reordenação).
 - **Application** (`Listings.Application.UnitTests`): cada handler, caminho feliz e cada falha (limite sem consultar o mapa, endereço não achado, mapa fora, posse, visão pública × dono, busca por coordenada e por endereço da conta, busca só por lugar sem mapa, lugar + raio, todos os filtros somados, filtros inválidos).
-- **Integração** (`Listings.IntegrationTests`, Postgres + Redis + RustFS em container): cache do geocodificador no Redis (uma consulta por endereço, TTL de "achou" e "não achou", falha não guardada, valor ilegível ignorado, endereço fora da chave); cadastro PF/PJ, 400 com todos os campos, 403/404/422/503, visão pública, inativar/reativar, PATCH com nova coordenada, busca por raio (5/10/50 km, ordem, ocultar inativo e suspenso, endereço da conta), busca só por estado/cidade/bairro (sem distância, sem diferença de acento e maiúsculas), todos os filtros somados ao raio, tipo da casa e quem mora nela, curinga do `ILIKE` tratado como texto, 400 com todos os filtros inválidos, fotos com reordenação e compactação no banco.
+- **Integração** (`Listings.IntegrationTests`, Postgres + Redis + RustFS em container): cache do geocodificador no Redis (uma consulta por endereço, TTL de "achou" e "não achou", falha não guardada, valor ilegível ignorado, endereço fora da chave); cadastro PF/PJ, 400 com todos os campos, 403/404/422/503, visão pública, inativar/reativar, PATCH com nova coordenada, busca por raio (5/10/50 km, ordem, ocultar inativo e suspenso, endereço da conta), cadastro recusado (422) antes de o Stripe liberar os repasses, cantinho escondido da busca e do detalhe quando o Stripe bloqueia depois (o dono continua vendo), busca só por estado/cidade/bairro (sem distância, sem diferença de acento e maiúsculas), todos os filtros somados ao raio, tipo da casa e quem mora nela, curinga do `ILIKE` tratado como texto, 400 com todos os filtros inválidos, fotos com reordenação e compactação no banco.
 
 ## 10. Decisões e pendências
 
@@ -231,6 +232,6 @@ O `IHostDirectory` ganhou `HostReference.IsSuspended` (com `IsCompany` e `IsAvai
 
 **Pendências**
 
-1. Filtro de busca por `stripe_payouts_enabled`: o onboarding do Stripe ainda não existe; quando existir, somar à lista de anfitriões indisponíveis.
+1. ~~Filtro de busca por `stripe_payouts_enabled`.~~ Feito: anfitrião sem repasses liberados entra na lista de indisponíveis ([`modulo-hosts.md`](modulo-hosts.md) seção 9).
 2. Filtros que dependem de outros módulos: datas (agenda/reservas), "vaga para todos os pets escolhidos" e selos.
 3. ~~Cache do geocodificador por instância (memória).~~ Feito: o cache está no Redis. Ainda por instância: a fila de 1 pedido/s ao Nominatim (`GeocodingRateGate`); com várias instâncias, cada uma respeita o limite sozinha — mover para um lock no Redis ou usar instância própria do Nominatim.

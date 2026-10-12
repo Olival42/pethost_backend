@@ -48,7 +48,9 @@ public sealed class ListingsController(
     /// <c>address</c> (exceto o complemento); <c>homeType</c> obrigatório só para pessoa física.
     /// Todos os erros voltam juntos num só 400. A coordenada é calculada a partir do endereço.
     /// Conta sem anfitrião verificado: 404 <c>LISTING_HOST_NOT_FOUND</c>. Anfitrião inativo ou
-    /// suspenso: 403 <c>LISTING_HOST_DEACTIVATED</c>. Pessoa física que já tem cantinho: 422
+    /// suspenso: 403 <c>LISTING_HOST_DEACTIVATED</c>. Stripe ainda sem aprovar o cadastro de
+    /// recebimento (<c>/hosts/me/stripe-account</c>): 422 <c>LISTING_HOST_PAYOUTS_NOT_ENABLED</c>.
+    /// Pessoa física que já tem cantinho: 422
     /// <c>LISTING_LIMIT_REACHED</c>. Endereço não achado no mapa: 422
     /// <c>LISTING_ADDRESS_NOT_LOCATED</c>. Mapa fora do ar: 503 <c>LISTING_GEOCODER_UNAVAILABLE</c>.
     /// </remarks>

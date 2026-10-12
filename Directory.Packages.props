@@ -37,6 +37,11 @@
     <PackageVersion Include="AWSSDK.S3" Version="4.0.104" />
   </ItemGroup>
 
+  <ItemGroup Label="Pagamentos">
+    <!-- Stripe Connect (contas conectadas dos anfitrioes) e webhooks. Modo de teste. -->
+    <PackageVersion Include="Stripe.net" Version="52.4.2" />
+  </ItemGroup>
+
   <ItemGroup Label="Cache / sessao">
     <PackageVersion Include="StackExchange.Redis" Version="3.3.1" />
   </ItemGroup>

@@ -24,17 +24,27 @@ using PetHost.Modules.Hosts.Application.Hosts.ReactivateHost;
 using PetHost.Modules.Hosts.Application.Hosts.SuspendHost;
 using PetHost.Modules.Hosts.Application.Hosts.UpdateMyHost;
 using PetHost.Modules.Hosts.Application.Hosts.Responses;
+using PetHost.Modules.Hosts.Application.Hosts.CreateMyStripeOnboardingLink;
+using PetHost.Modules.Hosts.Application.Hosts.GetMyStripeAccount;
+using PetHost.Modules.Hosts.Application.Hosts.StartMyStripeOnboarding;
+using PetHost.Modules.Hosts.Application.Hosts.StripeOnboarding;
+using PetHost.Modules.Hosts.Application.Hosts.SyncMyStripeAccount;
+using PetHost.Modules.Hosts.Application.Hosts.SyncStripeAccount;
+using PetHost.Modules.Hosts.Application.Hosts.RunPayoutsMaintenance;
+using PetHost.Modules.Hosts.Application.Hosts.ResetHostStripeAccount;
 using PetHost.Modules.Hosts.Domain.HostApplications;
 using PetHost.Modules.Hosts.Domain.Hosts;
 using PetHost.Modules.Hosts.Infrastructure.Accounts;
 using PetHost.Modules.Hosts.Infrastructure.Contracts;
 using PetHost.Modules.Hosts.Infrastructure.Notifications;
+using PetHost.Modules.Hosts.Infrastructure.Payouts;
 using PetHost.Modules.Hosts.Infrastructure.Persistence;
 using PetHost.Modules.Hosts.Infrastructure.Persistence.Repositories;
 using PetHost.Modules.Hosts.Infrastructure.Persistence.Seed;
 using PetHost.Modules.Hosts.Infrastructure.Verification;
 using PetHost.Shared.Contracts.Hosts;
 using PetHost.Shared.Contracts.Identity;
+using PetHost.Shared.Infrastructure.Stripe;
 using PetHost.Shared.Infrastructure.Validation;
 using PetHost.Shared.Kernel.Messaging;
 using PetHost.Shared.Kernel.Primitives;
@@ -68,6 +78,21 @@ public static class DependencyInjection
         services.AddScoped<IHostsUnitOfWork, HostsUnitOfWork>();
         services.AddScoped<IHostAccounts, HostAccounts>();
         services.AddScoped<IHostApplicationNotifier, HostApplicationEmailNotifier>();
+        services.AddScoped<IHostPayoutsNotifier, HostPayoutsEmailNotifier>();
+
+        // Cadastro de recebimento (Stripe Connect): conta conectada, onboarding e webhook account.updated.
+        services.AddStripe(configuration);
+        services.AddScoped<IStripeConnect, StripeConnectGateway>();
+        services.AddScoped<HostPayoutSetup>();
+        services.AddScoped<IStripeWebhookHandler, HostAccountUpdatedWebhookHandler>();
+
+        // Manutenção do cadastro de recebimento: releitura periódica no Stripe + lembretes.
+        services.AddOptions<HostPayoutsOptions>()
+            .Bind(configuration.GetSection(HostPayoutsOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<HostPayoutsOptions>, HostPayoutsOptionsValidator>();
+        services.AddSingleton<IHostPayoutsPolicy, HostPayoutsPolicy>();
+        services.AddHostedService<HostPayoutsMaintenanceService>();
 
         // Prazos da verificação + tarefa de limpeza em segundo plano.
         services.AddOptions<HostVerificationOptions>()
@@ -125,6 +150,7 @@ public static class DependencyInjection
         services.AddValidatedCommandHandler<SuspendHostCommandHandler, SuspendHostCommand, HostResponse>();
         services.AddValidatedCommandHandler<LiftHostSuspensionCommandHandler, LiftHostSuspensionCommand, HostResponse>();
         services.AddValidatedCommandHandler<ReleaseHostIdentityCommandHandler, ReleaseHostIdentityCommand, HostResponse>();
+        services.AddValidatedCommandHandler<ResetHostStripeAccountCommandHandler, ResetHostStripeAccountCommand, HostResponse>();
         services.AddScoped<IQueryHandler<GetHostByIdQuery, HostResponse>, GetHostByIdQueryHandler>();
         services.AddScoped<IQueryHandler<ListHostsQuery, IReadOnlyList<HostResponse>>, ListHostsQueryHandler>();
 
@@ -135,6 +161,17 @@ public static class DependencyInjection
         services.AddScoped<IQueryHandler<GetHostApplicationByIdQuery, HostApplicationReviewResponse>, GetHostApplicationByIdQueryHandler>();
         services.AddScoped<IQueryHandler<GetHostApplicationDocumentQuery, HostApplicationDocumentLinkResponse>, GetHostApplicationDocumentQueryHandler>();
         services.AddScoped<IQueryHandler<GetMyHostQuery, HostResponse>, GetMyHostQueryHandler>();
+
+        // Anfitrião verificado: cadastro de recebimento no Stripe.
+        services.AddValidatedCommandHandler<
+            StartMyStripeOnboardingCommandHandler, StartMyStripeOnboardingCommand, StripeOnboardingSessionResponse>();
+        services.AddValidatedCommandHandler<
+            CreateMyStripeOnboardingLinkCommandHandler, CreateMyStripeOnboardingLinkCommand, StripeOnboardingLinkResponse>();
+        services.AddValidatedCommandHandler<SyncMyStripeAccountCommandHandler, SyncMyStripeAccountCommand, StripeAccountResponse>();
+        services.AddValidatedCommandHandler<SyncStripeAccountCommandHandler, SyncStripeAccountCommand, Unit>();
+        services.AddValidatedCommandHandler<
+            RunPayoutsMaintenanceCommandHandler, RunPayoutsMaintenanceCommand, RunPayoutsMaintenanceResponse>();
+        services.AddScoped<IQueryHandler<GetMyStripeAccountQuery, StripeAccountResponse>, GetMyStripeAccountQueryHandler>();
 
         return services;
     }

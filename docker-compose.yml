@@ -105,6 +105,14 @@ services:
       Stripe__SecretKey: ${STRIPE_SECRET_KEY:-}
       Stripe__PublishableKey: ${STRIPE_PUBLISHABLE_KEY:-}
       Stripe__WebhookSecret: ${STRIPE_WEBHOOK_SECRET:-}
+      Stripe__ConnectWebhookSecret: ${STRIPE_CONNECT_WEBHOOK_SECRET:-}
+      Stripe__ConnectReturnUrl: ${STRIPE_CONNECT_RETURN_URL:-http://localhost:3000/anfitriao/recebimentos?stripe=retorno}
+      Stripe__ConnectRefreshUrl: ${STRIPE_CONNECT_REFRESH_URL:-http://localhost:3000/anfitriao/recebimentos?stripe=renovar}
+
+      # --- Cadastro de recebimento: releitura periodica no Stripe + lembretes ---
+      HostPayouts__MaintenanceIntervalMinutes: ${HOST_PAYOUTS_MAINTENANCE_INTERVAL_MINUTES:-60}
+      HostPayouts__ReminderDays: ${HOST_PAYOUTS_REMINDER_DAYS:-3,7}
+      HostPayouts__AdminAlertEmail: ${HOST_PAYOUTS_ADMIN_ALERT_EMAIL:-}
 
       # --- ngrok ---
       # PublicUrl e a base usada para montar callbacks (ex.: webhook do Stripe).

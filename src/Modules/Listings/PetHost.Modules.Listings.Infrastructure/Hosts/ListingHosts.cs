@@ -16,7 +16,7 @@ internal sealed class ListingHosts(
     {
         var host = await hostDirectory.GetByUserIdAsync(userId, cancellationToken).ConfigureAwait(false);
 
-        return host is null ? null : new HostProfile(host.Id, host.IsCompany, host.IsAvailable);
+        return host is null ? null : new HostProfile(host.Id, host.IsCompany, host.IsAvailable, host.PayoutsEnabled);
     }
 
     public async Task<IReadOnlyDictionary<Guid, ListingHostSummary>> GetSummariesAsync(
@@ -50,7 +50,8 @@ internal sealed class ListingHosts(
                 host.TradeName ?? account.FullName,
                 account.AvatarUrl,
                 host.IsCompany,
-                host.IsAvailable);
+                host.IsAvailable,
+                host.PayoutsEnabled);
         }
 
         return summaries;

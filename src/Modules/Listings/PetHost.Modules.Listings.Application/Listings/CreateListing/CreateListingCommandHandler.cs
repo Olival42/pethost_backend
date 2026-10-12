@@ -15,7 +15,8 @@ namespace PetHost.Modules.Listings.Application.Listings.CreateListing;
 /// </summary>
 /// <remarks>
 /// Conta sem anfitrião: <c>404 LISTING_HOST_NOT_FOUND</c>. Anfitrião inativo ou suspenso:
-/// <c>403 LISTING_HOST_DEACTIVATED</c>. Pessoa física com cantinho: <c>422 LISTING_LIMIT_REACHED</c>.
+/// <c>403 LISTING_HOST_DEACTIVATED</c>. Stripe ainda sem aprovar o cadastro de recebimento:
+/// <c>422 LISTING_HOST_PAYOUTS_NOT_ENABLED</c> (conferido antes de validar o corpo). Pessoa física com cantinho: <c>422 LISTING_LIMIT_REACHED</c>.
 /// Endereço fora do mapa: <c>422 LISTING_ADDRESS_NOT_LOCATED</c>.
 /// </remarks>
 public sealed class CreateListingCommandHandler(
@@ -36,6 +37,10 @@ public sealed class CreateListingCommandHandler(
             return Result<ListingResponse>.FromFailure(resolved);
 
         var host = resolved.Value!;
+
+        // Ordem do anfitrião: verificação (admin) → cadastro de recebimento aprovado (Stripe) → cantinho.
+        if (!host.PayoutsEnabled)
+            return Result<ListingResponse>.Failure(ListingsErrors.HostPayoutsNotEnabled);
 
         var details = ListingDetails.Create(command.ToDetailsData(), host.IsCompany);
         var address = ListingAddress.Create(command.Address?.ToData());

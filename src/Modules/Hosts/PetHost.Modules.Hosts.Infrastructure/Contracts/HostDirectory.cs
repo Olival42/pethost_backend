@@ -42,7 +42,7 @@ internal sealed class HostDirectory(HostsDbContext dbContext) : IHostDirectory
     {
         var ids = await dbContext.Hosts
             .AsNoTracking()
-            .Where(h => !h.IsActive || h.SuspendedAt != null)
+            .Where(h => !h.IsActive || h.SuspendedAt != null || !h.StripePayoutsEnabled)
             .Select(h => h.Id)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
@@ -51,5 +51,5 @@ internal sealed class HostDirectory(HostsDbContext dbContext) : IHostDirectory
     }
 
     private static HostReference ToReference(Host host) =>
-        new(host.Id.Value, host.UserId, PersonTypeValues.ToWire(host.PersonType), host.TradeName, host.IsActive, host.IsSuspended);
+        new(host.Id.Value, host.UserId, PersonTypeValues.ToWire(host.PersonType), host.TradeName, host.IsActive, host.IsSuspended, host.StripePayoutsEnabled);
 }

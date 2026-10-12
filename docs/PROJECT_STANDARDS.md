@@ -20,6 +20,7 @@
 | Testes | **xUnit** + **Moq** + **FluentAssertions 7.x** + Testcontainers |
 | Logs | Serilog (JSON estruturado) |
 | Imagens | Bucket **S3 compatível** via `AWSSDK.S3`: **Cloudflare R2** em produção, **RustFS** no compose e nos testes |
+| Pagamentos | **Stripe Connect** via `Stripe.net`, sempre em **modo de teste** |
 
 > ⚠️ `FluentAssertions` 8+ exige licença paga. Fixado em **7.x** (Apache-2.0) via `Directory.Packages.props`. Subir de versão exige decisão de licenciamento.
 
@@ -52,7 +53,7 @@ pethost_backend/
 │   ├── Shared/
 │   │   ├── PetHost.Shared.Kernel/            ← Result, Error, Entity, ValueObject, abstrações
 │   │   ├── PetHost.Shared.Contracts/         ← ApiResponse, ErrorResponse, integration events, IImageStorage
-│   │   └── PetHost.Shared.Infrastructure/    ← cross-cutting: EF base, outbox, decorators, storage S3, conexão Redis (`AddRedis`)
+│   │   └── PetHost.Shared.Infrastructure/    ← cross-cutting: EF base, outbox, decorators, storage S3, conexão Redis (`AddRedis`), Stripe (`AddStripe`: cliente + webhook)
 │   └── Modules/<Module>/
 │       ├── PetHost.Modules.<Module>.Domain/
 │       ├── PetHost.Modules.<Module>.Application/
@@ -114,7 +115,9 @@ Proibido: referenciar projeto de outro módulo, compartilhar `DbContext`, fazer 
 2. **Integration event** (assíncrono) — domain event fica dentro do módulo; para cruzar fronteira, publique um `record ...IntegrationEvent` declarado em `Shared.Contracts`, via **padrão Outbox** (tabela no schema do publicador, atômica com a transação).
 3. **Read model próprio** — módulo que lê muito dado de outro mantém tabela desnormalizada alimentada por integration events. Duplicar dado é aceitável; acoplar schema não é.
 
-**Recurso de infraestrutura usado por mais de um módulo** (conexão Redis, bucket, caixa de saída de e-mail) é registrado pelo `Shared.Infrastructure`, de forma idempotente (`TryAdd*`): cada módulo chama `AddRedis(...)`, e nenhum depende do registro feito por outro. Cada módulo usa um prefixo próprio nas chaves (`pethost:<módulo>:...`).
+**Recurso de infraestrutura usado por mais de um módulo** (conexão Redis, bucket, caixa de saída de e-mail, cliente do Stripe) é registrado pelo `Shared.Infrastructure`, de forma idempotente (`TryAdd*`): cada módulo chama `AddRedis(...)`/`AddStripe(...)`, e nenhum depende do registro feito por outro. Cada módulo usa um prefixo próprio nas chaves (`pethost:<módulo>:...`).
+
+**Webhook de serviço externo** (Stripe) tem **um** endpoint para a API inteira, no `Shared.Infrastructure` (`POST /api/v1/stripe/webhooks`): ele confere a assinatura uma vez e entrega o evento a cada `IStripeWebhookHandler` que o módulo registrou para o tipo (`AddScoped<IStripeWebhookHandler, ...>`). O handler trata o evento como **aviso** e relê o objeto na API do serviço — idempotente e imune a evento repetido ou fora de ordem. Exceção no handler = `500`, e o serviço reenvia.
 
 **Regra que atravessa módulos** (ex.: o CPF identifica a pessoa entre tutor e anfitrião): cada módulo implementa um contrato de consulta pequeno em `Shared.Contracts` (`ICpfHolderLookup`), registrado com `AddScoped` — todos são lidos —, e a regra mora num lugar só (`ICpfOwnership`, implementado em `Shared.Infrastructure`). Nenhum módulo conhece o outro.
 
@@ -573,6 +576,9 @@ O time pensa em português, o código fala inglês. Esta é a tradução oficial
 | Solicitação de cadastro de anfitrião (verificação) | `HostApplication` *(❌ HostRequest, Verification)* | Foto da verificação (frente, verso, selfie) | `HostApplicationDocument` (`DocumentKind`) |
 | Aprovar / recusar (admin) | `Approve` / `Reject` (`RejectionReason`) | Documento de identidade (RG, CNH, CIN) | `IdentityDocumentType` |
 | Prazo de guarda das fotos | `DocumentRetention` | Apagar as fotos | `PurgeDocuments` |
+| Cadastro de recebimento (onboarding do Stripe) | `StripeOnboarding` *(❌ Registration, Signup)* | Conta conectada no Stripe (`acct_...`) | `StripeAccount` (`StripeAccountId`) |
+| Repasses liberados pelo Stripe | `PayoutsEnabled` | Anfitrião disponível para os outros (cantinho na busca) | `IsListable` |
+| Lembrete (e-mail de "termine o cadastro") | `Reminder` | Manutenção do cadastro de recebimento (releitura + lembretes) | `PayoutsMaintenance` |
 | Representante legal (da empresa) | `Representative` (o CPF do `HostApplication`/`Host` de empresa) | Dados da empresa | `CompanyDetails` |
 
 ---
@@ -657,7 +663,7 @@ Rate limiting nativo do ASP.NET Core (`AddPetHostRateLimiting`, em `Shared.Infra
 | geral | Todo endpoint | usuário ou IP | 120 / 1 min |
 
 - Estourou: `429 TOO_MANY_REQUESTS` no envelope + `Retry-After`. Log `Warning` com rota e IP.
-- Health checks ficam fora (`DisableRateLimiting`).
+- Health checks ficam fora (`DisableRateLimiting`). Webhook de serviço externo também: é anônimo, a origem é provada pela assinatura (`Stripe-Signature`), e o serviço manda rajadas e reenvia com espera própria.
 - Endpoint novo que confere senha, cria conta ou manda e-mail **precisa** de política própria.
 - Atrás de proxy, o IP vem do `X-Forwarded-For` (`ForwardedHeaders:Enabled`), confiando só em proxy de rede privada e loopback.
 - Os contadores ficam em memória: valem por instância. Com mais de uma instância, mover para o Redis.
