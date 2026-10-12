@@ -3,7 +3,7 @@
 > Documento normativo. Tudo é obrigatório salvo onde marcado como *recomendado*.
 > Em conflito com o código existente, este documento vence.
 
-**Atualizado:** 2026-10-10 · **Escopo:** backend (API)
+**Atualizado:** 2026-10-12 · **Escopo:** backend (API)
 
 ---
 
@@ -35,7 +35,7 @@
 4. **Erro esperado não usa exceção.** Fluxo de negócio previsível retorna `Result`. Exceção só para bug ou infraestrutura fora.
 5. **Toda regra de negócio tem teste unitário.** Sem exceção.
 
-**Módulos** (bounded contexts): `Auth` (conta, sessão, perfil comum), `Owners` (perfil de tutor), `Hosts` (anfitrião: verificação de identidade aprovada pelo admin e perfil verificado, PF/PJ), `Audit` (trilha de auditoria de todos os módulos), `Pets` (ficha do pet, do tutor ou do anfitrião), `Booking`, `Availability`, `Payments`, `Reviews`, `Notifications`. Criar módulo novo é decisão de arquitetura — discutir antes do PR.
+**Módulos** (bounded contexts): `Auth` (conta, sessão, perfil comum), `Owners` (perfil de tutor), `Hosts` (anfitrião: verificação de identidade aprovada pelo admin e perfil verificado, PF/PJ), `Audit` (trilha de auditoria de todos os módulos), `Pets` (ficha do pet, do tutor ou do anfitrião), `Listings` (cantinho: o espaço do anfitrião, com fotos e busca com filtros e raio — [`modulo-listings.md`](modulo-listings.md)), `Booking`, `Availability`, `Payments`, `Reviews`, `Notifications`. Criar módulo novo é decisão de arquitetura — discutir antes do PR.
 
 ---
 
@@ -52,7 +52,7 @@ pethost_backend/
 │   ├── Shared/
 │   │   ├── PetHost.Shared.Kernel/            ← Result, Error, Entity, ValueObject, abstrações
 │   │   ├── PetHost.Shared.Contracts/         ← ApiResponse, ErrorResponse, integration events, IImageStorage
-│   │   └── PetHost.Shared.Infrastructure/    ← cross-cutting: EF base, outbox, decorators, storage S3
+│   │   └── PetHost.Shared.Infrastructure/    ← cross-cutting: EF base, outbox, decorators, storage S3, conexão Redis (`AddRedis`)
 │   └── Modules/<Module>/
 │       ├── PetHost.Modules.<Module>.Domain/
 │       ├── PetHost.Modules.<Module>.Application/
@@ -113,6 +113,8 @@ Proibido: referenciar projeto de outro módulo, compartilhar `DbContext`, fazer 
 1. **Porta + adaptador** (consulta síncrona) — a `Application` consumidora declara a interface no seu vocabulário (`IAvailabilityChecker`); a `Infrastructure` implementa via `Shared.Contracts`.
 2. **Integration event** (assíncrono) — domain event fica dentro do módulo; para cruzar fronteira, publique um `record ...IntegrationEvent` declarado em `Shared.Contracts`, via **padrão Outbox** (tabela no schema do publicador, atômica com a transação).
 3. **Read model próprio** — módulo que lê muito dado de outro mantém tabela desnormalizada alimentada por integration events. Duplicar dado é aceitável; acoplar schema não é.
+
+**Recurso de infraestrutura usado por mais de um módulo** (conexão Redis, bucket, caixa de saída de e-mail) é registrado pelo `Shared.Infrastructure`, de forma idempotente (`TryAdd*`): cada módulo chama `AddRedis(...)`, e nenhum depende do registro feito por outro. Cada módulo usa um prefixo próprio nas chaves (`pethost:<módulo>:...`).
 
 **Regra que atravessa módulos** (ex.: o CPF identifica a pessoa entre tutor e anfitrião): cada módulo implementa um contrato de consulta pequeno em `Shared.Contracts` (`ICpfHolderLookup`), registrado com `AddScoped` — todos são lidos —, e a regra mora num lugar só (`ICpfOwnership`, implementado em `Shared.Infrastructure`). Nenhum módulo conhece o outro.
 
@@ -306,6 +308,7 @@ public static int ToHttpStatusCode(this string errorCode) => errorCode switch
     // Códigos de módulo herdam o status pelo sufixo.
     var c when c.EndsWith("_NOT_FOUND", StringComparison.Ordinal) => StatusCodes.Status404NotFound,
     var c when c.EndsWith("_CONFLICT",  StringComparison.Ordinal) => StatusCodes.Status409Conflict,
+    var c when c.EndsWith("_UNAVAILABLE", StringComparison.Ordinal) => StatusCodes.Status503ServiceUnavailable, // serviço externo fora (ex.: mapa)
 
     _ => StatusCodes.Status422UnprocessableEntity,   // fallback: regra de negócio, não falha do servidor
 };
@@ -368,6 +371,7 @@ Sucesso `200` · validação `400` · regra de negócio `422` · inesperado `500
 | `PAYLOAD_TOO_LARGE` | 413 | Corpo acima do teto da rota (upload de imagem: 8 MB) |
 | `UNSUPPORTED_MEDIA_TYPE` | 415 | Corpo num content-type que a rota não aceita (use `application/json`) |
 | `TOO_MANY_REQUESTS` | 429 | Rate limit estourado. Vem com o header `Retry-After` (segundos) |
+| `<MODULE>_..._UNAVAILABLE` | 503 | Serviço externo fora do ar ou lento (ex.: `LISTING_GEOCODER_UNAVAILABLE`). Tente de novo depois |
 | `UNEXPECTED_ERROR` | 500 | Exceção não tratada |
 
 **Códigos de módulo:** `<MODULE>_<REASON>` em `SCREAMING_SNAKE_CASE` — `AUTH_INVALID_CREDENTIALS`, `AUTH_EMAIL_ALREADY_REGISTERED`, `BOOKING_NOT_FOUND`, `BOOKING_OVERLAPPING_PERIOD`, `BOOKING_ALREADY_CANCELLED`, `PET_MICROCHIP_ALREADY_REGISTERED`, `PAYMENT_GATEWAY_REJECTED`.
@@ -503,7 +507,7 @@ public sealed class BookingsController(
 | Regra | Detalhe |
 |-------|---------|
 | Um `DbContext` por módulo | `BookingDbContext`, `AuthDbContext` |
-| Um schema por módulo | `auth`, `owner`, `host`, `pet`, `audit` (singular). Infraestrutura compartilhada que precisa de tabela também ganha schema e `DbContext` próprios em `Shared.Infrastructure`: `email` (caixa de saída de e-mails) |
+| Um schema por módulo | `auth`, `owner`, `host`, `pet`, `listing`, `audit` (singular). Infraestrutura compartilhada que precisa de tabela também ganha schema e `DbContext` próprios em `Shared.Infrastructure`: `email` (caixa de saída de e-mails) |
 | Migrations e histórico isolados | `Persistence/Migrations`, `__ef_migrations_history` no schema do módulo |
 | Sem `JOIN` entre schemas | Cruzar dado só pelo §5 |
 | `DbContext` nunca sai da `Infrastructure` | `Application` só conhece interfaces |
@@ -564,6 +568,8 @@ O time pensa em português, o código fala inglês. Esta é a tradução oficial
 | Trilha de auditoria | `AuditTrail` / `AuditEntry` | Motivo | `Reason` |
 | Dono do pet (tutor **ou** anfitrião) | `Keeper` *(❌ Owner, que é só o tutor)* | Animal fora da lista | `Exotic` (+ `SpeciesDescription`) |
 | Pessoa física / jurídica | `Individual` / `Company` (`PersonType`) | Razão social / nome fantasia | `LegalName` / `TradeName` |
+| Cantinho (o espaço do anfitrião; empresa tem um por filial) | `Listing` *(❌ Space, Room)* | Diária (em reais, `decimal`) | `NightlyRate` |
+| Tipos de pet aceitos / dias em que recebe | `AcceptedSpecies` / `AvailableWeekdays` (`Weekdays`) | Coordenada / geocodificar | `GeoPoint` / `Geocoder` (`IGeocoder`) |
 | Solicitação de cadastro de anfitrião (verificação) | `HostApplication` *(❌ HostRequest, Verification)* | Foto da verificação (frente, verso, selfie) | `HostApplicationDocument` (`DocumentKind`) |
 | Aprovar / recusar (admin) | `Approve` / `Reject` (`RejectionReason`) | Documento de identidade (RG, CNH, CIN) | `IdentityDocumentType` |
 | Prazo de guarda das fotos | `DocumentRetention` | Apagar as fotos | `PurgeDocuments` |
@@ -615,6 +621,8 @@ POST   /api/v1/auth/sessions/login    ·  POST /api/v1/auth/sessions/refresh
 POST   /api/v1/pets               ·  GET  /api/v1/pets/me  ·  PATCH /api/v1/pets/{petId:guid}
 POST   /api/v1/pets/{petId:guid}/deactivation  ·  DELETE /api/v1/pets/{petId:guid}/deactivation
 GET    /api/v1/hosts/{hostId:guid}/pets
+POST   /api/v1/listings           ·  GET  /api/v1/listings/me  ·  GET /api/v1/listings?radiusKm=10&city=Maringá&species=dog
+PUT    /api/v1/listings/{listingId:guid}/photos/order
 POST   /api/v1/bookings               ·  GET  /api/v1/bookings/{bookingId:guid}
 POST   /api/v1/bookings/{bookingId:guid}/cancellation
 GET    /api/v1/hosts/{hostId:guid}/availability?from=2026-11-01&to=2026-11-30
@@ -625,7 +633,7 @@ GET    /api/v1/hosts/{hostId:guid}/availability?from=2026-11-01&to=2026-11-30
 Exceções, sem paginação nem filtro enquanto o volume for pequeno:
 
 - **Lista administrativa** (só `admin`) — ex.: `GET /owners`.
-- **Pets de uma pessoa** — `GET /pets/me` e `GET /hosts/{hostId}/pets`: poucos itens por definição (os pets de um tutor ou de uma casa). Pedido do produto. Como todos os itens são do mesmo dono, a resposta traz o dono **uma vez** no topo (`{ keeper, pets }`) em vez de repeti-lo em cada item — regra para qualquer lista "de uma pessoa".
+- **Pets de uma pessoa** — `GET /pets/me` e `GET /hosts/{hostId}/pets`: poucos itens por definição (os pets de um tutor ou de uma casa). Idem **cantinhos de um anfitrião** — `GET /listings/me` (um para pessoa física; um por filial para empresa). Pedido do produto. Como todos os itens são do mesmo dono, a resposta traz o dono **uma vez** no topo (`{ keeper, pets }`) em vez de repeti-lo em cada item — regra para qualquer lista "de uma pessoa".
 
 Fora isso, lista que o usuário final vê é sempre paginada.
 
@@ -669,6 +677,7 @@ Toda foto (avatar, pet, anfitrião, cantinho) vai para o **bucket S3 compatível
 - **Rota própria de upload** por entidade, com `multipart/form-data` e a imagem na parte `file`; a resposta é a entidade, no formato de sempre.
   - **Uma foto** (avatar): `PUT /<recurso>/me/avatar` troca, `DELETE` na mesma rota tira.
   - **Várias fotos** (pet, cantinho): tabela própria (`<recurso>_photos`) com vaga única por dono. `POST /<recurso>/{id}/photos` adiciona, `PATCH /<recurso>/{id}/photos/{photoId}` só substitui (mesmo id e posição) e `DELETE` na mesma rota tira.
+  - **Fotos em ordem escolhida** (cantinho): posição 1..n sempre sem buraco (nova entra no fim; tirar sobe as de trás) e `PUT /<recurso>/{id}/photos/order` com **todas** as fotos na ordem nova. A unicidade da posição é constraint `DEFERRABLE INITIALLY DEFERRED`, para trocar posições numa transação.
 - **URL de imagem nunca vem no JSON.** Cadastro e PATCH não aceitam `photoUrl`/`photos`/`avatarUrl`: só existe no banco URL que a API gerou no bucket.
 - **Posse antes do upload.** O handler confere se quem pede é dono da entidade antes de enviar qualquer coisa ao bucket; recurso de outra conta é `404`, como nas outras rotas.
 - **O formato é conferido pelo conteúdo** (JPEG, PNG, WebP; até 5 MB), nunca pelo nome ou pelo `Content-Type` declarado. Erros no campo `file`.

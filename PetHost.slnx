@@ -36,6 +36,12 @@
     <Project Path="src/Modules/Pets/PetHost.Modules.Pets.Infrastructure/PetHost.Modules.Pets.Infrastructure.csproj" />
     <Project Path="src/Modules/Pets/PetHost.Modules.Pets.Presentation/PetHost.Modules.Pets.Presentation.csproj" />
   </Folder>
+  <Folder Name="/src/Modules/Listings/">
+    <Project Path="src/Modules/Listings/PetHost.Modules.Listings.Application/PetHost.Modules.Listings.Application.csproj" />
+    <Project Path="src/Modules/Listings/PetHost.Modules.Listings.Domain/PetHost.Modules.Listings.Domain.csproj" />
+    <Project Path="src/Modules/Listings/PetHost.Modules.Listings.Infrastructure/PetHost.Modules.Listings.Infrastructure.csproj" />
+    <Project Path="src/Modules/Listings/PetHost.Modules.Listings.Presentation/PetHost.Modules.Listings.Presentation.csproj" />
+  </Folder>
   <Folder Name="/src/Shared/" />
   <Folder Name="/tests/">
     <Project Path="tests/PetHost.ArchitectureTests/PetHost.ArchitectureTests.csproj" />
@@ -66,6 +72,11 @@
     <Project Path="tests/Modules/Pets/PetHost.Modules.Pets.Application.UnitTests/PetHost.Modules.Pets.Application.UnitTests.csproj" />
     <Project Path="tests/Modules/Pets/PetHost.Modules.Pets.Domain.UnitTests/PetHost.Modules.Pets.Domain.UnitTests.csproj" />
     <Project Path="tests/Modules/Pets/PetHost.Modules.Pets.IntegrationTests/PetHost.Modules.Pets.IntegrationTests.csproj" />
+  </Folder>
+  <Folder Name="/tests/Modules/Listings/">
+    <Project Path="tests/Modules/Listings/PetHost.Modules.Listings.Application.UnitTests/PetHost.Modules.Listings.Application.UnitTests.csproj" />
+    <Project Path="tests/Modules/Listings/PetHost.Modules.Listings.Domain.UnitTests/PetHost.Modules.Listings.Domain.UnitTests.csproj" />
+    <Project Path="tests/Modules/Listings/PetHost.Modules.Listings.IntegrationTests/PetHost.Modules.Listings.IntegrationTests.csproj" />
   </Folder>
   <Folder Name="/tests/Shared/">
     <Project Path="tests/Shared/PetHost.Shared.Contracts.UnitTests/PetHost.Shared.Contracts.UnitTests.csproj" />

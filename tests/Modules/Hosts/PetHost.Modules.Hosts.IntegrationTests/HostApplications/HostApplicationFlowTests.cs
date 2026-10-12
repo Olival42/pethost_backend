@@ -1,7 +1,9 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
 using PetHost.Modules.Hosts.Application.HostApplications.PurgeHostApplications;
@@ -17,7 +19,7 @@ namespace PetHost.Modules.Hosts.IntegrationTests.HostApplications;
 /// fila do admin, aprovação/recusa, prazo de guarda e trilha.
 /// </summary>
 [Collection(HostsApiCollection.Name)]
-public sealed class HostApplicationFlowTests(HostsApiFixture fixture) : IAsyncLifetime
+public sealed partial class HostApplicationFlowTests(HostsApiFixture fixture) : IAsyncLifetime
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
@@ -144,11 +146,15 @@ public sealed class HostApplicationFlowTests(HostsApiFixture fixture) : IAsyncLi
         // Prazo de 5 minutos (padrão), na resposta e na própria assinatura.
         DateTimeOffset.FromUnixTimeSeconds(link.GetProperty("expiresAt").GetInt64())
             .Should().BeCloseTo(before.AddMinutes(5), TimeSpan.FromSeconds(30), "expiresAt vem em Unix time (segundos)");
-        url.Should().Contain("X-Amz-Expires=300").And.Contain("X-Amz-Signature=");
+        // O SDK conta os segundos pelo próprio relógio (com correção de desvio): pode sair 299 a 301.
+        var expires = ExpiresParameter().Match(url);
+        expires.Success.Should().BeTrue("a URL assinada traz X-Amz-Expires");
+        int.Parse(expires.Groups[1].Value, CultureInfo.InvariantCulture).Should().BeInRange(295, 305);
+        url.Should().Contain("X-Amz-Signature=");
 
         // Esticar o prazo na URL (7 dias) invalida a assinatura.
         using var browser = new HttpClient();
-        var tampered = await browser.GetAsync(new Uri(url.Replace("X-Amz-Expires=300", "X-Amz-Expires=604800", StringComparison.Ordinal)), Ct);
+        var tampered = await browser.GetAsync(new Uri(ExpiresParameter().Replace(url, "X-Amz-Expires=604800")), Ct);
         tampered.StatusCode.Should().Be(HttpStatusCode.Forbidden, "alterar o prazo invalida a assinatura");
     }
 
@@ -482,4 +488,8 @@ public sealed class HostApplicationFlowTests(HostsApiFixture fixture) : IAsyncLi
 
     private static IEnumerable<string?> Fields(HttpResponseMessage response) =>
         Read(response).GetProperty("error").GetProperty("details").EnumerateArray().Select(d => d.GetProperty("field").GetString());
+
+    /// <summary>O prazo da URL assinada: <c>X-Amz-Expires=&lt;segundos&gt;</c>.</summary>
+    [GeneratedRegex(@"X-Amz-Expires=(\d+)")]
+    private static partial Regex ExpiresParameter();
 }

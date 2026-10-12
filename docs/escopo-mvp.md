@@ -86,10 +86,10 @@ A ideia é que o produto não pareça um sistema genérico. Ele tem quatro princ
 | **Contas separadas**        | Conta de **tutor** ou de **anfitrião**, escolhida no cadastro. Pode usar o mesmo e-mail nas duas e alternar entre elas; cada uma pode ser inativada sem afetar a outra. O cadastro de tutor cria a conta (dados comuns e endereço) e o perfil de tutor (CPF) num pedido só. Admin é criado direto no banco.                                                                                                      |
 | **Tipos de pet**            | Lista fixa: cachorro, gato, calopsita, papagaio, periquito, canário, coelho, hamster, porquinho-da-índia, peixe, tartaruga/jabuti e **exótico** (o tutor descreve o animal; o anfitrião decide se aceita no pedido e na conversa). Porte (P, M, G): obrigatório para cachorro, opcional para gato. |
 | **Cadastro de pet (ficha)** | Nome, foto, tipo, raça (texto livre), porte, idade, sexo, castrado, vacinas em dia, remédio e horário, alimentação, se dá bem com cães, gatos e crianças, veterinário, peso aproximado, microchip, alergias e "coisas que só quem convive sabe". O **anfitrião** também cadastra os pets que moram na casa dele: o tutor vê com quais animais o pet vai conviver. |
-| **Cantinho**                | Fotos (até 5), descrição, bairro e endereço, tipo de casa, tem quintal, tem cães, gatos ou crianças em casa, tipos e portes aceitos, capacidade (quantos pets ao mesmo tempo, de tutores diferentes), diária por pet, regras da casa.  |
+| **Cantinho**                | Fotos (até 5, em ordem escolhida pelo anfitrião), descrição, bairro e endereço (a coordenada é calculada pela API), tipo de casa, tem quintal, tem cães, gatos ou crianças em casa, tipos e portes aceitos, capacidade (quantos pets ao mesmo tempo, de tutores diferentes), diária por pet (em reais), regras da casa e **dias da semana em que recebe**. Pessoa física tem **um** cantinho (até 10 pets); empresa tem **um por filial** (até 200 pets cada, tipo de casa opcional). Detalhes em [`modulo-listings.md`](modulo-listings.md). |
 | **Agenda**                  | Tudo disponível por padrão. O anfitrião bloqueia datas. Estadias pagas bloqueiam sozinhas.                                                                                                                                             |
 | **Verificação**             | **Solicitação de cadastro de anfitrião:** CPF, tipo de documento (RG, CNH ou CIN), frente, verso e selfie segurando o documento, num bucket privado. O admin confere e aprova (aí nasce o perfil de anfitrião) ou recusa com motivo (pode tentar de novo até 3 vezes; fraude é definitiva). As fotos são apagadas depois da decisão. Depois da aprovação, o cadastro de recebimento no Stripe. Sem os dois, o cantinho não aparece na busca. Detalhes em [`modulo-hosts.md`](modulo-hosts.md). |
-| **Busca**                   | Bairro ou cidade + datas + qual pet vai. Resultado em lista com foto, bairro, distância, preço, nota e selos.                                                                                                                          |
+| **Busca**                   | **Por raio** (5 a 50 km) a partir do endereço do tutor ou de um ponto enviado (latitude e longitude); depois, datas + qual pet vai. Resultado em lista com foto, bairro, distância, preço, nota e selos. (Feito: raio, distância e ordem; filtros somados por estado, cidade, bairro, espécie, porte, dias da semana, faixa de diária, capacidade, quintal, tipo da casa e quem mora nela (cachorro, gato, criança) — com ou sem raio. Datas, vaga para os pets e selos dependem da agenda e das reservas.) |
 | **Chat**                    | Botão "Puxar conversa" no cantinho. Texto e foto. Uma conversa por dupla tutor–anfitrião. Durante a estadia, é ali que chegam as fotos.                                                                                                |
 | **Reserva**                 | Pedir → anfitrião aceita ou recusa (24h) → tutor paga (24h) → confirmada → "chegou" → "voltou pra casa".                                                                                                                               |
 | **Pagamento**               | Stripe Connect com checkout transparente: cartão e Pix dentro do PetHost. Detalhes na seção 6.                                                                                                                                         |
@@ -171,7 +171,7 @@ O PetHost é a plataforma no Stripe; cada anfitrião é uma **conta conectada**.
 > Confirmar como simular um Pix pago no modo de teste e usar a Stripe CLI para mandar webhooks para a máquina local. É a parte mais nova para o grupo; melhor descobrir cedo.
 
 ## 7. Regras que valem
-1. Cantinho só aparece na busca com anfitrião verificado (ok do admin na solicitação) + Stripe liberado + status ativo. O onboarding do Stripe só abre depois da aprovação.
+1. Cantinho só aparece na busca com anfitrião verificado (ok do admin na solicitação), ativo e sem suspensão + Stripe liberado + cantinho ativo. O onboarding do Stripe só abre depois da aprovação.
 2. **Capacidade:** em nenhum dia do período a soma dos pets de reservas Confirmadas ou Em andamento, mais os pets do novo pedido, pode passar da capacidade do cantinho. Tutores diferentes podem dividir o mesmo período.
 3. Uma reserva é de um tutor só e leva 1 ou mais pets dele. Todos precisam ser de tipo e porte aceitos. A busca só mostra cantinhos com vaga para todos os pets escolhidos.
 4. Valor = diária × noites × número de pets. Noites = data de saída − data de chegada.
@@ -185,7 +185,7 @@ O PetHost é a plataforma no Stripe; cada anfitrião é uma **conta conectada**.
 
 ## 8. Modelo entidade-relacionamento
 
-Modelo lógico do MVP: 17 tabelas. Nomes em inglês e snake_case, no padrão de mercado; o app continua em português. O **dicionário de dados** ([`dicionario-de-dados.md`](dicionario-de-dados.md)) explica cada tabela e coluna.
+Modelo lógico do MVP: 16 tabelas. Nomes em inglês e snake_case, no padrão de mercado; o app continua em português. O **dicionário de dados** ([`dicionario-de-dados.md`](dicionario-de-dados.md)) explica cada tabela e coluna.
 
 | No app                    | No banco                      |
 |-------------------------------|-----------------------------------|
@@ -325,9 +325,8 @@ _Aqui só as chaves. Todas as colunas estão no dicionário de dados e na versã
 | **users → host_applications**      | 1 : N             | Verificações da conta; no máximo uma aberta.     |
 | **host_applications → documents**  | 1 : 0..3          | Frente, verso e selfie; apagadas após a decisão. |
 | **host_applications → hosts**      | 1 : 0..1          | A aprovada cria o anfitrião.                     |
-| **hosts → listings**               | 1 : 0..1          | Um anfitrião tem no máximo um cantinho.          |
+| **hosts → listings**               | 1 : N             | Pessoa física: no máximo um. Empresa: um por filial. |
 | **listings → listing_photos**      | 1 : N             | Até 5 fotos.                                     |
-| **listings → listing_species**     | 1 : N             | Tipos de pet aceitos.                            |
 | **listings → availability_blocks** | 1 : N             | Períodos fechados pelo anfitrião.                |
 | **users → bookings**               | 1 : N             | O tutor faz várias reservas.                     |
 | **listings → bookings**            | 1 : N             | Várias no mesmo período, limitadas por capacity. |
@@ -350,7 +349,7 @@ _Aqui só as chaves. Todas as colunas estão no dicionário de dados e na versã
 8. stripe_events.stripe_event_id único: webhook repetido não é processado duas vezes.
 9. **CPF identifica a pessoa; o e-mail identifica o login.** Um CPF aparece em no máximo uma conta de tutor e uma de anfitrião, e só se as duas forem do **mesmo e-mail** (a mesma pessoa). CPF já usado por outro e-mail, em qualquer papel, é recusado (`409`). Vale entre tutores e anfitriões (inclusive o representante de empresa e as solicitações abertas), pelo contrato `ICpfOwnership` ([`modulo-hosts.md`](modulo-hosts.md) seção 4.1).
 10. **Titularidade do CPF:** validar o dígito não prova que o CPF é de quem digitou. O anfitrião é verificado pelo admin (documento com foto e selfie conferidos contra os dados da conta) e, depois, pelo Stripe Connect (CPF, nome e nascimento conferidos na Receita) antes de receber. O tutor não é verificado no MVP — opções: consulta CPF + nome + nascimento (Serpro Datavalid) ou Stripe Identity no primeiro pagamento. Quem tem o CPF recusado porque outra conta já o usa fala com o suporte; o admin confere o documento, libera o CPF e inativa a conta indevida.
-9. Nada com histórico é apagado: pets e cantinhos são desativados (is_active, status).
+9. Nada com histórico é apagado: pets e cantinhos são desativados (is_active).
 
 ## 9. Telas
 

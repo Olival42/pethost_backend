@@ -51,6 +51,9 @@ public static class AuditTargets
     /// <summary>Solicitação de cadastro de anfitrião (módulo Hosts). O id é o da solicitação.</summary>
     public const string HostApplication = "host_application";
 
+    /// <summary>Cantinho (módulo Listings). O id é o do cantinho.</summary>
+    public const string Listing = "listing";
+
     /// <summary>A própria trilha (consulta do admin).</summary>
     public const string Audit = "audit";
 }
@@ -138,6 +141,12 @@ public static class AuditActions
 
     /// <summary>Fotos apagadas do bucket privado (prazo de guarda).</summary>
     public const string HostApplicationDocumentsPurged = "host_application.documents_purged";
+
+    // --- Cantinho (Listings) ---
+    public const string ListingCreated = "listing.created";
+    public const string ListingUpdated = "listing.updated";
+    public const string ListingDeactivated = "listing.deactivated";
+    public const string ListingReactivated = "listing.reactivated";
 
     // --- Auditoria ---
     public const string AuditSearched = "audit.searched";

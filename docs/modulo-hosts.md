@@ -379,7 +379,7 @@ SEED_DEMO_HOST_STRIPE_ACCOUNT_ID=acct_...   # opcional: conta conectada criada n
 
 ## 9. Stripe
 
-Ordem: **verificação (admin) → onboarding do Stripe Connect → cantinho**. O onboarding só é liberado depois da aprovação, para não criar conta conectada de quem será recusado. O cantinho aparece na busca com anfitrião verificado + `stripe_payouts_enabled` + cantinho ativo.
+Ordem: **verificação (admin) → onboarding do Stripe Connect → cantinho**. O onboarding só é liberado depois da aprovação, para não criar conta conectada de quem será recusado. O cantinho aparece na busca com anfitrião verificado + `stripe_payouts_enabled` + cantinho ativo. O cantinho já existe ([`modulo-listings.md`](modulo-listings.md)): pessoa física tem um, empresa tem um por filial; enquanto o onboarding do Stripe não existe, a busca filtra só anfitrião ativo e sem suspensão.
 
 - `Host.LinkStripeAccount` guarda o `acct_...` (usado hoje pelo seed; amanhã pelo módulo de pagamentos no onboarding).
 - O webhook `account.updated` atualizará o espelho (`stripe_*`) — responsabilidade do módulo de pagamentos, ainda não implementado.
@@ -417,5 +417,5 @@ Ordem: **verificação (admin) → onboarding do Stripe Connect → cantinho**. 
 | 2 | ~~EXIF das fotos não é removido.~~ | Feito: metadados removidos em todo upload ([`armazenamento-de-imagens.md`](armazenamento-de-imagens.md) seção 3.1). |
 | 3 | ~~Pessoa jurídica.~~ | Feito: seção 3.1. Falta só o anfitrião de demonstração em versão empresa (o seed cria pessoa física). |
 | 4 | ~~Trava de identidade depois da aprovação.~~ | Feito: seção 4.2. Falta corrigir nome/nascimento **antes** da aprovação (a conta ainda não tem rota de edição; hoje é cancelar e falar com o suporte). |
-| 5 | ~~Inativar, reativar e suspender anfitrião.~~ | Feito: seção 4.2 (também liberar CPF/CNPJ, foto e listagem do admin). Ao montar o cantinho: anfitrião inativo ou suspenso some da busca. |
+| 5 | ~~Inativar, reativar e suspender anfitrião.~~ | Feito: seção 4.2 (também liberar CPF/CNPJ, foto e listagem do admin). Feito no cantinho: anfitrião inativo ou suspenso some da busca e do detalhe (`IHostDirectory.GetUnavailableIdsAsync`, `HostReference.IsSuspended`). |
 | 6 | Onboarding do Stripe e webhook `account.updated`. | Módulo de pagamentos. |

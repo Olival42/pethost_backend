@@ -1,6 +1,6 @@
 # PetHost — Dicionário de dados
 
-_Modelo lógico do MVP · 17 tabelas · outubro de 2026 · complementa o [`escopo-mvp.md`](escopo-mvp.md)_
+_Modelo lógico do MVP · 16 tabelas · outubro de 2026 · complementa o [`escopo-mvp.md`](escopo-mvp.md)_
 
 Este documento explica cada tabela e cada coluna do banco: o que guarda, por que existe e quais regras valem. O banco ainda não foi escolhido (PostgreSQL ou SQL Server), então os tipos são genéricos; a seção 1 mostra como cada um vira tipo real.
 
@@ -81,7 +81,7 @@ Os nomes seguem o padrão mais comum em projetos atuais. A regra de ouro: **um j
 |---|---|---|
 | Tutor | `users.role = owner` | "Owner" é o termo usado por plataformas de pet sitting. |
 | Anfitrião | `users.role = host` |  |
-| Cantinho | `listings` | Mesmo termo usado pelo Airbnb para o anúncio. |
+| Cantinho | `listings` | Mesmo termo usado pelo Airbnb para o anúncio. Pessoa física tem um; empresa, um por filial (módulo Listings, [`modulo-listings.md`](modulo-listings.md)). |
 | Reserva / estadia | `bookings` |  |
 | Ficha do pet | `pets` |  |
 | Anfitrião (perfil: PF/PJ, CPF/CNPJ, Stripe Connect) | `hosts` | 1:1 com a conta de role host. Só anfitrião **verificado** (nasce na aprovação). |
@@ -104,10 +104,9 @@ erDiagram
     host_applications ||--o| hosts : "approved as"
     owners ||--o{ pets : "owns"
     hosts ||--o{ pets : "lives with"
-    users ||--o| listings : "hosts"
+    hosts ||--o{ listings : "offers"
     listings ||--o{ listing_photos : "has"
     pets ||--o{ pet_photos : "has"
-    listings ||--|{ listing_species : "accepts"
     listings ||--o{ availability_blocks : "blocks"
     users ||--o{ bookings : "requests"
     listings ||--o{ bookings : "receives"
@@ -249,7 +248,7 @@ erDiagram
     }
     listings {
         uuid id PK
-        uuid host_id FK, UK
+        uuid host_id FK
         varchar title
         text description
         char zip_code
@@ -259,9 +258,9 @@ erDiagram
         varchar neighborhood
         varchar city
         char state
-        decimal latitude "nullable"
-        decimal longitude "nullable"
-        enum home_type
+        decimal latitude
+        decimal longitude
+        enum home_type "nullable"
         boolean has_yard
         boolean has_dogs
         boolean has_cats
@@ -269,10 +268,13 @@ erDiagram
         boolean accepts_small
         boolean accepts_medium
         boolean accepts_large
+        int accepted_species
         int capacity
-        int nightly_rate_cents
+        decimal nightly_rate
         text house_rules "nullable"
-        enum status
+        smallint available_weekdays
+        boolean is_active
+        timestamp deactivated_at "nullable"
         timestamp created_at
         timestamp updated_at
     }
@@ -288,12 +290,9 @@ erDiagram
         uuid id PK
         uuid listing_id FK
         varchar url
-        int position
+        char content_hash
+        smallint position
         timestamp created_at
-    }
-    listing_species {
-        uuid listing_id PK, FK
-        enum species PK
     }
     availability_blocks {
         uuid id PK
@@ -580,62 +579,57 @@ Até 3 fotos por pet, gravadas só pelas rotas de upload (`/pets/{petId}/photos`
 
 ### `listings` · Cantinhos
 
-O espaço que o anfitrião oferece (no app: "cantinho"). Um por anfitrião. A verificação (aprovação do admin) e a situação no Stripe ficam no anfitrião (`hosts.verified_at`, `hosts.stripe_payouts_enabled`), não aqui: só anfitrião verificado tem cantinho.
+O espaço que o anfitrião oferece (no app: "cantinho"). Schema `listing` (módulo Listings, [`modulo-listings.md`](modulo-listings.md)). **Pessoa física tem um cantinho; empresa (pessoa jurídica) tem vários, um por filial** — por isso `host_id` não é único, e o limite da pessoa física fica na aplicação (o tipo do anfitrião mora em `host.hosts`). A verificação (aprovação do admin) e a situação no Stripe ficam no anfitrião (`hosts.verified_at`, `hosts.stripe_payouts_enabled`), não aqui: só anfitrião verificado tem cantinho.
 
 | Coluna | Tipo | Chave | Nulo | Descrição |
 |---|---|---|---|---|
 | `id` | `uuid` | `PK` | não | Identificador do cantinho. |
-| `host_id` | `uuid` | `FK UK` | não | Anfitrião dono → hosts.id (FK lógica). Único: um cantinho por anfitrião. |
+| `host_id` | `uuid` | `FK` | não | Anfitrião dono → hosts.id (FK lógica, sem constraint: outro schema). Não é único: empresa tem um cantinho por filial; pessoa física, no máximo um (regra da aplicação). |
 | `title` | `varchar(80)` |  | não | Título, ex.: "Casa com quintal no Jardim Alvorada". |
-| `description` | `text` |  | não | Descrição livre da casa e da rotina. |
+| `description` | `text` |  | não | Descrição livre da casa e da rotina (até 4000 caracteres). |
 | `zip_code` | `char(8)` |  | não | CEP, só dígitos. Mesmo formato do endereço de `users`. |
-| `street` | `varchar(120)` |  | não | Rua. Só aparece para o tutor após o pagamento. |
-| `street_number` | `varchar(10)` |  | não | Número ("S/N" aceito). Só aparece após o pagamento. |
-| `complement` | `varchar(60)` |  | sim | Complemento. Só aparece após o pagamento. |
-| `neighborhood` | `varchar(80)` |  | não | Bairro. É o que aparece na busca. |
-| `city` | `varchar(80)` |  | não | Cidade. |
+| `street` | `varchar(120)` |  | não | Rua. Só aparece para o dono (e, no futuro, para o tutor após o pagamento). |
+| `street_number` | `varchar(10)` |  | não | Número ("S/N" aceito). Só para o dono. |
+| `complement` | `varchar(60)` |  | sim | Complemento. Só para o dono. |
+| `neighborhood` | `varchar(80)` |  | não | Bairro. É o que aparece na busca. Filtro da busca sem acento nem maiúsculas (`unaccent`). |
+| `city` | `varchar(80)` |  | não | Cidade. Filtro da busca sem acento nem maiúsculas (`unaccent`). |
 | `state` | `char(2)` |  | não | UF. |
-| `latitude` | `decimal(9,6)` |  | sim | Para calcular a distância ("2 km de você"). |
-| `longitude` | `decimal(9,6)` |  | sim | Idem. |
-| `home_type` | `enum` |  | não | house ou apartment. |
+| `latitude` | `decimal(9,6)` |  | não | Coordenada do endereço, calculada pela API (geocodificação no Nominatim/OpenStreetMap), nunca enviada pelo cliente. Base da busca por raio ("2 km de você"). Não sai para quem não é o dono. |
+| `longitude` | `decimal(9,6)` |  | não | Idem. |
+| `home_type` | `enum` |  | sim | house ou apartment. Obrigatório para pessoa física; opcional para empresa (filial é espaço comercial). |
 | `has_yard` | `boolean` |  | não | Tem quintal. Gera o selo "Casa com quintal". |
-| `has_dogs` | `boolean` |  | não | Tem cães em casa. Usado no "Combina com seu pet". |
-| `has_cats` | `boolean` |  | não | Tem gatos em casa. |
-| `has_kids` | `boolean` |  | não | Tem crianças em casa. |
-| `accepts_small` | `boolean` |  | não | Aceita porte pequeno (vale para tipos com porte). |
+| `has_dogs` | `boolean` |  | não | Tem cães no espaço. Usado no "Combina com seu pet". |
+| `has_cats` | `boolean` |  | não | Tem gatos no espaço. |
+| `has_kids` | `boolean` |  | não | Tem crianças no espaço. |
+| `accepted_species` | `int` |  | não | Tipos de pet aceitos, como conjunto de bits (12 bits, mesmos valores de `pets.species`, seção 7). Ao menos um. Aceitar `exotic` quer dizer "aceito conversar". Substitui a antiga tabela `listing_species`. |
+| `accepts_small` | `boolean` |  | não | Aceita porte pequeno (vale para cachorro e gato). Com cachorro ou gato aceito, ao menos um porte é obrigatório. |
 | `accepts_medium` | `boolean` |  | não | Aceita porte médio. |
 | `accepts_large` | `boolean` |  | não | Aceita porte grande. |
-| `capacity` | `int` |  | não | Quantos pets ao mesmo tempo, somando todos os tutores. |
-| `nightly_rate_cents` | `int` |  | não | Diária por pet, em centavos (6000 = R$ 60,00). |
-| `house_rules` | `text` |  | sim | Regras da casa. |
-| `status` | `enum` |  | não | draft, active ou paused. Só cantinho `active` de anfitrião com `hosts.stripe_payouts_enabled` aparece na busca (o anfitrião já é verificado por existir). |
-| `created_at` | `timestamp` |  | não | Quando o registro foi criado (UTC). |
-| `updated_at` | `timestamp` |  | não | Última alteração do registro (UTC). |
+| `capacity` | `int` |  | não | Quantos pets ao mesmo tempo, somando todos os tutores. 1 a 10 (pessoa física) ou 1 a 200 (empresa, por filial). |
+| `nightly_rate` | `decimal(10,2)` |  | não | Diária por pet, em reais (60.00 = R$ 60,00), de 10.00 a 10000.00. O anfitrião define. A conversão para centavos (Stripe) fica no módulo de pagamentos. |
+| `house_rules` | `text` |  | sim | Regras da casa (até 2000 caracteres). |
+| `available_weekdays` | `smallint` |  | não | Dias da semana em que recebe pets, como conjunto de bits (bit = `1 << dia`, domingo = 0). Ao menos um. A agenda (datas bloqueadas) vale por cima disso. |
+| `is_active` | `boolean` |  | não | Default `true`. Cantinho não é apagado: é inativado e pode voltar. Inativo só o dono vê. |
+| `deactivated_at` | `timestamptz` |  | sim | Quando foi inativado pela última vez. |
+| `created_at` | `timestamptz` |  | não | Quando o registro foi criado (UTC). |
+| `updated_at` | `timestamptz` |  | não | Última alteração do registro (UTC). |
 
-> Índice em (`city, neighborhood, status`) para a busca.
+> Índices: `ix_listings_host_id` ("meus cantinhos" e o limite da pessoa física) e o parcial `ix_listings_latitude_longitude_active` (`latitude, longitude` `WHERE is_active`), que filtra a caixa em volta do círculo na busca por raio. Extensão `unaccent` (schema `public`, migration `AddUnaccentExtension`) para os filtros de cidade e bairro. CHECKs: `ck_listings_home_type`, `ck_listings_capacity` (1–200), `ck_listings_nightly_rate` (10–10000), `ck_listings_accepted_species` (1–4095), `ck_listings_available_weekdays` (1–127), `ck_listings_latitude`, `ck_listings_longitude`. Só cantinho ativo de anfitrião ativo e sem suspensão aparece na busca; o filtro por `hosts.stripe_payouts_enabled` entra quando o onboarding do Stripe existir.
 
 ### `listing_photos` · Fotos do cantinho
 
-Fotos do cantinho, em ordem. Até 5 por cantinho.
+Fotos do cantinho, em ordem. Até 5 por cantinho, gravadas só pelas rotas de upload (`/listings/{listingId}/photos`).
 
 | Coluna | Tipo | Chave | Nulo | Descrição |
 |---|---|---|---|---|
 | `id` | `uuid` | `PK` | não | Identificador da foto. |
-| `listing_id` | `uuid` | `FK` | não | Cantinho → listings.id. |
-| `url` | `varchar(500)` |  | não | Caminho do arquivo. |
-| `position` | `int` |  | não | Ordem de exibição (0 = capa). |
-| `created_at` | `timestamp` |  | não | Quando o registro foi criado (UTC). |
+| `listing_id` | `uuid` | `FK` | não | Cantinho → listings.id. FK física (mesmo schema), `ON DELETE CASCADE`. |
+| `url` | `varchar(500)` |  | não | URL pública da imagem no bucket (pasta `listings/`). |
+| `content_hash` | `char(64)` |  | não | SHA-256 da imagem: a mesma imagem não entra duas vezes no cantinho. |
+| `position` | `smallint` |  | não | Ordem de exibição, de 1 a 5, sempre sem buraco; a 1 é a capa. Foto nova entra no fim; tirar uma sobe as de trás; o anfitrião reordena (`PUT /listings/{id}/photos/order`). |
+| `created_at` | `timestamptz` |  | não | Quando o registro foi criado (UTC). |
 
-
-### `listing_species` · Tipos aceitos
-
-Quais tipos de pet cada cantinho aceita: uma linha por tipo.
-
-| Coluna | Tipo | Chave | Nulo | Descrição |
-|---|---|---|---|---|
-| `listing_id` | `uuid` | `PK FK` | não | Cantinho → listings.id. |
-| `species` | `enum` | `PK` | não | Tipo aceito: mesmos valores de `pets.species`. Aceitar `exotic` quer dizer "aceito conversar": o anfitrião lê a descrição e decide no pedido. |
-
+> `ck_listing_photos_position` (1–5); constraint única **deferrable** `uq_listing_photos_listing_id_position` (`listing_id, position`, conferida no commit, para reordenar trocando posições numa transação); índice único `uq_listing_photos_listing_id_content_hash`.
 
 ### `availability_blocks` · Bloqueios de agenda
 
@@ -826,9 +820,8 @@ Avaliação feita depois da reserva concluída. Cada lado avalia o outro uma vez
 | `host_applications` | `host_application_documents` | 1 : 0..3 | Frente, verso e selfie. FK física, `ON DELETE CASCADE`. Apagadas depois da decisão. |
 | `host_applications` | `hosts` | 1 : 0..1 | A solicitação aprovada cria o anfitrião (hosts.application_id, único). |
 | `hosts` | `pets` | 1 : N | Pets que moram na casa do anfitrião. pets.host_id → hosts.id, sem FK física. Cada pet tem exatamente um dono (tutor **ou** anfitrião). |
-| `users` | `listings` | 1 : 0..1 | Uma conta host tem no máximo um cantinho. |
-| `listings` | `listing_photos` | 1 : N | Até 5 fotos. |
-| `listings` | `listing_species` | 1 : N | Tipos de pet aceitos. |
+| `hosts` | `listings` | 1 : N | Pessoa física: no máximo um cantinho. Empresa: um por filial. listings.host_id → hosts.id, sem FK física. |
+| `listings` | `listing_photos` | 1 : 0..5 | Até 5 fotos, em ordem. FK física, `ON DELETE CASCADE`. |
 | `listings` | `availability_blocks` | 1 : N | Períodos fechados pelo anfitrião. |
 | `users` | `bookings` | 1 : N | O tutor faz várias reservas. |
 | `listings` | `bookings` | 1 : N | Várias no mesmo período, limitadas por capacity. |
@@ -853,8 +846,9 @@ Avaliação feita depois da reserva concluída. Cada lado avalia o outro uma vez
 | `pets.species` | `dog` · `cat` · `cockatiel` · `parrot` · `parakeet` · `canary` · `rabbit` · `hamster` · `guinea_pig` · `fish` · `turtle` · `exotic` | Cachorro · Gato · Calopsita · Papagaio · Periquito · Canário · Coelho · Hamster · Porquinho-da-índia · Peixe · Tartaruga/jabuti · Exótico (com descrição) |
 | `pets.size` | `small` · `medium` · `large` | P · M · G (cachorro obrigatório, gato opcional) |
 | `pets.sex` | `male` · `female` · `unknown` | Macho · Fêmea · Não sei |
-| `listings.home_type` | `house` · `apartment` | Casa · Apartamento |
-| `listings.status` | `draft` · `active` · `paused` | Rascunho · Ativo · Pausado |
+| `listings.home_type` | `house` · `apartment` (nulo só em empresa) | Casa · Apartamento |
+| `listings.accepted_species` | bits dos valores de `pets.species` (`dog` = 1, `cat` = 2, `cockatiel` = 4 … `exotic` = 2048); no JSON, lista de nomes | Tipos aceitos |
+| `listings.available_weekdays` | bits `1 << dia` (domingo = 1, segunda = 2 … sábado = 64); no JSON, `monday` … `sunday` | Dias em que recebe |
 | `bookings.status` | `requested` · `accepted` · `confirmed` · `in_progress` · `completed` · `declined` · `expired` · `cancelled` | Solicitada · Aceita · Confirmada · Em andamento · Concluída · Recusada · Expirada · Cancelada |
 | `payments.method` | `card` · `pix` | Cartão · Pix |
 | `payments.status` | `pending` · `succeeded` · `failed` · `refunded` · `partially_refunded` | Pendente · Pago · Falhou · Estornado · Estornado parcial |
