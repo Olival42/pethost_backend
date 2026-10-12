@@ -44,6 +44,7 @@ internal sealed class HostsUnitOfWork(HostsDbContext dbContext) : IHostsUnitOfWo
         "uq_host_applications_cpf_open" or "uq_hosts_cpf_individual" => HostsErrors.CpfAlreadyRegistered,
         "uq_host_applications_cnpj_open" or "uq_hosts_cnpj" => HostsErrors.CnpjAlreadyRegistered,
         "uq_hosts_user_id" => HostsErrors.AlreadyVerified,
+        "uq_hosts_stripe_account_id" => HostsErrors.StripeAccountAlreadyLinked,
         _ => HostsErrors.ApplicationConflict,
     };
 }

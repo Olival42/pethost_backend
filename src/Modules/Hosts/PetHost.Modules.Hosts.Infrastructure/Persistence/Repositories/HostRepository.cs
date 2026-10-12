@@ -12,6 +12,17 @@ internal sealed class HostRepository(HostsDbContext dbContext) : IHostRepository
     public Task<Host?> GetByUserIdAsync(Guid userId, CancellationToken cancellationToken) =>
         dbContext.Hosts.FirstOrDefaultAsync(h => h.UserId == userId, cancellationToken);
 
+    public Task<Host?> GetByStripeAccountIdAsync(string stripeAccountId, CancellationToken cancellationToken) =>
+        dbContext.Hosts.FirstOrDefaultAsync(h => h.StripeAccountId == stripeAccountId, cancellationToken);
+
+    public async Task<IReadOnlyList<Host>> ListForPayoutsMaintenanceAsync(DateTimeOffset staleBefore, CancellationToken cancellationToken) =>
+        await dbContext.Hosts
+            .Where(h => h.IsActive && h.SuspendedAt == null)
+            .Where(h => !h.StripePayoutsEnabled || h.StripeSyncedAt == null || h.StripeSyncedAt < staleBefore)
+            .OrderBy(h => h.CreatedAt)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
     public async Task<IReadOnlyList<Host>> ListAsync(CancellationToken cancellationToken) =>
         await dbContext.Hosts
             .AsNoTracking()

@@ -105,6 +105,25 @@ public sealed class CreateListingCommandHandlerTests
         result.FirstError.Should().Be(ListingsErrors.HostDeactivated);
     }
 
+    [Fact]
+    public async Task HandleAsync_Should_RefuseWithoutCallingTheMap_When_StripeHasNotApprovedThePayoutSetup()
+    {
+        // Arrange: aprovado pelo admin, mas o Stripe ainda não liberou os repasses.
+        var hosts = ListingsTestData.Hosts();
+        hosts.Setup(h => h.FindByAccountAsync(ListingsTestData.IndividualUserId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new HostProfile(ListingsTestData.IndividualHostId, IsCompany: false, IsAvailable: true, PayoutsEnabled: false));
+        var sut = new CreateListingCommandHandler(
+            _repository.Object, _unitOfWork.Object, hosts.Object, _geocoder.Object, _auditTrail.Object, new FakeTimeProvider(ListingBuilder.DefaultNow));
+
+        // Act
+        var result = await sut.HandleAsync(Command(ListingsTestData.IndividualUserId), CancellationToken.None);
+
+        // Assert
+        result.FirstError.Should().Be(ListingsErrors.HostPayoutsNotEnabled);
+        _geocoder.Verify(g => g.LocateAsync(It.IsAny<ListingAddressData>(), It.IsAny<CancellationToken>()), Times.Never);
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
     [Theory]
     [InlineData(GeocodingStatus.NotFound, "LISTING_ADDRESS_NOT_LOCATED")]
     [InlineData(GeocodingStatus.Unavailable, "LISTING_GEOCODER_UNAVAILABLE")]

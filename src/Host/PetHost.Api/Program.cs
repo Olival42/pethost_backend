@@ -32,6 +32,7 @@ using PetHost.Shared.Infrastructure.Http;
 using PetHost.Shared.Infrastructure.Identity;
 using PetHost.Shared.Infrastructure.RateLimiting;
 using PetHost.Shared.Infrastructure.Storage;
+using PetHost.Shared.Infrastructure.Stripe;
 using Serilog;
 using Serilog.Formatting.Json;
 
@@ -68,7 +69,8 @@ builder.Services
     .AddHostsPresentation()
     .AddPetsPresentation()
     .AddListingsPresentation()
-    .AddAuditPresentation();
+    .AddAuditPresentation()
+    .AddStripeWebhooks();
 
 // O mesmo serializador vale para o que não passa pelo MVC — o handler global de
 // exceção e o 401 do JWT escrevem com WriteAsJsonAsync, que usa estas opções.
@@ -85,6 +87,10 @@ builder.Services.AddEmail(builder.Configuration);
 
 // --- Imagens: bucket S3 compatível (R2 em produção, RustFS em desenvolvimento) ---
 builder.Services.AddImageStorage(builder.Configuration);
+
+// --- Stripe (modo de teste): cliente da API e o endpoint único de webhooks.
+//     Cada módulo registra o que trata (o Hosts: account.updated das contas conectadas). ---
+builder.Services.AddStripe(builder.Configuration);
 
 // --- CPF identifica a pessoa: a mesma pessoa (e-mail) em tutor e anfitrião (restrição 9) ---
 builder.Services.AddCpfOwnership();

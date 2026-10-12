@@ -126,7 +126,7 @@ internal sealed class HostConfiguration : IEntityTypeConfiguration<Host>
             .HasColumnName("verified_by")
             .IsRequired();
 
-        // Espelho da conta conectada no Stripe (webhook account.updated).
+        // Espelho da conta conectada no Stripe (webhook account.updated ou sincronização pedida pelo anfitrião).
         builder.Property(h => h.StripeDetailsSubmitted)
             .HasColumnName("stripe_details_submitted")
             .HasDefaultValue(false)
@@ -144,7 +144,7 @@ internal sealed class HostConfiguration : IEntityTypeConfiguration<Host>
 
         builder.Property(h => h.StripeDisabledReason)
             .HasColumnName("stripe_disabled_reason")
-            .HasMaxLength(100);
+            .HasMaxLength(StripeAccountSnapshot.DisabledReasonMaxLength);
 
         builder.Property(h => h.StripeOnboardedAt)
             .HasColumnName("stripe_onboarded_at")
@@ -153,6 +153,30 @@ internal sealed class HostConfiguration : IEntityTypeConfiguration<Host>
         builder.Property(h => h.StripeSyncedAt)
             .HasColumnName("stripe_synced_at")
             .HasColumnType("timestamptz");
+
+        // Acompanhamento do cadastro de recebimento (lembretes da manutenção).
+        builder.Property(h => h.StripeAccountCreatedAt)
+            .HasColumnName("stripe_account_created_at")
+            .HasColumnType("timestamptz");
+
+        builder.Property(h => h.StripeRemindersSent)
+            .HasColumnName("stripe_reminders_sent")
+            .HasDefaultValue(0)
+            .IsRequired();
+
+        builder.Property(h => h.StripeRemindedAt)
+            .HasColumnName("stripe_reminded_at")
+            .HasColumnType("timestamptz");
+
+        // Conta recusada pelo Stripe que o admin desligou (histórico) e quantas vezes isso aconteceu.
+        builder.Property(h => h.StripeRejectedAccountId)
+            .HasColumnName("stripe_rejected_account_id")
+            .HasMaxLength(Host.StripeAccountIdMaxLength);
+
+        builder.Property(h => h.StripeAccountResets)
+            .HasColumnName("stripe_account_resets")
+            .HasDefaultValue(0)
+            .IsRequired();
 
         builder.Property(h => h.IsActive)
             .HasColumnName("is_active")
@@ -210,5 +234,7 @@ internal sealed class HostConfiguration : IEntityTypeConfiguration<Host>
         builder.Ignore(h => h.Company);
         builder.Ignore(h => h.IsSuspended);
         builder.Ignore(h => h.IsIdentityReleased);
+        builder.Ignore(h => h.StripeOnboardingStatus);
+        builder.Ignore(h => h.IsListable);
     }
 }

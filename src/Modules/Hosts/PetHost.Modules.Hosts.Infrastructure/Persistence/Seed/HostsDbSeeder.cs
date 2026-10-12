@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using PetHost.Modules.Hosts.Application.HostApplications;
+using PetHost.Modules.Hosts.Application.Hosts.StripeOnboarding;
 using PetHost.Modules.Hosts.Domain.HostApplications;
 using PetHost.Modules.Hosts.Domain.Hosts;
 using PetHost.Shared.Contracts.Accounts;
@@ -20,12 +21,18 @@ namespace PetHost.Modules.Hosts.Infrastructure.Persistence.Seed;
 /// Idempotente pelo e-mail: se a conta de anfitrião já existe, não faz nada (nem troca senha,
 /// como o seed do admin).
 /// </para>
+/// <para>
+/// Com conta conectada configurada, lê a situação dela no Stripe logo depois de criar (se o
+/// Stripe estiver configurado e no ar): conta de teste já aprovada põe os cantinhos na busca sem
+/// esperar webhook. Falhar aqui não impede a subida.
+/// </para>
 /// </remarks>
 internal sealed partial class HostsDbSeeder(
     IAccountRegistrar accountRegistrar,
     IHostRepository hostRepository,
     IHostApplicationRepository applicationRepository,
     IHostsUnitOfWork unitOfWork,
+    HostPayoutSetup payoutSetup,
     IOptions<DemoHostSeedOptions> options,
     TimeProvider timeProvider,
     ILogger<HostsDbSeeder> logger)
@@ -91,9 +98,9 @@ internal sealed partial class HostsDbSeeder(
         }
 
         var userId = session.Value!.User.Id;
-        var saved = await CreateVerifiedHostAsync(userId, cpf.Value!, settings, cancellationToken).ConfigureAwait(false);
+        var host = await CreateVerifiedHostAsync(userId, cpf.Value!, settings, cancellationToken).ConfigureAwait(false);
 
-        if (!saved)
+        if (host is null)
         {
             // Compensação: sem perfil de anfitrião, a conta não fica pela metade.
             await accountRegistrar.DeleteAsync(userId, CancellationToken.None).ConfigureAwait(false);
@@ -101,17 +108,23 @@ internal sealed partial class HostsDbSeeder(
             return;
         }
 
-        var stripeLinked = !string.IsNullOrWhiteSpace(settings.StripeAccountId);
+        var stripeLinked = host.StripeAccountId is not null;
         LogCreated(logger, stripeLinked);
+
+        if (stripeLinked)
+        {
+            var synced = await payoutSetup.SyncAsync(host, cancellationToken).ConfigureAwait(false);
+            LogStripeSynced(logger, synced.IsSuccess ? host.StripePayoutsEnabled.ToString() : synced.FirstError?.Code ?? "unknown");
+        }
     }
 
-    private async Task<bool> CreateVerifiedHostAsync(Guid userId, Cpf cpf, DemoHostSeedOptions settings, CancellationToken cancellationToken)
+    private async Task<Host?> CreateVerifiedHostAsync(Guid userId, Cpf cpf, DemoHostSeedOptions settings, CancellationToken cancellationToken)
     {
         var now = timeProvider.GetUtcNow();
 
         var started = HostApplication.Start([], userId, cpf, IdentityDocumentType.Cin, company: null, HostVerificationNotice.CurrentVersion, null, now);
         if (started.IsFailure)
-            return false;
+            return null;
 
         var application = started.Value!;
 
@@ -120,23 +133,23 @@ internal sealed partial class HostsDbSeeder(
             application.AttachDocument(kind, $"seed/demo-host/{DocumentKindValues.ToWire(kind)}", new string((char)('a' + index), 64), 0, now);
 
         if (application.Submit(now).IsFailure)
-            return false;
+            return null;
 
         var approved = application.Approve(SeedActorId, "Anfitrião de demonstração criado pelo seed.", now);
         if (approved.IsFailure)
-            return false;
+            return null;
 
         application.PurgeDocuments(now);
 
         var host = approved.Value!;
-        if (!string.IsNullOrWhiteSpace(settings.StripeAccountId))
-            host.LinkStripeAccount(settings.StripeAccountId, now);
+        if (!string.IsNullOrWhiteSpace(settings.StripeAccountId) && host.LinkStripeAccount(settings.StripeAccountId, now).IsFailure)
+            return null;
 
         applicationRepository.Add(application);
         hostRepository.Add(host);
 
         var saved = await unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-        return saved.IsSuccess;
+        return saved.IsSuccess ? host : null;
     }
 
     [LoggerMessage(EventId = 7100, Level = LogLevel.Warning, Message = "Demo host seed is enabled but Email, Password or Cpf is missing; skipped.")]
@@ -159,4 +172,7 @@ internal sealed partial class HostsDbSeeder(
 
     [LoggerMessage(EventId = 7106, Level = LogLevel.Information, Message = "Demo host created (Stripe account linked: {StripeLinked}).")]
     private static partial void LogCreated(ILogger logger, bool stripeLinked);
+
+    [LoggerMessage(EventId = 7107, Level = LogLevel.Information, Message = "Demo host Stripe account synced (payouts enabled / error: {Outcome}).")]
+    private static partial void LogStripeSynced(ILogger logger, string outcome);
 }

@@ -17,6 +17,7 @@ namespace PetHost.Modules.Hosts.Application.Hosts.Responses;
 /// <param name="IdentityReleasedAt">Quando o admin liberou o CPF/CNPJ (disputa). Esse perfil não volta mais.</param>
 /// <param name="StripeConnected">Já existe conta conectada no Stripe (onboarding começou).</param>
 /// <param name="StripePayoutsEnabled">O Stripe liberou os repasses: o cantinho pode aparecer na busca.</param>
+/// <param name="StripeStatus">Cadastro de recebimento: <c>not_started</c>, <c>in_progress</c>, <c>under_review</c>, <c>restricted</c> ou <c>enabled</c>.</param>
 public sealed record HostResponse(
     Guid Id,
     Guid UserId,
@@ -29,6 +30,7 @@ public sealed record HostResponse(
     DateTimeOffset? IdentityReleasedAt,
     bool StripeConnected,
     bool StripePayoutsEnabled,
+    string StripeStatus,
     DateTimeOffset CreatedAt,
     AccountSummary? User)
 {
@@ -48,6 +50,7 @@ public sealed record HostResponse(
             host.IdentityReleasedAt,
             host.StripeAccountId is not null,
             host.StripePayoutsEnabled,
+            StripeOnboardingStatusValues.ToWire(host.StripeOnboardingStatus),
             host.CreatedAt,
             user);
     }

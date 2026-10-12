@@ -9,6 +9,16 @@ public interface IHostRepository
     /// <summary>Pelo id da conta (rotas <c>me</c>, o id vem do token). Rastreado.</summary>
     Task<Host?> GetByUserIdAsync(Guid userId, CancellationToken cancellationToken);
 
+    /// <summary>Pela conta conectada no Stripe (<c>acct_...</c>), para o webhook. Rastreado.</summary>
+    Task<Host?> GetByStripeAccountIdAsync(string stripeAccountId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Para a manutenção do cadastro de recebimento (rastreados): anfitriões ativos e sem suspensão
+    /// que ainda não recebem (para sincronizar e lembrar) e os que recebem mas não são lidos no
+    /// Stripe desde <paramref name="staleBefore"/> (para pegar um bloqueio cujo webhook se perdeu).
+    /// </summary>
+    Task<IReadOnlyList<Host>> ListForPayoutsMaintenanceAsync(DateTimeOffset staleBefore, CancellationToken cancellationToken);
+
     /// <summary>Todos os anfitriões, do mais novo para o mais antigo. Lista administrativa (§13).</summary>
     Task<IReadOnlyList<Host>> ListAsync(CancellationToken cancellationToken);
 

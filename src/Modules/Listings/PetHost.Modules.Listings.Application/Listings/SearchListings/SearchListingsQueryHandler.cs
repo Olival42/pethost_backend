@@ -14,7 +14,8 @@ namespace PetHost.Modules.Listings.Application.Listings.SearchListings;
 /// coordenada, ou quando não vem nenhum filtro de lugar; a origem é a coordenada enviada ou, sem
 /// ela, o endereço da conta (geocodificado; o resultado fica em cache no Redis). Com estado,
 /// cidade ou bairro e sem raio/coordenada, não há distância: do mais novo ao mais antigo. Só
-/// aparecem cantinhos ativos de anfitrião ativo e sem suspensão — inclusive os de quem busca.
+/// aparecem cantinhos ativos de anfitrião ativo, sem suspensão e com os repasses liberados pelo
+/// Stripe — inclusive os de quem busca.
 /// </summary>
 /// <remarks>
 /// Filtros e paginação inválidos: <c>400</c> com todos os campos. Busca por raio com conta sem

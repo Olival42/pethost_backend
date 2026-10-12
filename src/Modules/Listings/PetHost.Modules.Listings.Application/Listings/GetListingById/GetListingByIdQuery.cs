@@ -15,8 +15,9 @@ public sealed record GetListingByIdQuery(Guid UserId, string Role, Guid ListingI
 
 /// <summary>
 /// Quem vê: o anfitrião dono, sempre (inclusive inativo), com o endereço completo; o admin, todos;
-/// qualquer outra conta logada, o cantinho <b>ativo</b> de anfitrião ativo, na visão pública
-/// (sem rua, número, CEP e coordenada). Fora isso: <c>404</c>, como se não existisse.
+/// qualquer outra conta logada, o cantinho <b>ativo</b> de anfitrião ativo, sem suspensão e com os
+/// repasses liberados pelo Stripe, na visão pública (sem rua, número, CEP e coordenada). Fora
+/// isso: <c>404</c>, como se não existisse.
 /// </summary>
 public sealed class GetListingByIdQueryHandler(
     IListingRepository listingRepository,
@@ -35,7 +36,7 @@ public sealed class GetListingByIdQueryHandler(
         if (query.Role == Roles.Admin || await IsOwnerAsync(listing, query, cancellationToken).ConfigureAwait(false))
             return Result<ListingResponse>.Success(ListingResponse.ForOwner(listing, host));
 
-        if (!listing.IsActive || host is not { IsAvailable: true })
+        if (!listing.IsActive || host is not { IsAvailable: true, PayoutsEnabled: true })
             return Result<ListingResponse>.Failure(ListingsErrors.NotFound(id));
 
         return Result<ListingResponse>.Success(ListingResponse.ForPublic(listing, host));

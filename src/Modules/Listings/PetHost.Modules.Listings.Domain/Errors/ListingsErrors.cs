@@ -209,6 +209,13 @@ public static class ListingsErrors
     public static readonly Error HostDeactivated =
         new("LISTING_HOST_DEACTIVATED", "This host profile is deactivated or suspended.");
 
+    /// <summary>
+    /// 422: o Stripe ainda não aprovou o cadastro de recebimento do anfitrião (repasses não
+    /// liberados). Cantinho só depois disso: sem repasse não dá para pagar a hospedagem.
+    /// </summary>
+    public static readonly Error HostPayoutsNotEnabled =
+        new("LISTING_HOST_PAYOUTS_NOT_ENABLED", "Finish the payout setup and wait for Stripe to approve it before creating a listing.");
+
     /// <summary>422: pessoa física já tem o seu cantinho. Só empresa tem vários (um por filial).</summary>
     public static readonly Error LimitReached =
         new("LISTING_LIMIT_REACHED", $"An individual host can have only {Listing.MaxListingsPerIndividual} listing. Reactivate or edit it instead; only companies can have one per branch.");
