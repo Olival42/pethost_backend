@@ -5,21 +5,42 @@ using PetHost.Shared.Kernel.Messaging;
 namespace PetHost.Modules.Listings.Application.Listings.SearchListings;
 
 /// <summary>
-/// Cantinhos ativos ao redor de um ponto, do mais perto para o mais longe. Sem coordenada, a
-/// origem é o endereço da conta logada ("perto de casa").
+/// Cantinhos ativos que atendem a todos os filtros enviados (eles se somam). A busca é por raio
+/// quando vem <paramref name="RadiusKm"/> ou coordenada, ou quando não vem estado, cidade nem
+/// bairro ("perto de casa"); aí a origem é a coordenada ou, sem ela, o endereço da conta.
 /// </summary>
 /// <param name="UserId">Vem do access token.</param>
 /// <param name="Latitude">Origem opcional (ex.: GPS do celular). Vem junto com <paramref name="Longitude"/>.</param>
-/// <param name="RadiusKm">De 5 a 50 km. Padrão 10.</param>
+/// <param name="RadiusKm">De 5 a 50 km. Na busca por raio, padrão 10.</param>
+/// <param name="State">UF, ex.: <c>PR</c>.</param>
+/// <param name="Species">Espécies que o cantinho precisa aceitar (todas).</param>
+/// <param name="Sizes">Portes que o cantinho precisa aceitar (todos): <c>small</c>, <c>medium</c>, <c>large</c>.</param>
+/// <param name="Weekdays">Dias em que o cantinho precisa receber (todos).</param>
+/// <param name="HomeType"><c>house</c> ou <c>apartment</c>.</param>
+/// <param name="HasDogs">Se na casa mora cachorro (o mesmo para gato e criança).</param>
 /// <param name="Page">Começa em 1.</param>
 public sealed record SearchListingsQuery(
     Guid UserId,
     decimal? Latitude = null,
     decimal? Longitude = null,
-    int RadiusKm = SearchListingsQuery.DefaultRadiusKm,
+    int? RadiusKm = null,
+    string? State = null,
+    string? City = null,
+    string? Neighborhood = null,
+    IReadOnlyList<string>? Species = null,
+    IReadOnlyList<string>? Sizes = null,
+    IReadOnlyList<string>? Weekdays = null,
+    decimal? MinNightlyRate = null,
+    decimal? MaxNightlyRate = null,
+    int? MinCapacity = null,
+    bool? HasYard = null,
+    string? HomeType = null,
+    bool? HasDogs = null,
+    bool? HasCats = null,
+    bool? HasKids = null,
     int Page = 1,
     int PageSize = 20) : IQuery<PagedResult<ListingSummaryResponse>>
 {
-    /// <summary>Raio quando o cliente não manda: 10 km.</summary>
+    /// <summary>Raio da busca por raio quando o cliente não manda: 10 km.</summary>
     public const int DefaultRadiusKm = 10;
 }

@@ -29,6 +29,9 @@ public sealed class ListingAddress : ValueObject
         "PB", "PE", "PI", "PR", "RJ", "RN", "RO", "RR", "RS", "SC", "SE", "SP", "TO",
     ];
 
+    /// <summary>A UF existe? Espera maiúsculas, como fica gravada (ex.: <c>PR</c>).</summary>
+    public static bool IsState(string state) => States.Contains(state);
+
     /// <summary>Construtor só para o EF Core materializar o tipo complexo.</summary>
     private ListingAddress()
     {

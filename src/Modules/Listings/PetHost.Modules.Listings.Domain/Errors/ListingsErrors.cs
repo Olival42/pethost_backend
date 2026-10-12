@@ -142,10 +142,37 @@ public static class ListingsErrors
         Error.Validation("longitude", "Longitude must be between -180 and 180.");
 
     public static readonly Error CoordinatesIncomplete =
-        Error.Validation("latitude", "Send latitude and longitude together, or neither to search around your address.");
+        Error.Validation("latitude", "Send latitude and longitude together.");
 
     public static readonly Error RadiusOutOfRange =
         Error.Validation("radiusKm", $"Radius must be between {MinRadiusKm} and {MaxRadiusKm} km.");
+
+    public static readonly Error StateFilterInvalid =
+        Error.Validation("state", "State must be a valid Brazilian state code, e.g. 'PR'.");
+
+    public static readonly Error CityFilterTooLong =
+        Error.Validation("city", $"City must be at most {ListingAddress.CityMaxLength} characters.");
+
+    public static readonly Error NeighborhoodFilterTooLong =
+        Error.Validation("neighborhood", $"Neighborhood must be at most {ListingAddress.NeighborhoodMaxLength} characters.");
+
+    public static readonly Error SpeciesFilterInvalid =
+        Error.Validation("species", $"Species must be among: {string.Join(", ", AcceptedSpeciesValues.All)}.");
+
+    public static readonly Error SizeFilterInvalid =
+        Error.Validation("sizes", "Sizes must be among: small, medium, large.");
+
+    public static readonly Error WeekdaysFilterInvalid =
+        Error.Validation("weekdays", $"Weekdays must be among: {string.Join(", ", WeekdaysValues.All)}.");
+
+    public static readonly Error MinNightlyRateFilterInvalid =
+        Error.Validation("minNightlyRate", "Minimum nightly rate must be 0 or greater.");
+
+    public static readonly Error MaxNightlyRateFilterInvalid =
+        Error.Validation("maxNightlyRate", "Maximum nightly rate must be 0 or greater and not below the minimum.");
+
+    public static readonly Error MinCapacityFilterInvalid =
+        Error.Validation("minCapacity", $"Minimum capacity must be between 1 and {ListingDetails.MaxCapacityCompany}.");
 
     public static readonly Error PageInvalid =
         Error.Validation("page", "Page must be 1 or greater.");

@@ -136,14 +136,14 @@ public sealed class SearchListingsQueryHandlerTests
     private readonly Mock<IAccountAddresses> _addresses = new();
     private readonly Mock<IGeocoder> _geocoder = ListingsTestData.Geocoder();
     private readonly SearchListingsQueryHandler _sut;
-    private NearbySearch? _search;
+    private ListingSearch? _search;
 
     public SearchListingsQueryHandlerTests()
     {
         _repository
-            .Setup(r => r.SearchNearbyAsync(It.IsAny<NearbySearch>(), It.IsAny<CancellationToken>()))
-            .Callback<NearbySearch, CancellationToken>((search, _) => _search = search)
-            .ReturnsAsync(([new NearbyListing(ListingsTestData.IndividualListing(), 2.345)], 1L));
+            .Setup(r => r.SearchAsync(It.IsAny<ListingSearch>(), It.IsAny<CancellationToken>()))
+            .Callback<ListingSearch, CancellationToken>((search, _) => _search = search)
+            .ReturnsAsync(([new FoundListing(ListingsTestData.IndividualListing(), 2.345)], 1L));
 
         _addresses.Setup(a => a.GetAsync(ListingsTestData.OwnerUserId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ListingBuilder().BuildAddressData());
@@ -158,8 +158,8 @@ public sealed class SearchListingsQueryHandlerTests
         var result = await _sut.HandleAsync(new SearchListingsQuery(ListingsTestData.OwnerUserId, RadiusKm: 15), CancellationToken.None);
 
         // Assert
-        _search!.Origin.Latitude.Should().Be(ListingBuilder.MaringaLatitude);
-        _search.RadiusKm.Should().Be(15);
+        _search!.Area!.Origin.Latitude.Should().Be(ListingBuilder.MaringaLatitude);
+        _search.Area.RadiusKm.Should().Be(15);
         _search.ExcludedHostIds.Should().Equal(ListingsTestData.SuspendedHostId);
         result.Value!.Items.Should().ContainSingle().Which.DistanceKm.Should().Be(2.3);
         result.Value.Items[0].Neighborhood.Should().Be("Zona 7");
@@ -175,8 +175,8 @@ public sealed class SearchListingsQueryHandlerTests
 
         // Assert
         result.IsSuccess.Should().BeTrue();
-        _search!.Origin.Latitude.Should().Be(-23.4m);
-        _search.Origin.Longitude.Should().Be(-51.9m);
+        _search!.Area!.Origin.Latitude.Should().Be(-23.4m);
+        _search.Area.Origin.Longitude.Should().Be(-51.9m);
         _addresses.Verify(a => a.GetAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
         _geocoder.Verify(g => g.LocateAsync(It.IsAny<ListingAddressData>(), It.IsAny<CancellationToken>()), Times.Never);
     }
@@ -199,7 +199,7 @@ public sealed class SearchListingsQueryHandlerTests
 
         // Assert
         result.IsSuccess.Should().BeTrue();
-        _search!.RadiusKm.Should().Be(SearchListingsQuery.DefaultRadiusKm);
+        _search!.Area!.RadiusKm.Should().Be(SearchListingsQuery.DefaultRadiusKm);
     }
 
     [Fact]
@@ -213,7 +213,7 @@ public sealed class SearchListingsQueryHandlerTests
 
         // Assert
         result.FirstError.Should().Be(ListingsErrors.SearchAddressRequired);
-        _repository.Verify(r => r.SearchNearbyAsync(It.IsAny<NearbySearch>(), It.IsAny<CancellationToken>()), Times.Never);
+        _repository.Verify(r => r.SearchAsync(It.IsAny<ListingSearch>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Theory]
@@ -240,7 +240,101 @@ public sealed class SearchListingsQueryHandlerTests
 
         // Assert
         result.Errors!.Select(e => e.Field).Should().BeEquivalentTo(["radiusKm", "latitude", "page", "pageSize"]);
-        _repository.Verify(r => r.SearchNearbyAsync(It.IsAny<NearbySearch>(), It.IsAny<CancellationToken>()), Times.Never);
+        _repository.Verify(r => r.SearchAsync(It.IsAny<ListingSearch>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task HandleAsync_Should_SearchWithoutRadiusOrMap_When_OnlyPlaceFiltersAreSent()
+    {
+        // Arrange
+        _repository
+            .Setup(r => r.SearchAsync(It.IsAny<ListingSearch>(), It.IsAny<CancellationToken>()))
+            .Callback<ListingSearch, CancellationToken>((search, _) => _search = search)
+            .ReturnsAsync(([new FoundListing(ListingsTestData.IndividualListing(), null)], 1L));
+
+        // Act
+        var result = await _sut.HandleAsync(
+            new SearchListingsQuery(ListingsTestData.OwnerUserId, State: " pr ", City: " Maringá ", Neighborhood: "Zona 7"),
+            CancellationToken.None);
+
+        // Assert
+        _search!.Area.Should().BeNull();
+        _search.Filters.Should().Be(new ListingFilters(State: "PR", City: "Maringá", Neighborhood: "Zona 7"));
+        result.Value!.Items.Should().ContainSingle().Which.DistanceKm.Should().BeNull();
+        _addresses.Verify(a => a.GetAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+        _geocoder.Verify(g => g.LocateAsync(It.IsAny<ListingAddressData>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task HandleAsync_Should_CombinePlaceFiltersWithTheRadius_When_RadiusIsSent()
+    {
+        // Act
+        await _sut.HandleAsync(new SearchListingsQuery(ListingsTestData.OwnerUserId, RadiusKm: 20, City: "Maringá"), CancellationToken.None);
+
+        // Assert
+        _search!.Area!.RadiusKm.Should().Be(20);
+        _search.Filters.City.Should().Be("Maringá");
+    }
+
+    [Fact]
+    public async Task HandleAsync_Should_JoinEveryFilter_When_ManyAreSent()
+    {
+        // Act
+        await _sut.HandleAsync(
+            new SearchListingsQuery(
+                ListingsTestData.OwnerUserId,
+                Species: ["dog", "CAT"],
+                Sizes: ["small,large"],
+                Weekdays: ["saturday", "sunday"],
+                MinNightlyRate: 30m,
+                MaxNightlyRate: 80m,
+                MinCapacity: 2,
+                HasYard: true,
+                HomeType: " Apartment ",
+                HasDogs: false,
+                HasCats: true,
+                HasKids: false),
+            CancellationToken.None);
+
+        // Assert
+        _search!.Filters.Should().Be(new ListingFilters(
+            Species: AcceptedSpecies.Dog | AcceptedSpecies.Cat,
+            AcceptsSmall: true,
+            AcceptsLarge: true,
+            Weekdays: Weekdays.Saturday | Weekdays.Sunday,
+            MinNightlyRate: 30m,
+            MaxNightlyRate: 80m,
+            MinCapacity: 2,
+            HasYard: true,
+            HomeType: HomeType.Apartment,
+            HasDogs: false,
+            HasCats: true,
+            HasKids: false));
+    }
+
+    [Fact]
+    public async Task HandleAsync_Should_ReturnEveryInvalidFilter_When_FiltersAreUnknownOrOutOfRange()
+    {
+        // Act
+        var result = await _sut.HandleAsync(
+            new SearchListingsQuery(
+                ListingsTestData.OwnerUserId,
+                State: "XX",
+                City: new string('c', 81),
+                Neighborhood: new string('n', 81),
+                Species: ["dragon"],
+                Sizes: ["huge"],
+                Weekdays: ["someday"],
+                MinNightlyRate: 90m,
+                MaxNightlyRate: 50m,
+                MinCapacity: 0,
+                HomeType: "castle"),
+            CancellationToken.None);
+
+        // Assert
+        result.Errors!.Select(e => e.Field).Should().BeEquivalentTo(
+            ["state", "city", "neighborhood", "species", "sizes", "weekdays", "maxNightlyRate", "minCapacity", "homeType"]);
+        _repository.Verify(r => r.SearchAsync(It.IsAny<ListingSearch>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Theory]

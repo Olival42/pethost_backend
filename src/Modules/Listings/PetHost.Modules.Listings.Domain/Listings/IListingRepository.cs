@@ -13,11 +13,12 @@ public interface IListingRepository
     Task<int> CountByHostAsync(Guid hostId, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Cantinhos <b>ativos</b> a até <see cref="NearbySearch.RadiusKm"/> da origem, do mais perto
-    /// para o mais longe, paginados. Fora os de <see cref="NearbySearch.ExcludedHostIds"/>.
+    /// Cantinhos <b>ativos</b> que atendem a todos os <see cref="ListingSearch.Filters"/>, paginados.
+    /// Com <see cref="ListingSearch.Area"/>, só os de dentro do raio, do mais perto para o mais
+    /// longe; sem, do mais novo para o mais antigo. Fora os de <see cref="ListingSearch.ExcludedHostIds"/>.
     /// </summary>
-    Task<(IReadOnlyList<NearbyListing> Items, long TotalCount)> SearchNearbyAsync(
-        NearbySearch search,
+    Task<(IReadOnlyList<FoundListing> Items, long TotalCount)> SearchAsync(
+        ListingSearch search,
         CancellationToken cancellationToken);
 
     void Add(Listing listing);

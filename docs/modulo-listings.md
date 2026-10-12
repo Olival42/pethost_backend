@@ -2,7 +2,7 @@
 
 _Documento do que foi implementado · outubro de 2026 · complementa o [`PROJECT_STANDARDS.md`](PROJECT_STANDARDS.md), o [`modulo-hosts.md`](modulo-hosts.md) e o [`dicionario-de-dados.md`](dicionario-de-dados.md)_
 
-O **cantinho** é o espaço que o anfitrião oferece — o "quarto" da metáfora do hotel. Tem descrição, endereço (com a coordenada), quem mora na casa, o que aceita, capacidade, diária, os **dias da semana** em que recebe pets e até 5 fotos em ordem. O tutor encontra cantinhos pela **busca por raio** (5 a 50 km do endereço dele) e abre o detalhe.
+O **cantinho** é o espaço que o anfitrião oferece — o "quarto" da metáfora do hotel. Tem descrição, endereço (com a coordenada), quem mora na casa, o que aceita, capacidade, diária, os **dias da semana** em que recebe pets e até 5 fotos em ordem. O tutor encontra cantinhos pela **busca** — por raio (5 a 50 km do endereço dele ou de um ponto), por estado/cidade/bairro e por filtros do que o pet precisa, tudo somado — e abre o detalhe.
 
 ## Sumário
 
@@ -10,7 +10,7 @@ O **cantinho** é o espaço que o anfitrião oferece — o "quarto" da metáfora
 2. [Estrutura](#2-estrutura)
 3. [Endpoints](#3-endpoints)
 4. [Regras](#4-regras)
-5. [Busca por raio e geocodificação](#5-busca-por-raio-e-geocodificação)
+5. [Busca, filtros e geocodificação](#5-busca-filtros-e-geocodificação)
 6. [Fotos (até 5, em ordem)](#6-fotos-até-5-em-ordem)
 7. [Banco](#7-banco)
 8. [Comunicação com outros módulos](#8-comunicação-com-outros-módulos)
@@ -42,7 +42,7 @@ src/Modules/Listings/
 ├── Application/     CreateListing, UpdateListing (+ ListingPatch), DeactivateListing, ReactivateListing,
 │                    GetListingById, ListMyListings, SearchListings, Add/Replace/Remove/ReorderListingPhoto(s),
 │                    ListingAccess, ListingLocator, portas IListingHosts, IAccountAddresses, IGeocoder
-├── Infrastructure/  ListingsDbContext (schema listing), configurações, ListingRepository (busca por raio),
+├── Infrastructure/  ListingsDbContext (schema listing), configurações, ListingRepository (busca com filtros e raio),
 │                    ListingHosts / AccountAddresses (adaptadores), NominatimGeocoder + CachedGeocoder
 └── Presentation/    ListingsController
 ```
@@ -52,7 +52,7 @@ src/Modules/Listings/
 | Método | Rota | Quem | O quê |
 |---|---|---|---|
 | `POST` | `/api/v1/listings` | host | Cadastra um cantinho. `201` + `Location`. |
-| `GET` | `/api/v1/listings?radiusKm=10[&latitude=&longitude=][&page=&pageSize=]` | qualquer logado | Busca por raio, do mais perto ao mais longe. Paginada. |
+| `GET` | `/api/v1/listings?[radiusKm=][&latitude=&longitude=][&state=&city=&neighborhood=][&species=&sizes=&weekdays=][&minNightlyRate=&maxNightlyRate=][&minCapacity=][&hasYard=][&homeType=][&hasDogs=&hasCats=&hasKids=][&page=&pageSize=]` | qualquer logado | Busca com filtros somados; por raio (do mais perto ao mais longe) ou só por lugar (do mais novo ao mais antigo). Paginada. |
 | `GET` | `/api/v1/listings/me` | host | Todos os cantinhos do anfitrião logado (ativos e inativos), `{ host, listings }`, sem paginação. |
 | `GET` | `/api/v1/listings/{listingId}` | qualquer logado | Um cantinho. Dono: tudo, inclusive inativo. Outros: visão pública, só se ativo. |
 | `PATCH` | `/api/v1/listings/{listingId}` | host dono | Altera (só o que vier). Endereço novo recalcula a coordenada. |
@@ -97,7 +97,7 @@ src/Modules/Listings/
 
 **Visão pública** (quem não é dono nem admin): `address` só com `neighborhood`, `city` e `state`; sem `zipCode`, `street`, `number`, `complement` e sem `location` (escopo, regra 7: endereço só depois do pagamento; "Bairro, não coordenada").
 
-Item da busca (`ListingSummaryResponse`): `id`, `hostId`, `host`, `title`, `neighborhood`, `city`, `state`, **`distanceKm`** (1 casa), `nightlyRate`, `capacity`, `homeType`, `hasYard`, `acceptedSpecies`, `accepts*`, `availableWeekdays`, `coverPhotoUrl`. Nunca endereço nem coordenada.
+Item da busca (`ListingSummaryResponse`): `id`, `hostId`, `host`, `title`, `neighborhood`, `city`, `state`, **`distanceKm`** (1 casa; omitido na busca sem raio), `nightlyRate`, `capacity`, `homeType`, `hasYard`, `acceptedSpecies`, `accepts*`, `availableWeekdays`, `coverPhotoUrl`. Nunca endereço nem coordenada.
 
 ## 4. Regras
 
@@ -119,15 +119,36 @@ Validadas no domínio (`ListingDetails`, `ListingAddress`), com **todos os erros
 
 Inativar é idempotente e não apaga nada (escopo, restrição 9). Cantinho inativo pode ser editado e ter fotos trocadas pelo dono. Mudança de estado vai para a trilha: `listing.created`, `listing.updated` (campos pelo nome, ou `photos.added/replaced/removed/reordered`), `listing.deactivated`, `listing.reactivated`.
 
-## 5. Busca por raio e geocodificação
+## 5. Busca, filtros e geocodificação
 
-**Origem da busca:** se o cliente manda `latitude` e `longitude` (as duas juntas), é esse ponto (ex.: GPS do celular); só uma das duas: `400` em `latitude`. Sem elas, é o **endereço da conta logada** (`IUserDirectory`), geocodificado. Conta sem endereço: `422 LISTING_SEARCH_ADDRESS_REQUIRED`; endereço fora do mapa: `422 LISTING_SEARCH_ADDRESS_NOT_LOCATED`.
+**Filtros** (todos opcionais; **se somam** — o cantinho precisa atender a cada um enviado):
 
-**Raio:** `radiusKm` de **5 a 50** (padrão 10). Fora disso, `400` no campo `radiusKm`.
+| Parâmetro | Regra | Inválido (`400` no campo) |
+|-----------|-------|---------------------------|
+| `state` | UF, sem diferença de maiúsculas (`pr` = `PR`). | UF que não existe. |
+| `city`, `neighborhood` | Nome **exato**, sem diferença de **acento** nem de maiúsculas/minúsculas: `unaccent(city) ILIKE unaccent(@valor)`, com `%`, `_` e `\` tratados como texto (`maringa` = `MARINGÁ`). | Mais de 80 caracteres. |
+| `species` | Espécies que o cantinho precisa aceitar — **todas** as enviadas. | Valor desconhecido. |
+| `sizes` | `small`, `medium`, `large` — o cantinho precisa aceitar **todos** os enviados. | Outro valor. |
+| `weekdays` | Dias em que o cantinho precisa receber — **todos** os enviados. | Dia desconhecido. |
+| `minNightlyRate`, `maxNightlyRate` | Faixa da diária, inclusiva. | Negativo, ou máximo abaixo do mínimo (erro em `maxNightlyRate`). |
+| `minCapacity` | Recebe pelo menos N pets. | Fora de 1 a 200. |
+| `hasYard` | `true`/`false`. | — |
+| `homeType` | `house` ou `apartment` (sem diferença de maiúsculas). Cantinho de empresa não tem tipo e **não entra** quando este filtro vem. | Outro valor. |
+| `hasDogs`, `hasCats`, `hasKids` | Quem mora na casa: `true` (mora) ou `false` (não mora). Ex.: `hasKids=false` para quem quer casa sem criança. | Não é `true`/`false`. |
 
-**O que aparece:** só cantinhos **ativos** de anfitrião **ativo e sem suspensão** (`IHostDirectory.GetUnavailableIdsAsync`), ordenados pela distância (empate: mais novo primeiro). Paginação padrão (§13).
+Listas aceitam o parâmetro repetido (`species=dog&species=cat`) ou separado por vírgula (`species=dog,cat`). Todos os erros voltam juntos num só `400`.
 
-**No banco** (`ListingRepository.SearchNearbyAsync`): (1) uma caixa em volta do círculo filtra por `latitude`/`longitude` (índice parcial `ix_listings_latitude_longitude_active`); (2) a distância exata é calculada no Postgres pela fórmula de **haversine** (`asin`, `sin`, `cos`, `power`, `LEAST`); (3) conta, ordena e pagina pela distância; (4) carrega só os cantinhos da página, com as fotos. Sem PostGIS: para o volume do MVP (uma cidade) é suficiente.
+**Raio ou só lugar?**
+
+- É **busca por raio** quando vem `radiusKm`, ou `latitude`+`longitude`, ou quando **não** vem `state`/`city`/`neighborhood` (o "perto de casa" de sempre). `radiusKm` de **5 a 50** (padrão 10; fora disso, `400` em `radiusKm`). Ordem: distância (empate: mais novo primeiro).
+- Só com `state`/`city`/`neighborhood` (sem raio nem coordenada) **não há distância**: não consulta o mapa, vem do mais novo ao mais antigo e o item sai **sem** `distanceKm`.
+- Lugar **e** raio juntos se somam (ex.: `city=Maringá&radiusKm=20` = cantinhos de Maringá a até 20 km).
+
+**Origem da busca por raio:** se o cliente manda `latitude` e `longitude` (as duas juntas), é esse ponto (ex.: GPS do celular); só uma das duas: `400` em `latitude`. Sem elas, é o **endereço da conta logada** (`IUserDirectory`), geocodificado. Conta sem endereço: `422 LISTING_SEARCH_ADDRESS_REQUIRED`; endereço fora do mapa: `422 LISTING_SEARCH_ADDRESS_NOT_LOCATED`.
+
+**O que aparece:** só cantinhos **ativos** de anfitrião **ativo e sem suspensão** (`IHostDirectory.GetUnavailableIdsAsync`). Paginação padrão (§13).
+
+**No banco** (`ListingRepository.SearchAsync`): (1) cada filtro enviado vira mais um `AND` (espécies e dias por máscara de bits: `(accepted_species & x) = x`); (2) na busca por raio, uma caixa em volta do círculo filtra por `latitude`/`longitude` (índice parcial `ix_listings_latitude_longitude_active`) e a distância exata é calculada no Postgres pela fórmula de **haversine** (`asin`, `sin`, `cos`, `power`, `LEAST`); (3) conta, ordena e pagina; (4) carrega só os cantinhos da página, com as fotos. Sem PostGIS: para o volume do MVP (uma cidade) é suficiente.
 
 **Geocodificação** (`IGeocoder` → `CachedGeocoder` → `NominatimGeocoder`):
 
@@ -188,8 +209,8 @@ O `IHostDirectory` ganhou `HostReference.IsSuspended` (com `IsCompany` e `IsAvai
 ## 9. Testes
 
 - **Domínio** (`Listings.Domain.UnitTests`): `ListingDetails` (cada regra, PF × PJ, diária, porte), `ListingAddress`, `GeoPoint` (faixas, haversine Maringá–Londrina), valores dos enums, `Listing` (limite PF/PJ, alterações, ativo/inativo, fotos e reordenação).
-- **Application** (`Listings.Application.UnitTests`): cada handler, caminho feliz e cada falha (limite sem consultar o mapa, endereço não achado, mapa fora, posse, visão pública × dono, busca por coordenada e por endereço da conta, filtros inválidos).
-- **Integração** (`Listings.IntegrationTests`, Postgres + Redis + RustFS em container): cache do geocodificador no Redis (uma consulta por endereço, TTL de "achou" e "não achou", falha não guardada, valor ilegível ignorado, endereço fora da chave); cadastro PF/PJ, 400 com todos os campos, 403/404/422/503, visão pública, inativar/reativar, PATCH com nova coordenada, busca por raio (5/10/50 km, ordem, ocultar inativo e suspenso, endereço da conta), fotos com reordenação e compactação no banco.
+- **Application** (`Listings.Application.UnitTests`): cada handler, caminho feliz e cada falha (limite sem consultar o mapa, endereço não achado, mapa fora, posse, visão pública × dono, busca por coordenada e por endereço da conta, busca só por lugar sem mapa, lugar + raio, todos os filtros somados, filtros inválidos).
+- **Integração** (`Listings.IntegrationTests`, Postgres + Redis + RustFS em container): cache do geocodificador no Redis (uma consulta por endereço, TTL de "achou" e "não achou", falha não guardada, valor ilegível ignorado, endereço fora da chave); cadastro PF/PJ, 400 com todos os campos, 403/404/422/503, visão pública, inativar/reativar, PATCH com nova coordenada, busca por raio (5/10/50 km, ordem, ocultar inativo e suspenso, endereço da conta), busca só por estado/cidade/bairro (sem distância, sem diferença de acento e maiúsculas), todos os filtros somados ao raio, tipo da casa e quem mora nela, curinga do `ILIKE` tratado como texto, 400 com todos os filtros inválidos, fotos com reordenação e compactação no banco.
 
 ## 10. Decisões e pendências
 
@@ -200,13 +221,16 @@ O `IHostDirectory` ganhou `HostReference.IsSuspended` (com `IsCompany` e `IsAvai
 | Tipo da casa opcional para PJ | Filial é espaço comercial, não casa nem apartamento. |
 | Diária em `decimal` (reais) | Pedido do produto e §11 (dinheiro `numeric`). A conversão para centavos fica no módulo de pagamentos (Stripe). |
 | `is_active` em vez de `status` (draft/active/paused) | O cadastro é num passo só (não há rascunho) e o pedido era inativar/reativar, como nos pets. |
-| Tipos aceitos em bits (`accepted_species`) em vez da tabela `listing_species` | Conjunto pequeno e fixo, lido sempre junto com o cantinho; filtro futuro por tipo é `(accepted_species & bit) <> 0`. |
+| Tipos aceitos em bits (`accepted_species`) em vez da tabela `listing_species` | Conjunto pequeno e fixo, lido sempre junto com o cantinho; o filtro da busca é `(accepted_species & x) = x`. |
 | Dias da semana em bits (`available_weekdays`) | Requisito novo; mesma lógica. A agenda (datas bloqueadas) fica por cima. |
 | Geocodificação no backend (Nominatim) | Pedido do produto: a coordenada sai do endereço, nunca do cliente. Gratuito, sem chave. |
 | Coordenada e rua escondidas na visão pública | Escopo, regra 7, e "Bairro, não coordenada". |
+| Busca sem raio só com estado/cidade/bairro | Quem procura em outra cidade (viagem) não quer o raio de casa; sem nenhum lugar, o padrão continua "perto de casa" (10 km). |
+| Cidade/bairro com `unaccent` (extensão do Postgres) | O usuário digita "Maringa" ou "maringá"; sem índice (a função não é `IMMUTABLE`), o que basta para o volume do MVP. |
+| Listas da busca exigem **todos** os valores | O tutor leva cachorro **e** gato: o cantinho precisa aceitar os dois. |
 
 **Pendências**
 
 1. Filtro de busca por `stripe_payouts_enabled`: o onboarding do Stripe ainda não existe; quando existir, somar à lista de anfitriões indisponíveis.
-2. Filtros extras da busca (datas/agenda, tipo e porte do pet, preço) e selos — dependem dos módulos de agenda e reservas.
+2. Filtros que dependem de outros módulos: datas (agenda/reservas), "vaga para todos os pets escolhidos" e selos.
 3. ~~Cache do geocodificador por instância (memória).~~ Feito: o cache está no Redis. Ainda por instância: a fila de 1 pedido/s ao Nominatim (`GeocodingRateGate`); com várias instâncias, cada uma respeita o limite sozinha — mover para um lock no Redis ou usar instância própria do Nominatim.

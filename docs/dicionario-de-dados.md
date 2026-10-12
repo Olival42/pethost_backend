@@ -591,8 +591,8 @@ O espaço que o anfitrião oferece (no app: "cantinho"). Schema `listing` (módu
 | `street` | `varchar(120)` |  | não | Rua. Só aparece para o dono (e, no futuro, para o tutor após o pagamento). |
 | `street_number` | `varchar(10)` |  | não | Número ("S/N" aceito). Só para o dono. |
 | `complement` | `varchar(60)` |  | sim | Complemento. Só para o dono. |
-| `neighborhood` | `varchar(80)` |  | não | Bairro. É o que aparece na busca. |
-| `city` | `varchar(80)` |  | não | Cidade. |
+| `neighborhood` | `varchar(80)` |  | não | Bairro. É o que aparece na busca. Filtro da busca sem acento nem maiúsculas (`unaccent`). |
+| `city` | `varchar(80)` |  | não | Cidade. Filtro da busca sem acento nem maiúsculas (`unaccent`). |
 | `state` | `char(2)` |  | não | UF. |
 | `latitude` | `decimal(9,6)` |  | não | Coordenada do endereço, calculada pela API (geocodificação no Nominatim/OpenStreetMap), nunca enviada pelo cliente. Base da busca por raio ("2 km de você"). Não sai para quem não é o dono. |
 | `longitude` | `decimal(9,6)` |  | não | Idem. |
@@ -614,7 +614,7 @@ O espaço que o anfitrião oferece (no app: "cantinho"). Schema `listing` (módu
 | `created_at` | `timestamptz` |  | não | Quando o registro foi criado (UTC). |
 | `updated_at` | `timestamptz` |  | não | Última alteração do registro (UTC). |
 
-> Índices: `ix_listings_host_id` ("meus cantinhos" e o limite da pessoa física) e o parcial `ix_listings_latitude_longitude_active` (`latitude, longitude` `WHERE is_active`), que filtra a caixa em volta do círculo na busca por raio. CHECKs: `ck_listings_home_type`, `ck_listings_capacity` (1–200), `ck_listings_nightly_rate` (10–10000), `ck_listings_accepted_species` (1–4095), `ck_listings_available_weekdays` (1–127), `ck_listings_latitude`, `ck_listings_longitude`. Só cantinho ativo de anfitrião ativo e sem suspensão aparece na busca; o filtro por `hosts.stripe_payouts_enabled` entra quando o onboarding do Stripe existir.
+> Índices: `ix_listings_host_id` ("meus cantinhos" e o limite da pessoa física) e o parcial `ix_listings_latitude_longitude_active` (`latitude, longitude` `WHERE is_active`), que filtra a caixa em volta do círculo na busca por raio. Extensão `unaccent` (schema `public`, migration `AddUnaccentExtension`) para os filtros de cidade e bairro. CHECKs: `ck_listings_home_type`, `ck_listings_capacity` (1–200), `ck_listings_nightly_rate` (10–10000), `ck_listings_accepted_species` (1–4095), `ck_listings_available_weekdays` (1–127), `ck_listings_latitude`, `ck_listings_longitude`. Só cantinho ativo de anfitrião ativo e sem suspensão aparece na busca; o filtro por `hosts.stripe_payouts_enabled` entra quando o onboarding do Stripe existir.
 
 ### `listing_photos` · Fotos do cantinho
 

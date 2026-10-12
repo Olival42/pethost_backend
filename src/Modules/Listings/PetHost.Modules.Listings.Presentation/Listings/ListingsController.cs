@@ -91,13 +91,23 @@ public sealed class ListingsController(
             : result.ToActionResult();
     }
 
-    /// <summary>Busca cantinhos ao redor de um ponto, do mais perto para o mais longe. Qualquer conta logada.</summary>
+    /// <summary>Busca cantinhos com filtros que se somam. Qualquer conta logada.</summary>
     /// <remarks>
-    /// <c>radiusKm</c> de 5 a 50 (padrão 10). Sem <c>latitude</c>/<c>longitude</c>, a origem é o
-    /// endereço da conta logada; com elas (as duas juntas), é esse ponto. Só aparecem cantinhos
-    /// ativos de anfitrião ativo. Cada item traz bairro, cidade e distância em km — nunca o
-    /// endereço nem a coordenada. Paginado: <c>page</c> a partir de 1, <c>pageSize</c> até 100.
-    /// Conta sem endereço: 422 <c>LISTING_SEARCH_ADDRESS_REQUIRED</c>.
+    /// Todos os filtros são opcionais e se somam (o cantinho atende a cada um): <c>state</c> (UF),
+    /// <c>city</c> e <c>neighborhood</c> (nome exato, sem diferença de acento nem de maiúsculas); <c>species</c>,
+    /// <c>sizes</c> (<c>small</c>/<c>medium</c>/<c>large</c>) e <c>weekdays</c> — repetidos
+    /// (<c>species=dog&amp;species=cat</c>) ou separados por vírgula, o cantinho precisa aceitar
+    /// <b>todos</b>; <c>minNightlyRate</c>/<c>maxNightlyRate</c>; <c>minCapacity</c>; <c>hasYard</c>; <c>homeType</c> (<c>house</c>/<c>apartment</c>; cantinho de empresa, sem tipo, não entra);
+    /// <c>hasDogs</c>, <c>hasCats</c> e <c>hasKids</c> (quem mora na casa: <c>true</c> ou <c>false</c>).
+    /// <para>
+    /// Distância: com <c>radiusKm</c> (5 a 50) ou <c>latitude</c>+<c>longitude</c>, ou sem
+    /// estado/cidade/bairro, é busca por raio (padrão 10 km), do mais perto ao mais longe; a origem
+    /// é a coordenada enviada ou, sem ela, o endereço da conta logada. Só com estado/cidade/bairro,
+    /// não há raio: vem do mais novo ao mais antigo, sem <c>distanceKm</c>.
+    /// </para>
+    /// Só aparecem cantinhos ativos de anfitrião ativo. Cada item traz bairro, cidade e distância —
+    /// nunca o endereço nem a coordenada. Paginado: <c>page</c> a partir de 1, <c>pageSize</c> até
+    /// 100. Busca por raio com conta sem endereço: 422 <c>LISTING_SEARCH_ADDRESS_REQUIRED</c>.
     /// </remarks>
     [HttpGet]
     [Authorize]
@@ -107,15 +117,33 @@ public sealed class ListingsController(
     [ProducesResponseType<ApiResponse<PagedResult<ListingSummaryResponse>>>(StatusCodes.Status422UnprocessableEntity)]
     [ProducesResponseType<ApiResponse<PagedResult<ListingSummaryResponse>>>(StatusCodes.Status503ServiceUnavailable)]
     public async Task<IActionResult> SearchAsync(
-        [FromQuery] int radiusKm = SearchListingsQuery.DefaultRadiusKm,
-        [FromQuery] decimal? latitude = null,
-        [FromQuery] decimal? longitude = null,
-        [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 20,
+        [FromQuery] ListingSearchRequest request,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(request);
+
         var result = await searchListings.HandleAsync(
-            new SearchListingsQuery(User.GetUserId(), latitude, longitude, radiusKm, page, pageSize),
+            new SearchListingsQuery(
+                User.GetUserId(),
+                request.Latitude,
+                request.Longitude,
+                request.RadiusKm,
+                request.State,
+                request.City,
+                request.Neighborhood,
+                request.Species,
+                request.Sizes,
+                request.Weekdays,
+                request.MinNightlyRate,
+                request.MaxNightlyRate,
+                request.MinCapacity,
+                request.HasYard,
+                request.HomeType,
+                request.HasDogs,
+                request.HasCats,
+                request.HasKids,
+                request.Page,
+                request.PageSize),
             cancellationToken);
 
         return result.ToActionResult();

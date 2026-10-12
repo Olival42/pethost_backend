@@ -3,7 +3,7 @@
 > Documento normativo. Tudo é obrigatório salvo onde marcado como *recomendado*.
 > Em conflito com o código existente, este documento vence.
 
-**Atualizado:** 2026-10-11 · **Escopo:** backend (API)
+**Atualizado:** 2026-10-12 · **Escopo:** backend (API)
 
 ---
 
@@ -35,7 +35,7 @@
 4. **Erro esperado não usa exceção.** Fluxo de negócio previsível retorna `Result`. Exceção só para bug ou infraestrutura fora.
 5. **Toda regra de negócio tem teste unitário.** Sem exceção.
 
-**Módulos** (bounded contexts): `Auth` (conta, sessão, perfil comum), `Owners` (perfil de tutor), `Hosts` (anfitrião: verificação de identidade aprovada pelo admin e perfil verificado, PF/PJ), `Audit` (trilha de auditoria de todos os módulos), `Pets` (ficha do pet, do tutor ou do anfitrião), `Listings` (cantinho: o espaço do anfitrião, com fotos e busca por raio — [`modulo-listings.md`](modulo-listings.md)), `Booking`, `Availability`, `Payments`, `Reviews`, `Notifications`. Criar módulo novo é decisão de arquitetura — discutir antes do PR.
+**Módulos** (bounded contexts): `Auth` (conta, sessão, perfil comum), `Owners` (perfil de tutor), `Hosts` (anfitrião: verificação de identidade aprovada pelo admin e perfil verificado, PF/PJ), `Audit` (trilha de auditoria de todos os módulos), `Pets` (ficha do pet, do tutor ou do anfitrião), `Listings` (cantinho: o espaço do anfitrião, com fotos e busca com filtros e raio — [`modulo-listings.md`](modulo-listings.md)), `Booking`, `Availability`, `Payments`, `Reviews`, `Notifications`. Criar módulo novo é decisão de arquitetura — discutir antes do PR.
 
 ---
 
@@ -621,7 +621,7 @@ POST   /api/v1/auth/sessions/login    ·  POST /api/v1/auth/sessions/refresh
 POST   /api/v1/pets               ·  GET  /api/v1/pets/me  ·  PATCH /api/v1/pets/{petId:guid}
 POST   /api/v1/pets/{petId:guid}/deactivation  ·  DELETE /api/v1/pets/{petId:guid}/deactivation
 GET    /api/v1/hosts/{hostId:guid}/pets
-POST   /api/v1/listings           ·  GET  /api/v1/listings/me  ·  GET /api/v1/listings?radiusKm=10
+POST   /api/v1/listings           ·  GET  /api/v1/listings/me  ·  GET /api/v1/listings?radiusKm=10&city=Maringá&species=dog
 PUT    /api/v1/listings/{listingId:guid}/photos/order
 POST   /api/v1/bookings               ·  GET  /api/v1/bookings/{bookingId:guid}
 POST   /api/v1/bookings/{bookingId:guid}/cancellation

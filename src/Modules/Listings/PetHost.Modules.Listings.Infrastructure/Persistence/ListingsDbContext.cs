@@ -23,6 +23,9 @@ public sealed class ListingsDbContext(DbContextOptions<ListingsDbContext> option
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema(Schema);
+
+        // Busca por cidade/bairro sem diferença de acento (unaccent(city) ILIKE unaccent(...)).
+        modelBuilder.HasPostgresExtension("unaccent");
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(ListingsDbContext).Assembly);
 
         base.OnModelCreating(modelBuilder);

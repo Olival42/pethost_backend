@@ -315,6 +315,87 @@ public sealed class ListingEndpointsTests(ListingsApiFixture fixture) : IAsyncLi
         Fields(await ReadAsync(response)).Should().BeEquivalentTo(["radiusKm", "latitude"]);
     }
 
+    // ----- filtros -----
+
+    [Fact]
+    public async Task Search_Should_IgnoreDistance_When_OnlyPlaceFiltersAreSent()
+    {
+        var company = await RegisterCompanyHostAsync();
+        await CreateListingAsync(company.Token, Cantinho(neighborhood: "Zona 5", homeType: null));
+        await CreateListingAsync(company.Token, Cantinho(neighborhood: "Centro de Londrina", homeType: null, city: "Londrina"));
+        var owner = await RegisterOwnerAsync();
+
+        var londrina = await SearchAsync(owner, "state=pr&city=LONDRINA");
+        var maringa = await SearchAsync(owner, "city=MARINGA&neighborhood=zôna 5");
+
+        Neighborhoods(londrina).Should().Equal("Centro de Londrina");
+        londrina.GetProperty("items")[0].TryGetProperty("distanceKm", out _).Should().BeFalse();
+        Neighborhoods(maringa).Should().Equal("Zona 5");
+    }
+
+    [Fact]
+    public async Task Search_Should_SumEveryFilter_When_FiltersAreCombinedWithTheRadius()
+    {
+        var company = await RegisterCompanyHostAsync();
+        await CreateListingAsync(company.Token, Cantinho(neighborhood: "Zona 5", homeType: null));
+        await CreateListingAsync(company.Token, Cantinho(neighborhood: "Vila Sarandi", homeType: null, nightlyRate: 90m, species: ["dog", "rabbit"], acceptsLarge: true));
+        await CreateListingAsync(company.Token, Cantinho(neighborhood: "Centro de Londrina", homeType: null, city: "Londrina", nightlyRate: 90m, species: ["dog", "rabbit"], acceptsLarge: true));
+        var owner = await RegisterOwnerAsync();
+
+        var result = await SearchAsync(
+            owner,
+            "radiusKm=20&latitude=-23.41&longitude=-51.933&city=Maringá&species=dog,rabbit&sizes=large&weekdays=saturday&minNightlyRate=80&maxNightlyRate=100&minCapacity=3&hasYard=true");
+
+        Neighborhoods(result).Should().Equal("Vila Sarandi");
+        result.GetProperty("items")[0].GetProperty("distanceKm").GetDouble().Should().BeGreaterThan(0);
+    }
+
+    [Fact]
+    public async Task Search_Should_FilterByHomeTypeAndWhoLivesInTheHouse()
+    {
+        var company = await RegisterCompanyHostAsync();
+        await CreateListingAsync(company.Token, Cantinho(neighborhood: "Zona 5", homeType: null));
+        await CreateListingAsync(company.Token, Cantinho(neighborhood: "Vila Sarandi", homeType: "apartment", hasCats: true));
+        await CreateListingAsync(company.Token, Cantinho(homeType: "house", hasKids: true));
+        var owner = await RegisterOwnerAsync();
+
+        var apartments = await SearchAsync(owner, "city=Maringá&homeType=apartment");
+        var houses = await SearchAsync(owner, "city=Maringá&homeType=HOUSE");
+        var withCatNoKids = await SearchAsync(owner, "city=Maringá&hasDogs=true&hasCats=true&hasKids=false");
+        var noKids = await SearchAsync(owner, "city=Maringá&hasKids=false");
+
+        Neighborhoods(apartments).Should().Equal("Vila Sarandi");
+        Neighborhoods(houses).Should().Equal("Zona 7");
+        Neighborhoods(withCatNoKids).Should().Equal("Vila Sarandi");
+        Neighborhoods(noKids).Should().BeEquivalentTo(["Zona 5", "Vila Sarandi"]);
+    }
+
+    [Fact]
+    public async Task Search_Should_TreatWildcardsAsText_When_FilteringByCity()
+    {
+        var company = await RegisterCompanyHostAsync();
+        await CreateListingAsync(company.Token, Cantinho(homeType: null));
+        var owner = await RegisterOwnerAsync();
+
+        var result = await SearchAsync(owner, "city=%25");
+
+        result.GetProperty("totalCount").GetInt64().Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Search_Should_Return400WithEveryField_When_FiltersAreInvalid()
+    {
+        var owner = await RegisterOwnerAsync();
+
+        var response = await SendAsync(
+            HttpMethod.Get,
+            $"{ListingsRoute}?state=XX&species=dragon&sizes=huge&weekdays=someday&minNightlyRate=90&maxNightlyRate=10&minCapacity=0&homeType=castle",
+            owner);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        Fields(await ReadAsync(response)).Should().BeEquivalentTo(["state", "species", "sizes", "weekdays", "maxNightlyRate", "minCapacity", "homeType"]);
+    }
+
     // ----- fotos -----
 
     [Fact]
@@ -495,7 +576,12 @@ public sealed class ListingEndpointsTests(ListingsApiFixture fixture) : IAsyncLi
         string neighborhood = "Zona 7",
         string? homeType = "house",
         int capacity = 3,
-        decimal nightlyRate = 60.50m) =>
+        decimal nightlyRate = 60.50m,
+        string city = "Maringá",
+        string[]? species = null,
+        bool acceptsLarge = false,
+        bool hasCats = false,
+        bool hasKids = false) =>
         new
         {
             title = "Casa com quintal",
@@ -503,12 +589,12 @@ public sealed class ListingEndpointsTests(ListingsApiFixture fixture) : IAsyncLi
             homeType,
             hasYard = true,
             hasDogs = true,
-            hasCats = false,
-            hasKids = false,
-            acceptedSpecies = new[] { "cat", "dog" },
+            hasCats,
+            hasKids,
+            acceptedSpecies = species ?? ["cat", "dog"],
             acceptsSmall = true,
             acceptsMedium = true,
-            acceptsLarge = false,
+            acceptsLarge,
             capacity,
             nightlyRate,
             houseRules = "Nada de subir no sofá.",
@@ -519,7 +605,7 @@ public sealed class ListingEndpointsTests(ListingsApiFixture fixture) : IAsyncLi
                 street = "Rua das Flores",
                 number = "120",
                 neighborhood,
-                city = "Maringá",
+                city,
                 state = "PR",
             },
         };

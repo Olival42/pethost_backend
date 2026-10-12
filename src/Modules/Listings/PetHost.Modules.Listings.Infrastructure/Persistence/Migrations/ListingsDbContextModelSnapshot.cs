@@ -22,6 +22,7 @@ namespace PetHost.Modules.Listings.Infrastructure.Persistence.Migrations
                 .HasAnnotation("ProductVersion", "10.0.12")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
+            NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "unaccent");
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
             modelBuilder.Entity("PetHost.Modules.Listings.Domain.Listings.Listing", b =>
