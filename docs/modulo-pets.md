@@ -6,15 +6,22 @@ A ficha do pet. O pet pertence a **um tutor** — o pet que vai se hospedar — 
 
 ## Sumário
 
-1. [Dono do pet](#1-dono-do-pet)
-2. [Estrutura](#2-estrutura)
-3. [Endpoints](#3-endpoints)
-4. [Regras da ficha](#4-regras-da-ficha)
-5. [Banco](#5-banco)
-6. [Comunicação com outros módulos](#6-comunicação-com-outros-módulos)
-7. [Módulo Hosts (só a tabela)](#7-módulo-hosts-só-a-tabela)
-8. [Testes](#8-testes)
-9. [Decisões e pendências](#9-decisões-e-pendências)
+- [PetHost — Módulo Pets (e a tabela de anfitriões)](#pethost--módulo-pets-e-a-tabela-de-anfitriões)
+  - [Sumário](#sumário)
+  - [1. Dono do pet](#1-dono-do-pet)
+  - [2. Estrutura](#2-estrutura)
+  - [3. Endpoints](#3-endpoints)
+    - [3.1 Formato do pet](#31-formato-do-pet)
+    - [3.2 `POST /api/v1/pets`](#32-post-apiv1pets)
+    - [3.3 `PATCH /api/v1/pets/{petId}`](#33-patch-apiv1petspetid)
+    - [3.4 Desativar e reativar](#34-desativar-e-reativar)
+    - [3.5 Fotos (até 3)](#35-fotos-até-3)
+  - [4. Regras da ficha](#4-regras-da-ficha)
+  - [5. Banco](#5-banco)
+  - [6. Comunicação com outros módulos](#6-comunicação-com-outros-módulos)
+  - [7. Módulo Hosts (só a tabela)](#7-módulo-hosts-só-a-tabela)
+  - [8. Testes](#8-testes)
+  - [9. Decisões e pendências](#9-decisões-e-pendências)
 
 ---
 
@@ -355,8 +362,4 @@ O que o Stripe pede de uma empresa e **não** guardamos (cargo do representante,
 
 | # | Pendência | Impacto |
 |---|---|---|
-| 1 | ~~Cadastro do perfil de anfitrião.~~ | Feito de outro jeito: a conta nasce em `/users/register` e o perfil na aprovação da verificação (`/hosts/me/application`, [`modulo-hosts.md`](modulo-hosts.md)). Pessoa jurídica ainda pendente. |
-| 2 | Pet em reserva ativa. | Quando o módulo Booking existir, desativar um pet com estadia confirmada ou em andamento deve ser recusado (ou cancelar a estadia). |
-| 3 | Ver a ficha do pet do tutor pelo anfitrião. | Hoje só o dono e o admin veem o pet de um tutor. Com o Booking, o anfitrião passa a ver os pets do pedido que recebeu. |
-| 4 | Tutor/anfitrião inativado ou suspenso. | Os pets dele continuam ativos e o pet do anfitrião continua visível na casa. Quando o anfitrião tiver status, a lista da casa pode esconder anfitrião inativo. |
-| 5 | Fotos do pet: resolvido. | Até 3 por pet, em `pet.pet_photos` (seção 3.5). Reordenar ou escolher a capa ainda não tem rota: a capa é a foto da menor vaga. |
+| 1 | Fotos do pet: resolvido. | Até 3 por pet, em `pet.pet_photos` (seção 3.5). Reordenar ou escolher a capa ainda não tem rota: a capa é a foto da menor vaga. |

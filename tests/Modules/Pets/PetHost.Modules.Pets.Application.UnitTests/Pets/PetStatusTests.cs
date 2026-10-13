@@ -19,6 +19,7 @@ public sealed class DeactivatePetCommandHandlerTests
     private readonly Mock<IPetRepository> _petRepository = new();
     private readonly Mock<IPetsUnitOfWork> _unitOfWork = new();
     private readonly Mock<IAuditTrail> _auditTrail = new();
+    private readonly Mock<IPetBookings> _petBookings = PetsTestData.Bookings();
     private readonly Pet _pet = new PetProfileBuilder().BuildPet(PetsTestData.Host);
     private readonly DeactivatePetCommandHandler _sut;
 
@@ -27,7 +28,7 @@ public sealed class DeactivatePetCommandHandlerTests
         _petRepository.Setup(r => r.GetByIdAsync(_pet.Id, It.IsAny<CancellationToken>())).ReturnsAsync(_pet);
 
         _sut = new DeactivatePetCommandHandler(
-            _petRepository.Object, _unitOfWork.Object, PetsTestData.Keepers().Object, _auditTrail.Object, new FakeTimeProvider(Later));
+            _petRepository.Object, _unitOfWork.Object, PetsTestData.Keepers().Object, _petBookings.Object, _auditTrail.Object, new FakeTimeProvider(Later));
     }
 
     [Fact]

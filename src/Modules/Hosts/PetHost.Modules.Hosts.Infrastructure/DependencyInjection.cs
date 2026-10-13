@@ -35,6 +35,7 @@ using PetHost.Modules.Hosts.Application.Hosts.ResetHostStripeAccount;
 using PetHost.Modules.Hosts.Domain.HostApplications;
 using PetHost.Modules.Hosts.Domain.Hosts;
 using PetHost.Modules.Hosts.Infrastructure.Accounts;
+using PetHost.Modules.Hosts.Infrastructure.Bookings;
 using PetHost.Modules.Hosts.Infrastructure.Contracts;
 using PetHost.Modules.Hosts.Infrastructure.Notifications;
 using PetHost.Modules.Hosts.Infrastructure.Payouts;
@@ -77,6 +78,7 @@ public static class DependencyInjection
         services.AddScoped<IHostApplicationRepository, HostApplicationRepository>();
         services.AddScoped<IHostsUnitOfWork, HostsUnitOfWork>();
         services.AddScoped<IHostAccounts, HostAccounts>();
+        services.AddScoped<IHostBookings, HostBookings>();
         services.AddScoped<IHostApplicationNotifier, HostApplicationEmailNotifier>();
         services.AddScoped<IHostPayoutsNotifier, HostPayoutsEmailNotifier>();
 

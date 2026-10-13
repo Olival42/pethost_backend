@@ -54,6 +54,9 @@ public static class AuditTargets
     /// <summary>Cantinho (módulo Listings). O id é o do cantinho.</summary>
     public const string Listing = "listing";
 
+    /// <summary>Reserva (módulo Bookings). O id é o da reserva.</summary>
+    public const string Booking = "booking";
+
     /// <summary>A própria trilha (consulta do admin).</summary>
     public const string Audit = "audit";
 }
@@ -165,6 +168,28 @@ public static class AuditActions
     public const string ListingUpdated = "listing.updated";
     public const string ListingDeactivated = "listing.deactivated";
     public const string ListingReactivated = "listing.reactivated";
+
+    // --- Reserva (Bookings) ---
+
+    /// <summary>O tutor pediu a estadia.</summary>
+    public const string BookingRequested = "booking.requested";
+
+    /// <summary>O anfitrião aceitou (sem o módulo de pagamento, já confirma).</summary>
+    public const string BookingAccepted = "booking.accepted";
+
+    public const string BookingDeclined = "booking.declined";
+
+    /// <summary>Pedido sem resposta no prazo, fechado pela tarefa em segundo plano.</summary>
+    public const string BookingExpired = "booking.expired";
+
+    /// <summary>Cancelada pelo tutor ou pelo anfitrião (quem e o reembolso vão nos detalhes).</summary>
+    public const string BookingCancelled = "booking.cancelled";
+
+    /// <summary>O anfitrião marcou "chegou".</summary>
+    public const string BookingCheckedIn = "booking.checked_in";
+
+    /// <summary>O anfitrião marcou "voltou pra casa".</summary>
+    public const string BookingCheckedOut = "booking.checked_out";
 
     // --- Auditoria ---
     public const string AuditSearched = "audit.searched";

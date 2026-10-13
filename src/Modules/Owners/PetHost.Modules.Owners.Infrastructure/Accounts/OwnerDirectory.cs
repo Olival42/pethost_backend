@@ -41,5 +41,5 @@ internal sealed class OwnerDirectory(OwnersDbContext dbContext) : IOwnerDirector
         return [.. owners.Select(ToReference)];
     }
 
-    private static OwnerReference ToReference(Owner owner) => new(owner.Id.Value, owner.UserId, owner.IsActive);
+    private static OwnerReference ToReference(Owner owner) => new(owner.Id.Value, owner.UserId, owner.IsActive, owner.IsSuspended);
 }

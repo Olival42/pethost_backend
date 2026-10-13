@@ -47,6 +47,21 @@ internal static class ListingsTestData
         return hosts;
     }
 
+    /// <summary>Reservas: nenhum cantinho ocupado e nenhum anfitrião com histórico.</summary>
+    public static Mock<IListingBookings> Bookings()
+    {
+        var bookings = new Mock<IListingBookings>();
+
+        bookings
+            .Setup(b => b.GetPeakOccupancyAsync(It.IsAny<DateOnly>(), It.IsAny<DateOnly>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<Guid, int>());
+        bookings
+            .Setup(b => b.GetTrackRecordsAsync(It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<Guid, HostTrackRecord>());
+
+        return bookings;
+    }
+
     /// <summary>Geocodificador que sempre acha o centro de Maringá.</summary>
     public static Mock<IGeocoder> Geocoder(GeocodingResult? result = null)
     {

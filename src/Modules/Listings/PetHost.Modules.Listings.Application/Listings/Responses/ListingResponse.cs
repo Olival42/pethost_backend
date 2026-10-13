@@ -15,6 +15,7 @@ namespace PetHost.Modules.Listings.Application.Listings.Responses;
 /// <param name="AvailableWeekdays">De segunda a domingo, ex.: <c>["monday", "friday"]</c>.</param>
 /// <param name="Location">Coordenada do endereço. Só para o dono.</param>
 /// <param name="Photos">Até 5, na ordem: a primeira é a capa.</param>
+/// <param name="Badges">Selos automáticos, só no detalhe (<c>GET /listings/{id}</c>). Omitido nas outras rotas.</param>
 public sealed record ListingResponse(
     Guid Id,
     Guid HostId,
@@ -40,7 +41,8 @@ public sealed record ListingResponse(
     bool IsActive,
     DateTimeOffset? DeactivatedAt,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt)
+    DateTimeOffset UpdatedAt,
+    IReadOnlyList<string>? Badges = null)
 {
     /// <summary>Visão do dono: endereço completo e coordenada.</summary>
     public static ListingResponse ForOwner(Listing listing, ListingHostSummary? host) => From(listing, host, isOwnerView: true);

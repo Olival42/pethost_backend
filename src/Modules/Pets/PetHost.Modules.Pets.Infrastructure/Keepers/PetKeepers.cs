@@ -80,10 +80,10 @@ internal sealed class PetKeepers(
         return summaries;
     }
 
-    public async Task<bool> HostExistsAsync(Guid hostId, CancellationToken cancellationToken)
+    public async Task<bool> IsHostAvailableAsync(Guid hostId, CancellationToken cancellationToken)
     {
         var hosts = await hostDirectory.GetByIdsAsync([hostId], cancellationToken).ConfigureAwait(false);
 
-        return hosts.Count > 0;
+        return hosts.Any(host => host.Id == hostId && host.IsAvailable);
     }
 }

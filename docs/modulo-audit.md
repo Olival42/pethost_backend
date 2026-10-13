@@ -6,13 +6,15 @@ A trilha de auditoria guarda **quem fez o quê, sobre o quê, quando e de onde**
 
 ## Sumário
 
-1. [Estrutura](#1-estrutura)
-2. [O que é registrado](#2-o-que-é-registrado)
-3. [Como registrar](#3-como-registrar)
-4. [Consulta](#4-consulta)
-5. [Banco](#5-banco)
-6. [Testes](#6-testes)
-7. [Decisões e pendências](#7-decisões-e-pendências)
+- [PetHost — Módulo Audit (trilha de auditoria)](#pethost--módulo-audit-trilha-de-auditoria)
+  - [Sumário](#sumário)
+  - [1. Estrutura](#1-estrutura)
+  - [2. O que é registrado](#2-o-que-é-registrado)
+  - [3. Como registrar](#3-como-registrar)
+  - [4. Consulta](#4-consulta)
+  - [5. Banco](#5-banco)
+  - [6. Testes](#6-testes)
+  - [7. Decisões e pendências](#7-decisões-e-pendências)
 
 ---
 
@@ -143,6 +145,4 @@ Sem FK para as tabelas dos outros módulos: o registro sobrevive mesmo se a cont
 
 | # | Pendência | Impacto |
 |---|---|---|
-| 1 | Sem política de retenção. | Definir por quanto tempo guardar (ex.: 5 anos para ação do admin, 6 meses para login) e um job que apaga o que venceu. |
-| 2 | Imutabilidade só na aplicação. | Em produção, o usuário do banco da API deve ter só `INSERT` e `SELECT` em `audit.audit_entries` (sem `UPDATE`/`DELETE`). |
-| 3 | Sem tela no admin. | Hoje é só a rota; a tela de disputa de CPF pode mostrar a trilha do tutor. |
+| 1 | Sem tela no admin. | Hoje é só a rota; a tela de disputa de CPF pode mostrar a trilha do tutor. |

@@ -89,9 +89,9 @@ A ideia é que o produto não pareça um sistema genérico. Ele tem quatro princ
 | **Cantinho**                | Fotos (até 5, em ordem escolhida pelo anfitrião), descrição, bairro e endereço (a coordenada é calculada pela API), tipo de casa, tem quintal, tem cães, gatos ou crianças em casa, tipos e portes aceitos, capacidade (quantos pets ao mesmo tempo, de tutores diferentes), diária por pet (em reais), regras da casa e **dias da semana em que recebe**. Pessoa física tem **um** cantinho (até 10 pets); empresa tem **um por filial** (até 200 pets cada, tipo de casa opcional). Detalhes em [`modulo-listings.md`](modulo-listings.md). |
 | **Agenda**                  | Tudo disponível por padrão. O anfitrião bloqueia datas. Estadias pagas bloqueiam sozinhas.                                                                                                                                             |
 | **Verificação**             | **Solicitação de cadastro de anfitrião:** CPF, tipo de documento (RG, CNH ou CIN), frente, verso e selfie segurando o documento, num bucket privado. O admin confere e aprova (aí nasce o perfil de anfitrião) ou recusa com motivo (pode tentar de novo até 3 vezes; fraude é definitiva). As fotos são apagadas depois da decisão. Depois da aprovação, o cadastro de recebimento no Stripe. Sem os dois, o cantinho não aparece na busca. Detalhes em [`modulo-hosts.md`](modulo-hosts.md). |
-| **Busca**                   | **Por raio** (5 a 50 km) a partir do endereço do tutor ou de um ponto enviado (latitude e longitude); depois, datas + qual pet vai. Resultado em lista com foto, bairro, distância, preço, nota e selos. (Feito: raio, distância e ordem; filtros somados por estado, cidade, bairro, espécie, porte, dias da semana, faixa de diária, capacidade, quintal, tipo da casa e quem mora nela (cachorro, gato, criança) — com ou sem raio. Datas, vaga para os pets e selos dependem da agenda e das reservas.) |
+| **Busca**                   | **Por raio** (5 a 50 km) a partir do endereço do tutor ou de um ponto enviado (latitude e longitude); depois, datas + qual pet vai. Resultado em lista com foto, bairro, distância, preço, nota e selos. (Feito: raio, distância e ordem; filtros somados por estado, cidade, bairro, espécie, porte, dias da semana, faixa de diária, capacidade, quintal, tipo da casa e quem mora nela (cachorro, gato, criança) — com ou sem raio; datas com vaga para todos os pets (pelas reservas); selos Vizinho, Responde rápido, Casa com quintal e Experiente. Falta: datas bloqueadas na agenda e o selo Bem avaliado, que dependem da agenda e das avaliações.) |
 | **Chat**                    | Botão "Puxar conversa" no cantinho. Texto e foto. Uma conversa por dupla tutor–anfitrião. Durante a estadia, é ali que chegam as fotos.                                                                                                |
-| **Reserva**                 | Pedir → anfitrião aceita ou recusa (24h) → tutor paga (24h) → confirmada → "chegou" → "voltou pra casa".                                                                                                                               |
+| **Reserva**                 | Pedir → anfitrião aceita ou recusa (24h) → tutor paga (24h) → confirmada → "chegou" → "voltou pra casa". (Feito: pedido com período, pets, dias da semana e capacidade; aceite/recusa com expiração em 24h; cancelamento até a chegada com reembolso 100/50; check-in e check-out; listagens do tutor e do anfitrião. Sem o pagamento, o aceite já confirma. Detalhes em [`modulo-bookings.md`](modulo-bookings.md).) |
 | **Pagamento**               | Stripe Connect com checkout transparente: cartão e Pix dentro do PetHost. Detalhes na seção 6.                                                                                                                                         |
 | **Avaliação**               | Depois do check-out, cada lado avalia o outro: nota de 1 a 5 e comentário, em até 7 dias.                                                                                                                                              |
 | **Selos automáticos**       | Calculados, não cadastrados: Vizinho, Responde rápido, Casa com quintal, Experiente, Bem avaliado (regras na seção 7).                                                                                                                 |
@@ -117,7 +117,7 @@ A ideia é que o produto não pareça um sistema genérico. Ele tem quatro princ
 ### 3.3 Se sobrar tempo (nessa ordem)
 1. Recuperar senha por e-mail.
 2. Mapa com Leaflet e OpenStreetMap (gratuito).
-3. Avisos por e-mail (pedido novo, pagamento confirmado).
+3. Avisos por e-mail (pedido novo, pagamento confirmado). Já feitos: reserva aceita e recusada (ao tutor), confirmada (ao anfitrião) e cancelada (aos dois).
 4. Filtro por faixa de preço.
 
 ## 4. Contas e o que cada uma vê
@@ -279,7 +279,6 @@ erDiagram
         uuid id PK
         uuid owner_id FK
         uuid listing_id FK
-        uuid cancelled_by_id FK "nullable"
     }
     booking_pets {
         uuid booking_id PK, FK
@@ -340,11 +339,11 @@ _Aqui só as chaves. Todas as colunas estão no dicionário de dados e na versã
 
 ### Restrições que o modelo precisa garantir
 1. users: (email, role) único. O mesmo e-mail pode existir uma vez como owner e uma vez como host. owners: cpf único; só pode ser trocado até o primeiro pagamento.
-2. pets.owner_id aponta para owners.id e pets.host_id para hosts.id — exatamente um dos dois (CHECK). bookings.owner_id e conversations.owner_id apontam para users com role = owner; listings.host_id para hosts.id; conversations.host_id para role = host. FKs lógicas, validadas na aplicação.
+2. pets.owner_id aponta para owners.id e pets.host_id para hosts.id — exatamente um dos dois (CHECK). bookings.owner_id aponta para owners.id (como nos pets) e conversations.owner_id para users com role = owner; listings.host_id e bookings.host_id para hosts.id; conversations.host_id para role = host. FKs lógicas, validadas na aplicação.
 3. booking_pets: todo pet precisa ser do mesmo tutor da reserva (pet de anfitrião não se hospeda), e de tipo e porte aceitos pelo cantinho.
-4. bookings: check_out_date \> check_in_date; pet_count = linhas em booking_pets; nightly_rate_cents é cópia do preço no momento do pedido.
+4. bookings: check_out_date \> check_in_date; pet_count = linhas em booking_pets; nightly_rate é cópia do preço no momento do pedido.
 5. Capacidade: em nenhum dia, a soma de pet_count das reservas confirmed ou in_progress do cantinho passa de listings.capacity.
-6. Dinheiro sempre em centavos inteiros (\*\_cents), como o Stripe. payments: platform_fee_cents + host_payout_cents = amount_cents − refunded_cents.
+6. Dinheiro do Stripe em centavos inteiros (\*\_cents); diária e valor da reserva em reais (`numeric`), como no cantinho. payments: platform_fee_cents + host_payout_cents = amount_cents − refunded_cents.
 7. reviews.rating entre 1 e 5; só para bookings com status completed.
 8. stripe_events.stripe_event_id único: webhook repetido não é processado duas vezes.
 9. **CPF identifica a pessoa; o e-mail identifica o login.** Um CPF aparece em no máximo uma conta de tutor e uma de anfitrião, e só se as duas forem do **mesmo e-mail** (a mesma pessoa). CPF já usado por outro e-mail, em qualquer papel, é recusado (`409`). Vale entre tutores e anfitriões (inclusive o representante de empresa e as solicitações abertas), pelo contrato `ICpfOwnership` ([`modulo-hosts.md`](modulo-hosts.md) seção 4.1).

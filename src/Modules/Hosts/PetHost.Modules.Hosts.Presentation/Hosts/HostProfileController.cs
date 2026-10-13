@@ -111,7 +111,8 @@ public sealed class HostProfileController(
     /// <summary>Inativa a conta de anfitrião logada (e o perfil, se já aprovado).</summary>
     /// <remarks>
     /// As sessões caem na hora. A conta de tutor da mesma pessoa não é afetada. Para voltar:
-    /// <c>POST /api/v1/hosts/reactivate</c>.
+    /// <c>POST /api/v1/hosts/reactivate</c>. Com reserva em aberto (solicitada, confirmada ou em
+    /// andamento): 422 <c>HOST_HAS_OPEN_BOOKING</c> — responda, cancele ou conclua antes.
     /// </remarks>
     [HttpPost("me/deactivate")]
     [EnableRateLimiting(RateLimitPolicies.AccountSensitive)]
@@ -119,6 +120,7 @@ public sealed class HostProfileController(
     [ProducesResponseType<ApiResponse<Unit>>(StatusCodes.Status200OK)]
     [ProducesResponseType<ApiResponse<Unit>>(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType<ApiResponse<Unit>>(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType<ApiResponse<Unit>>(StatusCodes.Status422UnprocessableEntity)]
     [ProducesResponseType<ApiResponse<Unit>>(StatusCodes.Status429TooManyRequests)]
     public async Task<IActionResult> DeactivateMeAsync(CancellationToken cancellationToken)
     {

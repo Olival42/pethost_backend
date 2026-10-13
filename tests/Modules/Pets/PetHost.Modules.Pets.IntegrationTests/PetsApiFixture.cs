@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
+using PetHost.Modules.Bookings.Infrastructure;
+using PetHost.Modules.Bookings.Infrastructure.Persistence;
 using PetHost.Modules.Audit.Infrastructure;
 using PetHost.Modules.Audit.Infrastructure.Persistence;
 using PetHost.Modules.Auth.Infrastructure;
@@ -83,6 +85,7 @@ public sealed class PetsApiFixture : IAsyncLifetime
 
             // Os testes fazem dezenas de logins do mesmo "IP": o rate limit tem testes próprios.
             builder.UseSetting("RateLimiting:Enabled", "false");
+            builder.UseSetting("BookingExpiration:Enabled", "false");
 
             builder.UseSetting("Seed:Admin:Enabled", "true");
             builder.UseSetting("Seed:Admin:Email", AdminEmail);
@@ -104,6 +107,7 @@ public sealed class PetsApiFixture : IAsyncLifetime
         await Services.InitializeAuditModuleAsync(applyMigrations: true);
         await Services.InitializeHostsModuleAsync(applyMigrations: true);
         await Services.InitializePetsModuleAsync(applyMigrations: true);
+        await Services.InitializeBookingsModuleAsync(applyMigrations: true);
 
         _connection = new NpgsqlConnection(_postgres.GetConnectionString());
         await _connection.OpenAsync();
@@ -111,7 +115,7 @@ public sealed class PetsApiFixture : IAsyncLifetime
         _respawner = await Respawner.CreateAsync(_connection, new RespawnerOptions
         {
             DbAdapter = DbAdapter.Postgres,
-            SchemasToInclude = [AuthDbContext.Schema, OwnersDbContext.Schema, AuditDbContext.Schema, HostsDbContext.Schema, PetsDbContext.Schema, EmailDbContext.Schema],
+            SchemasToInclude = [AuthDbContext.Schema, OwnersDbContext.Schema, AuditDbContext.Schema, HostsDbContext.Schema, PetsDbContext.Schema, BookingsDbContext.Schema, EmailDbContext.Schema],
             TablesToIgnore =
             [
                 new Table(AuthDbContext.Schema, AuthDbContext.MigrationsHistoryTable),
@@ -119,6 +123,7 @@ public sealed class PetsApiFixture : IAsyncLifetime
                 new Table(AuditDbContext.Schema, AuditDbContext.MigrationsHistoryTable),
                 new Table(HostsDbContext.Schema, HostsDbContext.MigrationsHistoryTable),
                 new Table(PetsDbContext.Schema, PetsDbContext.MigrationsHistoryTable),
+                new Table(BookingsDbContext.Schema, BookingsDbContext.MigrationsHistoryTable),
                 new Table(EmailDbContext.Schema, EmailDbContext.MigrationsHistoryTable),
             ],
         });

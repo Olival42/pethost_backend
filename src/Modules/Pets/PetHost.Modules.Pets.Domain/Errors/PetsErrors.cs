@@ -134,7 +134,14 @@ public static class PetsErrors
     public static Error PhotoNotFound(PetPhotoId id) =>
         new("PET_PHOTO_NOT_FOUND", $"Photo '{id.Value}' was not found.");
 
-    /// <summary>404: não existe anfitrião com esse id.</summary>
+    /// <summary>
+    /// 422: o pet está numa reserva em aberto (solicitada, aceita, confirmada ou em andamento).
+    /// Cancele a estadia antes de desativar.
+    /// </summary>
+    public static readonly Error HasOpenBooking =
+        new("PET_HAS_OPEN_BOOKING", "This pet has an open booking. Cancel the stay before deactivating the pet.");
+
+    /// <summary>404: não existe anfitrião com esse id (ou ele está inativo ou suspenso: a casa não aparece).</summary>
     public static Error HostNotFound(Guid hostId) =>
         new("PET_HOST_NOT_FOUND", $"Host '{hostId}' was not found.");
 }

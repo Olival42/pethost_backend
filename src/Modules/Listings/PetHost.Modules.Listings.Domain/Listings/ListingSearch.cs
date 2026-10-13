@@ -7,12 +7,14 @@ namespace PetHost.Modules.Listings.Domain.Listings;
 /// <param name="Area">Raio em volta de um ponto. Nulo: sem filtro de distância.</param>
 /// <param name="ExcludedHostIds">Anfitriões que não aparecem (inativos ou suspensos).</param>
 /// <param name="Page">Começa em 1.</param>
+/// <param name="ExcludedListingIds">Cantinhos que não aparecem (sem vaga nas datas da busca).</param>
 public sealed record ListingSearch(
     SearchArea? Area,
     ListingFilters Filters,
     IReadOnlyCollection<Guid> ExcludedHostIds,
     int Page,
-    int PageSize);
+    int PageSize,
+    IReadOnlyCollection<ListingId>? ExcludedListingIds = null);
 
 /// <summary>Os cantinhos a até <paramref name="RadiusKm"/> de <paramref name="Origin"/>.</summary>
 public sealed record SearchArea(GeoPoint Origin, int RadiusKm);

@@ -27,6 +27,9 @@ using PetHost.Modules.Pets.Presentation;
 using PetHost.Modules.Listings.Application;
 using PetHost.Modules.Listings.Infrastructure;
 using PetHost.Modules.Listings.Presentation;
+using PetHost.Modules.Bookings.Application;
+using PetHost.Modules.Bookings.Infrastructure;
+using PetHost.Modules.Bookings.Presentation;
 using PetHost.Shared.Infrastructure.Email;
 using PetHost.Shared.Infrastructure.Http;
 using PetHost.Shared.Infrastructure.Identity;
@@ -69,6 +72,7 @@ builder.Services
     .AddHostsPresentation()
     .AddPetsPresentation()
     .AddListingsPresentation()
+    .AddBookingsPresentation()
     .AddAuditPresentation()
     .AddStripeWebhooks();
 
@@ -118,6 +122,10 @@ builder.Services.AddPetsInfrastructure(builder.Configuration);
 // --- Módulo Listings (cantinhos): cadastro, fotos e busca por raio (geocodificação no Nominatim) ---
 builder.Services.AddListingsApplication();
 builder.Services.AddListingsInfrastructure(builder.Configuration);
+
+// --- Módulo Bookings (reservas): pedido, aceite/recusa, cancelamento, check-in e check-out ---
+builder.Services.AddBookingsApplication();
+builder.Services.AddBookingsInfrastructure(builder.Configuration);
 
 // --- Autenticação ---
 var jwtOptions = builder.Configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>()
@@ -245,6 +253,9 @@ await app.Services.InitializePetsModuleAsync(
     applyMigrations: app.Environment.IsDevelopment());
 
 await app.Services.InitializeListingsModuleAsync(
+    applyMigrations: app.Environment.IsDevelopment());
+
+await app.Services.InitializeBookingsModuleAsync(
     applyMigrations: app.Environment.IsDevelopment());
 
 await app.RunAsync();

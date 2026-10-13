@@ -19,9 +19,12 @@ public sealed record GetListingByIdQuery(Guid UserId, string Role, Guid ListingI
 /// repasses liberados pelo Stripe, na visão pública (sem rua, número, CEP e coordenada). Fora
 /// isso: <c>404</c>, como se não existisse.
 /// </summary>
+/// <remarks>O detalhe sai com os selos automáticos (<see cref="ListingBadges"/>), calculados para quem vê.</remarks>
 public sealed class GetListingByIdQueryHandler(
     IListingRepository listingRepository,
-    IListingHosts listingHosts) : IQueryHandler<GetListingByIdQuery, ListingResponse>
+    IListingHosts listingHosts,
+    IListingBookings listingBookings,
+    IAccountAddresses accountAddresses) : IQueryHandler<GetListingByIdQuery, ListingResponse>
 {
     public async Task<Result<ListingResponse>> HandleAsync(GetListingByIdQuery query, CancellationToken cancellationToken)
     {
@@ -33,13 +36,27 @@ public sealed class GetListingByIdQueryHandler(
         var hosts = await listingHosts.GetSummariesAsync([listing.HostId], cancellationToken).ConfigureAwait(false);
         var host = hosts.GetValueOrDefault(listing.HostId);
 
+        ListingResponse response;
         if (query.Role == Roles.Admin || await IsOwnerAsync(listing, query, cancellationToken).ConfigureAwait(false))
-            return Result<ListingResponse>.Success(ListingResponse.ForOwner(listing, host));
-
-        if (!listing.IsActive || host is not { IsAvailable: true, PayoutsEnabled: true })
+            response = ListingResponse.ForOwner(listing, host);
+        else if (!listing.IsActive || host is not { IsAvailable: true, PayoutsEnabled: true })
             return Result<ListingResponse>.Failure(ListingsErrors.NotFound(id));
+        else
+            response = ListingResponse.ForPublic(listing, host);
 
-        return Result<ListingResponse>.Success(ListingResponse.ForPublic(listing, host));
+        return Result<ListingResponse>.Success(response with
+        {
+            Badges = await BadgesAsync(listing, query.UserId, cancellationToken).ConfigureAwait(false),
+        });
+    }
+
+    private async Task<IReadOnlyList<string>> BadgesAsync(Listing listing, Guid userId, CancellationToken cancellationToken)
+    {
+        var records = await listingBookings.GetTrackRecordsAsync([listing.HostId], cancellationToken).ConfigureAwait(false);
+        var record = records.GetValueOrDefault(listing.HostId) ?? HostTrackRecord.None;
+        var viewerAddress = await accountAddresses.GetAsync(userId, cancellationToken).ConfigureAwait(false);
+
+        return ListingBadges.For(listing, viewerAddress, record.CompletedStays, record.AverageResponseTime);
     }
 
     private async Task<bool> IsOwnerAsync(Listing listing, GetListingByIdQuery query, CancellationToken cancellationToken)

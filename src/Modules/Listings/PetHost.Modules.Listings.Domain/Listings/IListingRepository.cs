@@ -21,5 +21,10 @@ public interface IListingRepository
         ListingSearch search,
         CancellationToken cancellationToken);
 
+    /// <summary>A capacidade de cada cantinho pedido. Id que não existe não aparece.</summary>
+    Task<IReadOnlyDictionary<ListingId, int>> GetCapacitiesAsync(
+        IReadOnlyCollection<ListingId> ids,
+        CancellationToken cancellationToken);
+
     void Add(Listing listing);
 }

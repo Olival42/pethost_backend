@@ -19,6 +19,11 @@ namespace PetHost.Modules.Listings.Application.Listings.SearchListings;
 /// <param name="HomeType"><c>house</c> ou <c>apartment</c>.</param>
 /// <param name="HasDogs">Se na casa mora cachorro (o mesmo para gato e criança).</param>
 /// <param name="Page">Começa em 1.</param>
+/// <param name="CheckIn">
+/// Chegada, <c>yyyy-MM-dd</c>, junto com <paramref name="CheckOut"/>: só cantinhos que recebem em
+/// todos os dias do período e têm vaga em todas as noites.
+/// </param>
+/// <param name="Pets">Quantos pets vão (padrão 1): a vaga precisa caber todos.</param>
 public sealed record SearchListingsQuery(
     Guid UserId,
     decimal? Latitude = null,
@@ -39,7 +44,10 @@ public sealed record SearchListingsQuery(
     bool? HasCats = null,
     bool? HasKids = null,
     int Page = 1,
-    int PageSize = 20) : IQuery<PagedResult<ListingSummaryResponse>>
+    int PageSize = 20,
+    string? CheckIn = null,
+    string? CheckOut = null,
+    int? Pets = null) : IQuery<PagedResult<ListingSummaryResponse>>
 {
     /// <summary>Raio da busca por raio quando o cliente não manda: 10 km.</summary>
     public const int DefaultRadiusKm = 10;

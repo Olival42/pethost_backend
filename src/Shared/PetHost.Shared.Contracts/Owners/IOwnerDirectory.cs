@@ -17,4 +17,9 @@ public interface IOwnerDirectory
 }
 
 /// <summary>Referência a um tutor: o id dele e o da conta. Sem CPF nem outro dado pessoal.</summary>
-public sealed record OwnerReference(Guid Id, Guid UserId, bool IsActive);
+/// <param name="IsSuspended">Suspenso pelo admin. Diferente de inativo: só o admin tira.</param>
+public sealed record OwnerReference(Guid Id, Guid UserId, bool IsActive, bool IsSuspended = false)
+{
+    /// <summary>Ativo e sem suspensão: pode usar a conta (pedir estadia).</summary>
+    public bool IsAvailable => IsActive && !IsSuspended;
+}

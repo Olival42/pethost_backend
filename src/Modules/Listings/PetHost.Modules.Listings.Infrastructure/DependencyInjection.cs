@@ -19,10 +19,13 @@ using PetHost.Modules.Listings.Application.Listings.SearchListings;
 using PetHost.Modules.Listings.Application.Listings.UpdateListing;
 using PetHost.Modules.Listings.Domain.Listings;
 using PetHost.Modules.Listings.Infrastructure.Accounts;
+using PetHost.Modules.Listings.Infrastructure.Bookings;
+using PetHost.Modules.Listings.Infrastructure.Directory;
 using PetHost.Modules.Listings.Infrastructure.Geocoding;
 using PetHost.Modules.Listings.Infrastructure.Hosts;
 using PetHost.Modules.Listings.Infrastructure.Persistence;
 using PetHost.Modules.Listings.Infrastructure.Persistence.Repositories;
+using PetHost.Shared.Contracts.Listings;
 using PetHost.Shared.Contracts.Responses;
 using PetHost.Shared.Infrastructure.Redis;
 using PetHost.Shared.Infrastructure.Validation;
@@ -57,6 +60,10 @@ public static class DependencyInjection
         services.AddScoped<IListingsUnitOfWork, ListingsUnitOfWork>();
         services.AddScoped<IListingHosts, ListingHosts>();
         services.AddScoped<IAccountAddresses, AccountAddresses>();
+        services.AddScoped<IListingBookings, ListingBookings>();
+
+        // Contrato público: o Bookings lê as condições do cantinho por aqui (§5).
+        services.AddScoped<IListingDirectory, ListingDirectory>();
 
         AddGeocoding(services, configuration);
 

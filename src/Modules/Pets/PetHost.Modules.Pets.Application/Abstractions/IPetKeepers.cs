@@ -21,6 +21,9 @@ public interface IPetKeepers
         IReadOnlyCollection<PetKeeper> keepers,
         CancellationToken cancellationToken);
 
-    /// <summary>Existe anfitrião com esse id?</summary>
-    Task<bool> HostExistsAsync(Guid hostId, CancellationToken cancellationToken);
+    /// <summary>
+    /// Existe anfitrião com esse id, ativo e sem suspensão? Anfitrião inativo ou suspenso não
+    /// mostra a casa (os pets dele) para os outros.
+    /// </summary>
+    Task<bool> IsHostAvailableAsync(Guid hostId, CancellationToken cancellationToken);
 }

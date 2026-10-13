@@ -4,6 +4,7 @@ using Moq;
 using PetHost.Modules.Owners.Application.Abstractions;
 using PetHost.Modules.Owners.Application.Owners.DeactivateMyOwner;
 using PetHost.Modules.Owners.Application.Owners.ReactivateOwner;
+using PetHost.Modules.Owners.Domain.Errors;
 using PetHost.Modules.Owners.Domain.Owners;
 using PetHost.Shared.Contracts.Accounts;
 using PetHost.Shared.Kernel.Errors;
@@ -20,6 +21,7 @@ public sealed class DeactivateMyOwnerCommandHandlerTests
     private readonly Mock<IOwnerRepository> _ownerRepository = new();
     private readonly Mock<IOwnersUnitOfWork> _unitOfWork = new();
     private readonly Mock<IOwnerAccounts> _ownerAccounts = new();
+    private readonly Mock<IOwnerBookings> _ownerBookings = new();
     private readonly Mock<IAuditTrail> _auditTrail = new();
     private readonly Owner _owner = Owner.Create(Id, Cpf.Create("52998224725").Value!, Accounts.Now);
     private readonly DeactivateMyOwnerCommandHandler _sut;
@@ -30,7 +32,7 @@ public sealed class DeactivateMyOwnerCommandHandlerTests
         _ownerAccounts.Setup(a => a.DeactivateAsync(Id, It.IsAny<CancellationToken>())).ReturnsAsync(Result.Success());
 
         _sut = new DeactivateMyOwnerCommandHandler(
-            _ownerRepository.Object, _unitOfWork.Object, _ownerAccounts.Object, _auditTrail.Object, new FakeTimeProvider(Accounts.Now));
+            _ownerRepository.Object, _unitOfWork.Object, _ownerAccounts.Object, _ownerBookings.Object, _auditTrail.Object, new FakeTimeProvider(Accounts.Now));
     }
 
     [Fact]
@@ -56,6 +58,32 @@ public sealed class DeactivateMyOwnerCommandHandlerTests
         result.FirstError!.Code.Should().Be("AUTH_USER_NOT_FOUND");
         _owner.IsActive.Should().BeTrue();
         _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Exactly(2));
+    }
+
+    [Fact]
+    public async Task HandleAsync_Should_RefuseWithoutTouchingAnything_When_OwnerHasAnOpenBooking()
+    {
+        _ownerBookings.Setup(b => b.HasOpenBookingAsync(_owner.Id.Value, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+
+        var result = await _sut.HandleAsync(new DeactivateMyOwnerCommand(Id), CancellationToken.None);
+
+        result.FirstError.Should().Be(OwnersErrors.HasOpenBooking);
+        _owner.IsActive.Should().BeTrue();
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+        _ownerAccounts.Verify(a => a.DeactivateAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task HandleAsync_Should_NotLookAtBookings_When_OwnerIsAlreadyInactive()
+    {
+        // Idempotente: perfil já inativo só garante a conta inativa.
+        _owner.Deactivate(Accounts.Now);
+        _ownerBookings.Setup(b => b.HasOpenBookingAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync(true);
+
+        var result = await _sut.HandleAsync(new DeactivateMyOwnerCommand(Id), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _ownerBookings.Verify(b => b.HasOpenBookingAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]

@@ -15,12 +15,15 @@ public sealed record GetPetByIdQuery(Guid UserId, string Role, Guid PetId) : IQu
 
 /// <summary>
 /// Quem vê: o dono, sempre (inclusive inativo); qualquer conta logada, o pet <b>ativo</b> de
-/// um anfitrião — é o que mostra ao tutor com quem o pet dele vai conviver; o admin, todos.
-/// Pet de outro tutor não aparece: <c>404</c>, como se não existisse.
+/// um anfitrião ativo e sem suspensão — é o que mostra ao tutor com quem o pet dele vai
+/// conviver; o anfitrião, a ficha completa do pet de um tutor que pediu estadia no cantinho dele
+/// (reserva solicitada, aceita, confirmada, em andamento ou concluída); o admin, todos. Fora
+/// isso: <c>404</c>, como se não existisse.
 /// </summary>
 public sealed class GetPetByIdQueryHandler(
     IPetRepository petRepository,
-    IPetKeepers petKeepers) : IQueryHandler<GetPetByIdQuery, PetResponse>
+    IPetKeepers petKeepers,
+    IPetBookings petBookings) : IQueryHandler<GetPetByIdQuery, PetResponse>
 {
     public async Task<Result<PetResponse>> HandleAsync(GetPetByIdQuery query, CancellationToken cancellationToken)
     {
@@ -39,11 +42,17 @@ public sealed class GetPetByIdQueryHandler(
         if (query.Role == Roles.Admin)
             return true;
 
-        if (pet.Keeper.Type == KeeperType.Host && pet.IsActive)
-            return true;
-
         var keeper = await petKeepers.FindByAccountAsync(query.UserId, query.Role, cancellationToken).ConfigureAwait(false);
 
-        return keeper is not null && pet.IsKeptBy(keeper.Value);
+        if (keeper is { } self && pet.IsKeptBy(self))
+            return true;
+
+        // Pet da casa: visível para todos enquanto o pet e o anfitrião estão ativos.
+        if (pet.Keeper.Type == KeeperType.Host)
+            return pet.IsActive && await petKeepers.IsHostAvailableAsync(pet.Keeper.Id, cancellationToken).ConfigureAwait(false);
+
+        // Pet de tutor: o anfitrião que recebeu o pedido lê a ficha antes de aceitar e durante a estadia.
+        return keeper is { Type: KeeperType.Host } host
+            && await petBookings.IsBookedWithHostAsync(pet.Id.Value, host.Id, cancellationToken).ConfigureAwait(false);
     }
 }
