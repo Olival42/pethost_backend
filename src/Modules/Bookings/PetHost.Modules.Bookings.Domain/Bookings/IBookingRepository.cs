@@ -7,7 +7,7 @@ public interface IBookingRepository
     Task<Booking?> GetByIdAsync(BookingId id, CancellationToken cancellationToken);
 
     /// <summary>
-    /// As reservas do cantinho que ocupam vaga (Confirmada ou Em andamento) e dividem ao menos
+    /// As reservas do cantinho que ocupam vaga (Aceita, Confirmada ou Em andamento) e dividem ao menos
     /// uma noite com <paramref name="period"/> — a base da conta de capacidade.
     /// </summary>
     Task<IReadOnlyList<Booking>> ListOccupyingAsync(Guid listingId, StayPeriod period, CancellationToken cancellationToken);
@@ -29,12 +29,14 @@ public interface IBookingRepository
     Task<(IReadOnlyList<Booking> Items, long TotalCount)> SearchAsync(BookingSearch search, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Pedidos ainda sem resposta (Solicitada) pedidos até <paramref name="requestedBefore"/> ou
-    /// com chegada antes de <paramref name="today"/> — o prazo de resposta venceu. No máximo
-    /// <paramref name="limit"/>, os mais antigos primeiro. Rastreados.
+    /// Reservas cujo prazo venceu: pedidos ainda sem resposta (Solicitada) pedidos até
+    /// <paramref name="requestedBefore"/>, aceites ainda sem pagamento (Aceita) aceitos até
+    /// <paramref name="acceptedBefore"/>, e as duas com chegada antes de <paramref name="today"/>.
+    /// No máximo <paramref name="limit"/>, os mais antigos primeiro. Rastreadas.
     /// </summary>
-    Task<IReadOnlyList<Booking>> ListOverdueRequestsAsync(
+    Task<IReadOnlyList<Booking>> ListOverdueAsync(
         DateTimeOffset requestedBefore,
+        DateTimeOffset acceptedBefore,
         DateOnly today,
         int limit,
         CancellationToken cancellationToken);

@@ -6,8 +6,8 @@ using PetHost.Shared.Contracts.Bookings;
 namespace PetHost.Modules.Bookings.Infrastructure.Directory;
 
 /// <summary>
-/// Adaptador do contrato <see cref="IBookingDirectory"/> (§5): a porta pela qual o Pets e o
-/// Listings consultam as reservas. Leitura direta das tabelas do schema <c>booking</c>.
+/// Adaptador do contrato <see cref="IBookingDirectory"/> (§5): a porta pela qual o Pets, o
+/// Listings e o Payments consultam as reservas. Leitura direta das tabelas do schema <c>booking</c>.
 /// </summary>
 internal sealed class BookingDirectory(BookingsDbContext dbContext) : IBookingDirectory
 {
@@ -17,7 +17,7 @@ internal sealed class BookingDirectory(BookingsDbContext dbContext) : IBookingDi
     private static readonly BookingStatus[] ShownToHost =
         [BookingStatus.Requested, BookingStatus.Accepted, BookingStatus.Confirmed, BookingStatus.InProgress, BookingStatus.Completed];
 
-    private static readonly BookingStatus[] Occupying = [BookingStatus.Confirmed, BookingStatus.InProgress];
+    private static readonly BookingStatus[] Occupying = [BookingStatus.Accepted, BookingStatus.Confirmed, BookingStatus.InProgress];
 
     public Task<bool> HasOpenBookingForPetAsync(Guid petId, CancellationToken cancellationToken) =>
         dbContext.Bookings
@@ -98,4 +98,27 @@ internal sealed class BookingDirectory(BookingsDbContext dbContext) : IBookingDi
                         responses.Count == 0 ? null : TimeSpan.FromTicks((long)responses.Average()));
                 });
     }
+
+    public async Task<BookingPaymentView?> GetForPaymentAsync(Guid bookingId, CancellationToken cancellationToken)
+    {
+        var id = new BookingId(bookingId);
+
+        var booking = await dbContext.Bookings
+            .AsNoTracking()
+            .FirstOrDefaultAsync(b => b.Id == id, cancellationToken)
+            .ConfigureAwait(false);
+
+        return booking is null ? null : ToPaymentView(booking);
+    }
+
+    private static BookingPaymentView ToPaymentView(Booking booking) => new(
+        booking.Id.Value,
+        booking.OwnerId,
+        booking.HostId,
+        BookingStatusValues.ToWire(booking.Status),
+        booking.TotalPrice,
+        booking.Period.CheckIn,
+        booking.Period.CheckOut,
+        booking.PaymentDeadline,
+        booking.RefundPercentage);
 }

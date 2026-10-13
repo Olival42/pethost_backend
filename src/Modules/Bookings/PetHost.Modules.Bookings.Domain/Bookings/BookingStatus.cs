@@ -10,12 +10,12 @@ public enum BookingStatus
     Requested,
 
     /// <summary>
-    /// O anfitrião aceitou; o tutor tem 24h para pagar. Ainda sem uso: enquanto o módulo de
-    /// pagamento não existe, o aceite já confirma (<see cref="Booking.Accept"/>).
+    /// O anfitrião aceitou; o tutor tem 24h para pagar a 1ª parcela. Segura a vaga no cantinho
+    /// enquanto isso.
     /// </summary>
     Accepted,
 
-    /// <summary>Pagamento confirmado (hoje: aceite do anfitrião). Ocupa a capacidade do cantinho.</summary>
+    /// <summary>1ª parcela paga (confirmada pelo Stripe). Ocupa a capacidade do cantinho e libera o contato.</summary>
     Confirmed,
 
     /// <summary>O anfitrião marcou "chegou" (check-in): o pet está com ele.</summary>
@@ -30,6 +30,6 @@ public enum BookingStatus
     /// <summary>Passou o prazo de resposta (ou de pagamento) sem ação. Fim.</summary>
     Expired,
 
-    /// <summary>O tutor ou o anfitrião cancelou antes da chegada. Fim.</summary>
+    /// <summary>O tutor, o anfitrião ou a plataforma (parcela não paga) cancelou antes da chegada. Fim.</summary>
     Cancelled,
 }

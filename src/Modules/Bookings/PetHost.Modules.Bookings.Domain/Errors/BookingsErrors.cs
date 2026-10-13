@@ -126,6 +126,10 @@ public static class BookingsErrors
     public static Error PetPeriodConflict(string petName) =>
         new("BOOKING_PET_PERIOD_CONFLICT", $"{petName} already has another booking in this period.");
 
+    /// <summary>422: o tutor tem parcela em atraso (estadia já feita e não paga). Paga antes de pedir outra.</summary>
+    public static readonly Error OwnerPaymentOverdue =
+        new("BOOKING_OWNER_PAYMENT_OVERDUE", "You have an overdue installment. Pay it before requesting a new stay.");
+
     /// <summary>422: o cantinho não recebe pets num dia do período.</summary>
     public static Error WeekdayNotAvailable(DateOnly day) =>
         new(
@@ -148,6 +152,10 @@ public static class BookingsErrors
     public static readonly Error ResponseExpired =
         new("BOOKING_RESPONSE_EXPIRED", "The time to answer this request is over; the booking has expired.");
 
+    /// <summary>422: só reserva aceita (aguardando a 1ª parcela) pode ser confirmada pelo pagamento.</summary>
+    public static readonly Error NotAwaitingPayment =
+        new("BOOKING_NOT_AWAITING_PAYMENT", "Only an accepted booking waiting for payment can be confirmed.");
+
     /// <summary>422: a reserva já foi cancelada.</summary>
     public static readonly Error AlreadyCancelled =
         new("BOOKING_ALREADY_CANCELLED", "This booking is already cancelled.");
@@ -160,9 +168,9 @@ public static class BookingsErrors
     public static readonly Error CannotCancelAfterCheckIn =
         new("BOOKING_CANNOT_CANCEL_AFTER_CHECK_IN", "A booking cannot be cancelled after check-in.");
 
-    /// <summary>422: check-in só em reserva Confirmada.</summary>
+    /// <summary>422: check-in só em reserva Confirmada (paga).</summary>
     public static readonly Error NotConfirmed =
-        new("BOOKING_NOT_CONFIRMED", "Only a confirmed booking can be checked in.");
+        new("BOOKING_NOT_CONFIRMED", "Only a confirmed (paid) booking can be checked in.");
 
     /// <summary>422: ainda não chegou o dia da chegada.</summary>
     public static Error CheckInTooEarly(DateOnly checkIn) =>

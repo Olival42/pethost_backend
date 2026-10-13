@@ -7,17 +7,21 @@ using PetHost.Shared.Infrastructure.Email;
 namespace PetHost.Modules.Bookings.Infrastructure.Notifications;
 
 /// <summary>
-/// E-mails da reserva: aceita e recusada (ao tutor), confirmada (ao anfitrião) e cancelada (aos
-/// dois). Vão pela caixa de saída (<see cref="IEmailOutbox"/>), em segundo plano.
+/// E-mails da reserva: aceita (com o prazo para pagar) e recusada (ao tutor), confirmada e
+/// cancelada (aos dois). Vão pela caixa de saída (<see cref="IEmailOutbox"/>), em segundo plano.
 /// </summary>
 internal sealed class BookingEmailNotifier(IEmailOutbox outbox) : IBookingNotifier
 {
     private const string AcceptedSubject = "PetHost — sua reserva foi aceita!";
     private const string DeclinedSubject = "PetHost — sua reserva não foi aceita";
     private const string ConfirmedSubject = "PetHost — você tem uma reserva confirmada";
+    private const string OwnerConfirmedSubject = "PetHost — pagamento confirmado, reserva garantida!";
     private const string CancelledSubject = "PetHost — reserva cancelada";
 
     private static readonly CultureInfo PtBr = CultureInfo.GetCultureInfo("pt-BR");
+
+    /// <summary>Horário de Brasília (UTC−3), para mostrar prazos.</summary>
+    private static readonly TimeSpan Brasilia = BookingClock.LocalOffset;
 
     public Task NotifyAcceptedAsync(BookingNotice notice, CancellationToken cancellationToken)
     {
@@ -28,10 +32,10 @@ internal sealed class BookingEmailNotifier(IEmailOutbox outbox) : IBookingNotifi
             AcceptedSubject,
             [
                 $"Olá, {notice.Name}.",
-                $"{notice.OtherPartyName ?? "O anfitrião"} aceitou o seu pedido e a reserva está confirmada.",
+                $"{notice.OtherPartyName ?? "O anfitrião"} aceitou o seu pedido!",
                 .. Summary(notice),
-                .. Contact(notice, "Telefone do anfitrião"),
-                "Leve o seu pet no dia da chegada. Se precisar cancelar, faça pelo app: com 48h de antecedência o reembolso é integral; depois disso, de 50%.",
+                .. PaymentDeadline(notice),
+                "Pague pelo app, com Pix ou cartão, à vista ou em até 6 parcelas. A reserva fica confirmada assim que a 1ª parcela for paga; aí liberamos o endereço e o telefone do anfitrião.",
             ],
             cancellationToken);
     }
@@ -57,6 +61,21 @@ internal sealed class BookingEmailNotifier(IEmailOutbox outbox) : IBookingNotifi
     {
         ArgumentNullException.ThrowIfNull(notice);
 
+        if (notice.Recipient == BookingParty.Owner)
+        {
+            return SendAsync(
+                notice,
+                OwnerConfirmedSubject,
+                [
+                    $"Olá, {notice.Name}.",
+                    "Recebemos o seu pagamento e a reserva está confirmada.",
+                    .. Summary(notice),
+                    .. Contact(notice, "Telefone do anfitrião"),
+                    "Leve o seu pet no dia da chegada. Se pagou parcelado, as próximas parcelas vencem a cada 30 dias e você recebe um lembrete antes de cada uma. Se precisar cancelar, faça pelo app: com 48h de antecedência o reembolso é integral; depois disso, de 50% do que foi pago.",
+                ],
+                cancellationToken);
+        }
+
         return SendAsync(
             notice,
             ConfirmedSubject,
@@ -78,12 +97,16 @@ internal sealed class BookingEmailNotifier(IEmailOutbox outbox) : IBookingNotifi
         var cancelledByRecipient = booking.CancelledBy == BookingPartyValues.ToWire(notice.Recipient);
         var otherSide = notice.Recipient == BookingParty.Owner ? "O anfitrião" : "O tutor";
 
+        var who = booking.CancelledBy == BookingPartyValues.Platform
+            ? "A reserva foi cancelada automaticamente porque uma parcela não foi paga no prazo."
+            : cancelledByRecipient ? "Você cancelou a reserva." : $"{notice.OtherPartyName ?? otherSide} cancelou a reserva.";
+
         return SendAsync(
             notice,
             CancelledSubject,
             [
                 $"Olá, {notice.Name}.",
-                cancelledByRecipient ? "Você cancelou a reserva." : $"{notice.OtherPartyName ?? otherSide} cancelou a reserva.",
+                who,
                 .. Summary(notice),
                 .. Reason(booking.CancellationReason),
                 .. Refund(notice),
@@ -108,6 +131,13 @@ internal sealed class BookingEmailNotifier(IEmailOutbox outbox) : IBookingNotifi
         yield return string.Create(PtBr, $"Período: {booking.CheckIn:dd/MM/yyyy} a {booking.CheckOut:dd/MM/yyyy} ({nights})");
         yield return $"Pets: {pets}";
         yield return string.Create(PtBr, $"Valor total: {booking.TotalPrice:C}");
+    }
+
+    /// <summary>Até quando pagar a 1ª parcela, no horário de Brasília.</summary>
+    private static IEnumerable<string> PaymentDeadline(BookingNotice notice)
+    {
+        if (notice.Booking.PaymentDeadline is { } deadline)
+            yield return string.Create(PtBr, $"Pague até {deadline.ToOffset(Brasilia):dd/MM/yyyy 'às' HH:mm} (horário de Brasília). Sem o pagamento, o pedido expira e a vaga é liberada.");
     }
 
     private static IEnumerable<string> Reason(string? reason)

@@ -7,7 +7,7 @@ namespace PetHost.Modules.Bookings.Infrastructure.Persistence.Repositories;
 internal sealed class BookingRepository(BookingsDbContext dbContext) : IBookingRepository
 {
     /// <summary>Status que ocupam vaga no cantinho.</summary>
-    private static readonly BookingStatus[] Occupying = [BookingStatus.Confirmed, BookingStatus.InProgress];
+    private static readonly BookingStatus[] Occupying = [BookingStatus.Accepted, BookingStatus.Confirmed, BookingStatus.InProgress];
 
     /// <summary>Status de reserva em aberto: o pet está comprometido com ela.</summary>
     private static readonly BookingStatus[] Open =
@@ -90,14 +90,15 @@ internal sealed class BookingRepository(BookingsDbContext dbContext) : IBookingR
         return (items, total);
     }
 
-    public async Task<IReadOnlyList<Booking>> ListOverdueRequestsAsync(
+    public async Task<IReadOnlyList<Booking>> ListOverdueAsync(
         DateTimeOffset requestedBefore,
+        DateTimeOffset acceptedBefore,
         DateOnly today,
         int limit,
         CancellationToken cancellationToken) =>
         await dbContext.Bookings
-            .Where(b => b.Status == BookingStatus.Requested
-                && (b.RequestedAt < requestedBefore || b.Period.CheckIn < today))
+            .Where(b => (b.Status == BookingStatus.Requested && (b.RequestedAt < requestedBefore || b.Period.CheckIn < today))
+                || (b.Status == BookingStatus.Accepted && (b.RespondedAt < acceptedBefore || b.Period.CheckIn < today)))
             .OrderBy(b => b.RequestedAt)
             .Take(limit)
             .ToListAsync(cancellationToken)

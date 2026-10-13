@@ -9,23 +9,35 @@ namespace PetHost.Modules.Bookings.Application.Bookings;
 /// caixa de saída, sem segurar o request.
 /// </summary>
 /// <remarks>
-/// Sem o módulo de pagamento, aceitar já confirma: o tutor recebe "aceita" e o anfitrião,
-/// "confirmada", juntos. Com o pagamento, "confirmada" passa para quando o tutor pagar.
+/// O aceite avisa só o tutor ("aceita", com o prazo para pagar). Quando a 1ª parcela é paga, os
+/// dois recebem "confirmada" — só aí vão o endereço exato e os telefones.
 /// </remarks>
 public sealed class BookingNotifications(
     IBookingParties bookingParties,
     IBookingListings bookingListings,
     IBookingNotifier notifier)
 {
-    /// <summary>Aceita (e confirmada): aviso ao tutor e ao anfitrião.</summary>
+    /// <summary>Aceita: aviso ao tutor, com o prazo para pagar a 1ª parcela.</summary>
     public async Task AcceptedAsync(Booking booking, BookingResponse response, CancellationToken cancellationToken)
+    {
+        var (owner, host) = await PartiesAsync(booking, cancellationToken).ConfigureAwait(false);
+
+        if (owner is not null)
+            await notifier.NotifyAcceptedAsync(Notice(owner, BookingParty.Owner, booking, response, host), cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Confirmada (1ª parcela paga): aviso ao tutor, com o endereço exato e o telefone do
+    /// anfitrião, e ao anfitrião, com o telefone do tutor.
+    /// </summary>
+    public async Task ConfirmedAsync(Booking booking, BookingResponse response, CancellationToken cancellationToken)
     {
         var (owner, host) = await PartiesAsync(booking, cancellationToken).ConfigureAwait(false);
 
         if (owner is not null)
         {
             var address = await OwnerAddressAsync(booking, cancellationToken).ConfigureAwait(false);
-            await notifier.NotifyAcceptedAsync(Notice(owner, BookingParty.Owner, booking, response, host) with { Address = address }, cancellationToken).ConfigureAwait(false);
+            await notifier.NotifyConfirmedAsync(Notice(owner, BookingParty.Owner, booking, response, host) with { Address = address }, cancellationToken).ConfigureAwait(false);
         }
 
         if (host is not null)

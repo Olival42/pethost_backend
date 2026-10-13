@@ -6,16 +6,19 @@ namespace PetHost.Modules.Bookings.Application.Abstractions;
 /// <summary>Avisos da reserva (e-mail, em segundo plano).</summary>
 public interface IBookingNotifier
 {
-    /// <summary>Ao tutor: o anfitrião aceitou o pedido.</summary>
+    /// <summary>Ao tutor: o anfitrião aceitou o pedido; pague a 1ª parcela no prazo.</summary>
     Task NotifyAcceptedAsync(BookingNotice notice, CancellationToken cancellationToken);
 
     /// <summary>Ao tutor: o anfitrião recusou o pedido (com o motivo, se houver).</summary>
     Task NotifyDeclinedAsync(BookingNotice notice, CancellationToken cancellationToken);
 
-    /// <summary>Ao anfitrião: a reserva está confirmada — o pet vem na data combinada.</summary>
+    /// <summary>
+    /// A reserva está confirmada (1ª parcela paga). Ao tutor, com o endereço exato e o telefone do
+    /// anfitrião; ao anfitrião, com o telefone do tutor — o pet vem na data combinada.
+    /// </summary>
     Task NotifyConfirmedAsync(BookingNotice notice, CancellationToken cancellationToken);
 
-    /// <summary>Ao tutor e ao anfitrião, cada um no seu e-mail: a reserva foi cancelada.</summary>
+    /// <summary>Ao tutor e ao anfitrião, cada um no seu e-mail: a reserva foi cancelada (por um deles ou pela plataforma).</summary>
     Task NotifyCancelledAsync(BookingNotice notice, CancellationToken cancellationToken);
 }
 

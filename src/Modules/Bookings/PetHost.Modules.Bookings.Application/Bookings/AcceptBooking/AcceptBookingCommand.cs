@@ -10,8 +10,8 @@ using PetHost.Shared.Kernel.Results;
 namespace PetHost.Modules.Bookings.Application.Bookings.AcceptBooking;
 
 /// <summary>
-/// O anfitrião aceita o pedido. Sem o módulo de pagamento, aceitar já confirma: a reserva passa
-/// a ocupar vaga no cantinho.
+/// O anfitrião aceita o pedido. A reserva fica <c>accepted</c>: segura a vaga e o tutor tem 24h
+/// para pagar a 1ª parcela (quem confirma é o pagamento).
 /// </summary>
 /// <param name="UserId">Vem do access token.</param>
 /// <param name="BookingId">Vem da rota.</param>
@@ -31,8 +31,8 @@ public sealed class AcceptBookingCommandValidator : AbstractValidator<AcceptBook
 /// Só o anfitrião do cantinho, ativo. A capacidade é conferida com o cantinho travado: dois
 /// aceites ao mesmo tempo não passam juntos do limite. Prazo vencido: a reserva expira e o
 /// aceite volta <c>422 BOOKING_RESPONSE_EXPIRED</c>. Tutor suspenso ou inativo desde o pedido:
-/// <c>422 BOOKING_OWNER_INACTIVE</c>, sem gravar. Avisa por e-mail o tutor (aceita) e o
-/// anfitrião (confirmada).
+/// <c>422 BOOKING_OWNER_INACTIVE</c>, sem gravar. Avisa o tutor por e-mail (aceita, com o prazo
+/// para pagar); o anfitrião recebe "confirmada" quando o tutor pagar.
 /// </summary>
 public sealed class AcceptBookingCommandHandler(
     IBookingRepository bookingRepository,

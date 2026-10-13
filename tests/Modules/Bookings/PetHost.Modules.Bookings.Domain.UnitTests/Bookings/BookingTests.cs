@@ -173,7 +173,7 @@ public sealed class BookingTransitionsTests
     // ----- aceitar -----
 
     [Fact]
-    public void Accept_Should_ConfirmAndOccupyCapacity_When_RequestedWithinTheDeadline()
+    public void Accept_Should_AwaitPaymentAndHoldCapacity_When_RequestedWithinTheDeadline()
     {
         // Arrange
         var booking = new BookingBuilder().Build();
@@ -184,10 +184,12 @@ public sealed class BookingTransitionsTests
 
         // Assert
         result.IsSuccess.Should().BeTrue();
-        booking.Status.Should().Be(BookingStatus.Confirmed);
+        booking.Status.Should().Be(BookingStatus.Accepted);
         booking.RespondedAt.Should().Be(at);
-        booking.ConfirmedAt.Should().Be(at);
+        booking.ConfirmedAt.Should().BeNull();
+        booking.PaymentDeadline.Should().Be(at + Booking.PaymentWindow);
         booking.OccupiesCapacity.Should().BeTrue();
+        booking.RevealsContact.Should().BeFalse();
     }
 
     [Fact]

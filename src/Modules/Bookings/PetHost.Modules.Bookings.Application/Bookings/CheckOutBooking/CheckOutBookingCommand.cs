@@ -26,11 +26,15 @@ public sealed class CheckOutBookingCommandValidator : AbstractValidator<CheckOut
     }
 }
 
-/// <summary>Só o anfitrião do cantinho, ativo; a regra fica em <see cref="Booking.CheckOut"/>.</summary>
+/// <summary>
+/// Só o anfitrião do cantinho, ativo; a regra fica em <see cref="Booking.CheckOut"/>. Avisa o
+/// pagamento, que repassa ao anfitrião o que já foi pago.
+/// </summary>
 public sealed class CheckOutBookingCommandHandler(
     IBookingRepository bookingRepository,
     IBookingsUnitOfWork unitOfWork,
     IBookingParties bookingParties,
+    IBookingPayments bookingPayments,
     BookingResponseBuilder responseBuilder,
     IAuditTrail auditTrail,
     TimeProvider timeProvider) : ICommandHandler<CheckOutBookingCommand, BookingResponse>
@@ -55,6 +59,7 @@ public sealed class CheckOutBookingCommandHandler(
             return Result<BookingResponse>.FromFailure(saved);
 
         await BookingTrail.RecordAsync(auditTrail, AuditActions.BookingCheckedOut, booking, cancellationToken).ConfigureAwait(false);
+        await bookingPayments.BookingChangedAsync(booking.Id.Value, cancellationToken).ConfigureAwait(false);
 
         return Result<BookingResponse>.Success(await responseBuilder.BuildAsync(booking, BookingParty.Host, cancellationToken).ConfigureAwait(false));
     }

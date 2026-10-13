@@ -89,7 +89,7 @@ Os nomes seguem o padrão mais comum em projetos atuais. A regra de ouro: **um j
 | Foto da verificação (frente, verso, selfie) | `host_application_documents` | Chave no bucket **privado**; apagada depois da decisão. |
 | Tipo de pet | `pets.species` | Enum fixo; o que não está na lista é `exotic`, com a descrição em texto. |
 | Agenda bloqueada | `availability_blocks` |  |
-| Pagamento e repasse | `payments` | Repasse = payout; taxa da plataforma = platform fee. |
+| Pagamento e repasse | `payments`, `payment_installments` | Repasse = payout; taxa da plataforma = platform fee; parcela = installment. |
 | Conversa · Mensagem | `conversations` · `messages` |  |
 | Avaliação | `reviews` | Quem avalia: author. Quem é avaliado: reviewee. |
 
@@ -113,6 +113,7 @@ erDiagram
     bookings ||--|{ booking_pets : "includes"
     pets ||--o{ booking_pets : ""
     bookings ||--o| payments : "paid by"
+    payments ||--|{ payment_installments : "split into"
     bookings ||--o{ reviews : "reviewed in"
     users ||--o{ reviews : "writes / receives"
     users ||--o{ conversations : "participates"
@@ -339,29 +340,45 @@ erDiagram
     payments {
         uuid id PK
         uuid booking_id FK, UK
-        varchar stripe_payment_intent_id UK
-        varchar stripe_charge_id "nullable"
-        enum method "nullable"
-        int amount_cents
+        uuid owner_id FK
+        uuid host_id FK
+        bigint amount_cents
         char currency
+        int installment_count
+        int plan_revision
         enum status
-        int refunded_cents
-        int platform_fee_cents
-        int host_payout_cents
+        int refund_percentage "nullable"
+        timestamptz created_at
+        timestamptz updated_at
+        timestamptz cancelled_at "nullable"
+        timestamptz settled_at "nullable"
+    }
+    payment_installments {
+        uuid id PK
+        uuid payment_id FK
+        int number
+        bigint amount_cents
+        timestamptz due_at
+        enum status
+        enum method "nullable"
+        varchar stripe_payment_intent_id UK "nullable"
+        varchar stripe_charge_id "nullable"
+        enum refund_status
+        bigint refunded_cents
         enum payout_status
+        bigint host_payout_cents
+        bigint platform_fee_cents
         varchar stripe_transfer_id "nullable"
-        timestamp paid_at "nullable"
-        timestamp transferred_at "nullable"
-        timestamp created_at
-        timestamp updated_at
+        bigint reversed_cents
+        enum dispute_status
+        varchar stripe_dispute_id "nullable"
     }
     stripe_events {
         uuid id PK
         varchar stripe_event_id UK
         varchar type
-        text payload
-        timestamp processed_at "nullable"
-        timestamp created_at
+        timestamptz processed_at
+        timestamptz created_at
     }
     conversations {
         uuid id PK
@@ -677,19 +694,19 @@ Uma estadia: um tutor, um cantinho, um período e um ou mais pets. Guarda o cicl
 | `status` | `varchar(20)` |  | não | requested, accepted, confirmed, in_progress, completed, declined, expired, cancelled. |
 | `requested_at` | `timestamptz` |  | não | Quando o tutor pediu. Base do prazo de 24h e do selo "Responde rápido". |
 | `responded_at` | `timestamptz` |  | sim | Quando o anfitrião aceitou ou recusou. |
-| `confirmed_at` | `timestamptz` |  | sim | Quando foi confirmada (hoje, no aceite; com o pagamento, pelo webhook). |
+| `confirmed_at` | `timestamptz` |  | sim | Quando foi confirmada: a 1ª parcela foi paga (aviso do Stripe, pelo módulo de pagamento). |
 | `checked_in_at` | `timestamptz` |  | sim | Quando o anfitrião marcou "chegou". |
 | `checked_out_at` | `timestamptz` |  | sim | Quando marcou "voltou pra casa". Libera repasse e avaliações. |
 | `expired_at` | `timestamptz` |  | sim | Quando expirou sem resposta. |
 | `cancelled_at` | `timestamptz` |  | sim | Quando foi cancelada. |
-| `cancelled_by` | `varchar(10)` |  | sim | Quem cancelou: owner ou host (a conta vai na trilha de auditoria). |
+| `cancelled_by` | `varchar(10)` |  | sim | Quem cancelou: owner, host ou platform (parcela vencida antes do check-in). A conta vai na trilha de auditoria. |
 | `cancellation_reason` | `varchar(500)` |  | sim | Motivo do cancelamento, opcional. |
 | `decline_reason` | `varchar(500)` |  | sim | Motivo da recusa, opcional. |
-| `refund_percentage` | `int` |  | sim | Quanto volta para o tutor no cancelamento de reserva paga (100 ou 50). Nulo se nada foi pago. |
+| `refund_percentage` | `int` |  | sim | Quanto do que foi pago volta para o tutor no cancelamento de reserva paga (100 ou 50). Nulo se nada foi pago. |
 | `created_at` | `timestamptz` |  | não | Quando o registro foi criado (UTC). |
 | `updated_at` | `timestamptz` |  | não | Última alteração do registro (UTC). |
 
-> CHECKs: período, pet_count, status, cancelled_by, refund_percentage e valores. Concorrência otimista pelo `xmin`. Índices: (`listing_id, check_in_date, check_out_date`) para a capacidade; (`owner_id, check_in_date`) e (`host_id, check_in_date`) para as listagens; (`status, requested_at`) para a expiração. Dinheiro em reais (`numeric`), como a diária do cantinho; centavos ficam com o módulo de pagamento.
+> CHECKs: período, pet_count, status, cancelled_by, refund_percentage e valores. Concorrência otimista pelo `xmin`. Índices: (`listing_id, check_in_date, check_out_date`) para a capacidade; (`owner_id, check_in_date`) e (`host_id, check_in_date`) para as listagens; (`status, requested_at`) para a expiração (pedido sem resposta e aceite sem pagamento). Dinheiro em reais (`numeric`), como a diária do cantinho; centavos ficam com o módulo de pagamento.
 
 ### `booking_pets` · Pets da reserva
 
@@ -703,42 +720,81 @@ Tabela associativa: quais pets vão em cada reserva (N:N).
 
 ### `payments` · Pagamentos
 
-O pagamento de uma reserva no Stripe e o repasse ao anfitrião. Valores em centavos, como o próprio Stripe trabalha.
+O pagamento de uma reserva: o plano de parcelas que o tutor escolheu e o destino do dinheiro. Schema `payment` (módulo Payments, [`modulo-payments.md`](modulo-payments.md)). Valores em centavos, como o próprio Stripe trabalha.
 
 | Coluna | Tipo | Chave | Nulo | Descrição |
 |---|---|---|---|---|
 | `id` | `uuid` | `PK` | não | Identificador do pagamento. |
-| `booking_id` | `uuid` | `FK UK` | não | Reserva → bookings.id. Um pagamento por reserva. |
-| `stripe_payment_intent_id` | `varchar(255)` | `UK` | não | ID do PaymentIntent (pi_...). |
-| `stripe_charge_id` | `varchar(255)` |  | sim | ID da cobrança (ch_...). Usado como origem da transferência. |
-| `method` | `enum` |  | sim | card ou pix. Preenchido quando o tutor paga. |
-| `amount_cents` | `int` |  | não | Valor cobrado do tutor. |
-| `currency` | `char(3)` |  | não | Sempre brl no MVP. |
-| `status` | `enum` |  | não | pending, succeeded, failed, refunded, partially_refunded. |
-| `refunded_cents` | `int` |  | não | Quanto foi devolvido ao tutor (0 se nada). |
-| `platform_fee_cents` | `int` |  | não | 10% do valor retido. Fica com o PetHost. |
-| `host_payout_cents` | `int` |  | não | 90% do valor retido. Vai para o anfitrião. |
-| `payout_status` | `enum` |  | não | held (guardado), transferred (repassado) ou canceled (não haverá repasse). |
-| `stripe_transfer_id` | `varchar(255)` |  | sim | ID da transferência ao anfitrião (tr_...). |
-| `paid_at` | `timestamp` |  | sim | Quando o Stripe confirmou o pagamento. |
-| `transferred_at` | `timestamp` |  | sim | Quando o repasse foi feito. |
-| `created_at` | `timestamp` |  | não | Quando o registro foi criado (UTC). |
-| `updated_at` | `timestamp` |  | não | Última alteração do registro (UTC). |
+| `booking_id` | `uuid` | `FK UK` | não | Reserva → booking.bookings.id (FK lógica). Um pagamento por reserva. |
+| `owner_id` | `uuid` | `FK` | não | Tutor que paga → owner.owners.id (FK lógica). |
+| `host_id` | `uuid` | `FK` | não | Anfitrião que recebe o repasse → host.hosts.id (FK lógica). |
+| `amount_cents` | `bigint` |  | não | Valor total da reserva (a soma das parcelas). |
+| `currency` | `char(3)` |  | não | Sempre `brl` no MVP. |
+| `installment_count` | `int` |  | não | Em quantas parcelas (1 a 6). |
+| `plan_revision` | `int` |  | não | Quantas vezes o plano foi escolhido (trocar antes de pagar cria parcelas novas). |
+| `status` | `varchar(20)` |  | não | pending, active, paid ou cancelled. |
+| `refund_percentage` | `int` |  | sim | Quanto do que foi pago volta ao tutor, copiado da reserva cancelada (expirada: 100). |
+| `created_at` | `timestamptz` |  | não | Quando o plano foi escolhido (UTC). |
+| `updated_at` | `timestamptz` |  | não | Última alteração (UTC). Ordena a fila da manutenção. |
+| `cancelled_at` | `timestamptz` |  | sim | Quando a reserva foi cancelada ou expirou. |
+| `settled_at` | `timestamptz` |  | sim | Quando nada mais havia a cobrar, devolver ou repassar. Nulo = a manutenção revisita. |
 
-> Regra: platform_fee_cents + host_payout_cents = amount_cents − refunded_cents.
+> CHECKs: status na lista, `amount_cents > 0`, `installment_count` 1–6, `refund_percentage` 0–100, `currency = 'brl'`. Concorrência otimista pelo `xmin`. Índices: `uq_payments_booking_id`, `ix_payments_owner_id`, `ix_payments_host_id_created_at` (ganhos do anfitrião) e o parcial `ix_payments_updated_at_unsettled` (`WHERE settled_at IS NULL`).
+
+### `payment_installments` · Parcelas
+
+Uma parcela do pagamento — uma cobrança no Stripe (`PaymentIntent`), com o reembolso, o repasse e a contestação dela (o Stripe liga os três à cobrança de origem).
+
+| Coluna | Tipo | Chave | Nulo | Descrição |
+|---|---|---|---|---|
+| `id` | `uuid` | `PK` | não | Identificador da parcela (UUID v7). Base das chaves de idempotência no Stripe. |
+| `payment_id` | `uuid` | `FK` | não | Pagamento → payments.id (FK física, `ON DELETE CASCADE`). |
+| `number` | `int` |  | não | 1 a 6, na ordem de vencimento. Único por pagamento. |
+| `amount_cents` | `bigint` |  | não | Valor da parcela (os centavos que sobram da divisão vão na 1ª). |
+| `due_at` | `timestamptz` |  | não | Vencimento: a 1ª no prazo da reserva (24h depois do aceite); as outras no fim do dia (Brasília), a cada 30 dias. |
+| `status` | `varchar(20)` |  | não | pending, processing, paid, overdue ou cancelled. |
+| `method` | `varchar(10)` |  | sim | card ou pix, quando o tutor pagou. |
+| `stripe_payment_intent_id` | `varchar(255)` | `UK` | sim | Cobrança no Stripe (pi_...). Único quando preenchido. |
+| `intent_open` | `boolean` |  | não | A cobrança ainda pode ser paga (precisa ser cancelada se a parcela não for mais cobrada). |
+| `payment_attempts` | `int` |  | não | Quantas cobranças a parcela já teve. |
+| `stripe_charge_id` | `varchar(255)` |  | sim | Cobrança efetiva (ch_...). Origem do repasse (`source_transaction`). |
+| `failure_code` | `varchar(100)` |  | sim | Por que a última tentativa falhou (código do Stripe). |
+| `paid_at` | `timestamptz` |  | sim | Quando o Stripe confirmou. |
+| `reminder_sent_at` | `timestamptz` |  | sim | Quando o lembrete de vencimento foi enviado. |
+| `overdue_since` | `timestamptz` |  | sim | Desde quando está em atraso (venceu depois do check-in). |
+| `refund_status` | `varchar(20)` |  | não | none, pending, succeeded ou failed. |
+| `refunded_cents` | `bigint` |  | não | Quanto foi (ou está sendo) devolvido ao tutor (0 se nada). |
+| `stripe_refund_id` | `varchar(255)` |  | sim | Reembolso (re_...). |
+| `refunded_at` | `timestamptz` |  | sim | Quando o reembolso foi pedido. |
+| `payout_status` | `varchar(20)` |  | não | held (guardado), transferred (repassado), cancelled (não haverá repasse) ou reversed (estornado por contestação). |
+| `host_payout_cents` | `bigint` |  | não | 90% do retido. Vai para o anfitrião (gravado no repasse). |
+| `platform_fee_cents` | `bigint` |  | não | 10% do retido. Fica com o PetHost (paga a taxa do Stripe). |
+| `stripe_transfer_id` | `varchar(255)` |  | sim | Transferência ao anfitrião (tr_...). |
+| `transferred_at` | `timestamptz` |  | sim | Quando o repasse foi feito. |
+| `payout_failure_code` | `varchar(100)` |  | sim | Por que o último repasse ou estorno falhou (a manutenção tenta de novo). |
+| `reversed_cents` | `bigint` |  | não | Quanto do repasse foi estornado do anfitrião. |
+| `stripe_transfer_reversal_id` | `varchar(255)` |  | sim | Estorno do repasse (trr_...). |
+| `reversed_at` | `timestamptz` |  | sim | Quando o estorno foi feito. |
+| `dispute_status` | `varchar(20)` |  | não | none, open, won ou lost. |
+| `stripe_dispute_id` | `varchar(255)` |  | sim | Contestação (dp_...). |
+| `disputed_at` | `timestamptz` |  | sim | Quando a contestação chegou. |
+| `dispute_closed_at` | `timestamptz` |  | sim | Quando foi decidida. |
+
+> Regra (por parcela): platform_fee_cents + host_payout_cents = amount_cents − refunded_cents. CHECKs: `number` 1–6, `amount_cents > 0`, status e meios na lista, `refunded_cents` entre 0 e `amount_cents`, `host_payout_cents + platform_fee_cents ≤ amount_cents`, `reversed_cents ≤ host_payout_cents`. Índices: `uq_payment_installments_payment_id_number`, `uq_payment_installments_stripe_payment_intent_id` (parcial) e `ix_payment_installments_status`.
 
 ### `stripe_events` · Eventos do Stripe
 
-Registro dos webhooks recebidos. O Stripe pode mandar o mesmo evento mais de uma vez; esta tabela garante que cada um seja processado só uma vez.
+Registro dos webhooks do Stripe já tratados pelo módulo de pagamento (schema `payment`). O Stripe pode mandar o mesmo evento mais de uma vez; esta tabela garante que cada um seja processado só uma vez.
 
 | Coluna | Tipo | Chave | Nulo | Descrição |
 |---|---|---|---|---|
 | `id` | `uuid` | `PK` | não | Identificador interno. |
 | `stripe_event_id` | `varchar(255)` | `UK` | não | ID do evento no Stripe (evt_...). |
 | `type` | `varchar(80)` |  | não | Tipo, ex.: payment_intent.succeeded. |
-| `payload` | `text` |  | não | Corpo do evento em JSON, para depuração. |
-| `processed_at` | `timestamp` |  | sim | Quando foi processado. Nulo = ainda não. |
-| `created_at` | `timestamp` |  | não | Quando o registro foi criado (UTC). |
+| `processed_at` | `timestamptz` |  | não | Quando foi processado (gravado só depois de tratar: evento que falhou volta no reenvio). |
+| `created_at` | `timestamptz` |  | não | Quando o registro foi criado (UTC). |
+
+> O corpo do evento **não** é guardado (mudou do modelo original): ele traz dados do tutor e não é preciso — a cobrança é relida na API do Stripe.
 
 
 ### `conversations` · Conversas
@@ -844,7 +900,8 @@ Avaliação feita depois da reserva concluída. Cada lado avalia o outro uma vez
 | `users` | `bookings` | 1 : N | O tutor faz várias reservas. |
 | `listings` | `bookings` | 1 : N | Várias no mesmo período, limitadas por capacity. |
 | `bookings` | `pets` (via `booking_pets`) | N : N | Com pets, via booking_pets. |
-| `bookings` | `payments` | 1 : 0..1 | Criado quando o tutor vai pagar. |
+| `bookings` | `payments` | 1 : 0..1 | Criado quando o tutor escolhe as parcelas. |
+| `payments` | `payment_installments` | 1 : 1..6 | Uma cobrança no Stripe por parcela. |
 | `bookings` | `reviews` | 1 : 0..2 | Uma por lado. |
 | `users` | `reviews` | 1 : N | author_id e reviewee_id. |
 | `users` | `conversations` | 1 : N | owner_id e host_id; uma por dupla. |
@@ -868,10 +925,13 @@ Avaliação feita depois da reserva concluída. Cada lado avalia o outro uma vez
 | `listings.accepted_species` | bits dos valores de `pets.species` (`dog` = 1, `cat` = 2, `cockatiel` = 4 … `exotic` = 2048); no JSON, lista de nomes | Tipos aceitos |
 | `listings.available_weekdays` | bits `1 << dia` (domingo = 1, segunda = 2 … sábado = 64); no JSON, `monday` … `sunday` | Dias em que recebe |
 | `bookings.status` | `requested` · `accepted` · `confirmed` · `in_progress` · `completed` · `declined` · `expired` · `cancelled` | Solicitada · Aceita · Confirmada · Em andamento · Concluída · Recusada · Expirada · Cancelada |
-| `bookings.cancelled_by` | `owner` · `host` | Tutor · Anfitrião |
-| `payments.method` | `card` · `pix` | Cartão · Pix |
-| `payments.status` | `pending` · `succeeded` · `failed` · `refunded` · `partially_refunded` | Pendente · Pago · Falhou · Estornado · Estornado parcial |
-| `payments.payout_status` | `held` · `transferred` · `canceled` | Retido · Repassado · Sem repasse |
+| `bookings.cancelled_by` | `owner` · `host` · `platform` | Tutor · Anfitrião · Plataforma (parcela não paga) |
+| `payments.status` | `pending` · `active` · `paid` · `cancelled` | Aguardando a 1ª parcela · Pago em parte · Pago · Cancelado |
+| `payment_installments.status` | `pending` · `processing` · `paid` · `overdue` · `cancelled` | A vencer · Confirmando · Paga · Em atraso · Cancelada |
+| `payment_installments.method` | `card` · `pix` | Cartão · Pix |
+| `payment_installments.refund_status` | `none` · `pending` · `succeeded` · `failed` | Sem reembolso · Voltando · Devolvido · Falhou |
+| `payment_installments.payout_status` | `held` · `transferred` · `cancelled` · `reversed` | Retido · Repassado · Sem repasse · Estornado |
+| `payment_installments.dispute_status` | `none` · `open` · `won` · `lost` | Sem contestação · Aberta · Ganha · Perdida |
 
 **Ciclo de `bookings.status`:**
 
@@ -881,12 +941,11 @@ stateDiagram-v2
     requested --> accepted
     requested --> declined
     requested --> expired: 24h sem resposta
-    accepted --> confirmed: pagamento confirmado
-    requested --> confirmed: aceite (enquanto não há pagamento)
+    accepted --> confirmed: 1ª parcela paga
     accepted --> expired: 24h sem pagar
     requested --> cancelled
     accepted --> cancelled
-    confirmed --> cancelled: com reembolso
+    confirmed --> cancelled: com reembolso (tutor, anfitrião ou plataforma)
     confirmed --> in_progress: chegou
     in_progress --> completed: voltou pra casa
     completed --> [*]

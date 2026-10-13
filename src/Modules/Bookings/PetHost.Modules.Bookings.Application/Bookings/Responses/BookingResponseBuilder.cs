@@ -110,6 +110,7 @@ public sealed class BookingResponseBuilder(
             booking.TotalPrice,
             booking.RequestedAt,
             booking.Status == BookingStatus.Requested ? booking.ResponseDeadline : null,
+            booking.PaymentDeadline,
             booking.RespondedAt,
             booking.ConfirmedAt,
             booking.CheckedInAt,

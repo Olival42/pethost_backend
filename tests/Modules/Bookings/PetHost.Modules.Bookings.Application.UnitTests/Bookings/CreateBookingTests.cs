@@ -18,6 +18,7 @@ public sealed class CreateBookingCommandHandlerTests
     private readonly Mock<IBookingsUnitOfWork> _unitOfWork = BookingsTestData.UnitOfWork();
     private readonly Mock<IAuditTrail> _auditTrail = new();
     private Mock<IBookingListings> _listings = BookingsTestData.Listings();
+    private Mock<IBookingPayments> _payments = BookingsTestData.Payments();
 
     private CreateBookingCommandHandler Sut() => new(
         _repository.Object,
@@ -25,6 +26,7 @@ public sealed class CreateBookingCommandHandlerTests
         BookingsTestData.Parties().Object,
         _listings.Object,
         BookingsTestData.Pets().Object,
+        _payments.Object,
         BookingsTestData.ResponseBuilder(),
         _auditTrail.Object,
         new FakeTimeProvider(BookingBuilder.DefaultNow));

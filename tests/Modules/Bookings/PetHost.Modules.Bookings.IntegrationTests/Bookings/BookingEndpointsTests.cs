@@ -10,6 +10,7 @@ using PetHost.Modules.Bookings.Domain.Bookings;
 using PetHost.Modules.Hosts.Domain.Hosts;
 using PetHost.Modules.Hosts.Infrastructure.Persistence;
 using PetHost.Modules.Owners.Infrastructure.Persistence;
+using PetHost.Shared.Contracts.Bookings;
 using PetHost.Shared.Kernel.Messaging;
 using Xunit;
 
@@ -80,7 +81,13 @@ public sealed class BookingEndpointsTests(BookingsApiFixture fixture) : IAsyncLi
 
         var accepted = await SendAsync(HttpMethod.Post, $"{BookingsRoute}/{bookingId}/acceptance", stay.HostToken);
         accepted.StatusCode.Should().Be(HttpStatusCode.OK);
-        Status(await ReadAsync(accepted)).Should().Be("confirmed");
+        var acceptedBooking = Data(await ReadAsync(accepted));
+        acceptedBooking.GetProperty("status").GetString().Should().Be("accepted");
+        acceptedBooking.TryGetProperty("paymentDeadline", out _).Should().BeTrue();
+
+        // A 1ª parcela paga (o módulo de pagamento confirma pelo contrato).
+        (await PayAsync(bookingId)).Should().Be(BookingPaymentOutcome.Done);
+        Status(await ReadAsync(await SendAsync(HttpMethod.Get, $"{BookingsRoute}/{bookingId}", stay.OwnerToken))).Should().Be("confirmed");
 
         var checkedIn = await SendAsync(HttpMethod.Post, $"{BookingsRoute}/{bookingId}/check-in", stay.HostToken);
         checkedIn.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -144,7 +151,7 @@ public sealed class BookingEndpointsTests(BookingsApiFixture fixture) : IAsyncLi
     }
 
     [Fact]
-    public async Task Create_Should_Return422CapacityExceeded_When_ConfirmedStaysFillTheListing()
+    public async Task Create_Should_Return422CapacityExceeded_When_AnAcceptedStayHoldsTheOnlySpot()
     {
         var stay = await ArrangeAsync(capacity: 1);
         var first = await CreateBookingAsync(stay.OwnerToken, stay.ListingId, stay.PipocaId);
@@ -252,7 +259,7 @@ public sealed class BookingEndpointsTests(BookingsApiFixture fixture) : IAsyncLi
     {
         var stay = await ArrangeAsync();
         var bookingId = await CreateBookingAsync(stay.OwnerToken, stay.ListingId, stay.PipocaId);
-        await SendAsync(HttpMethod.Post, $"{BookingsRoute}/{bookingId}/acceptance", stay.HostToken);
+        await AcceptAndPayAsync(stay.HostToken, bookingId);
 
         var response = await SendAsync(HttpMethod.Post, $"{BookingsRoute}/{bookingId}/cancellation", stay.OwnerToken, new { reason = "Mudei de planos" });
 
@@ -269,7 +276,7 @@ public sealed class BookingEndpointsTests(BookingsApiFixture fixture) : IAsyncLi
     {
         var stay = await ArrangeAsync();
         var bookingId = await CreateBookingAsync(stay.OwnerToken, stay.ListingId, stay.PipocaId);
-        await SendAsync(HttpMethod.Post, $"{BookingsRoute}/{bookingId}/acceptance", stay.HostToken);
+        await AcceptAndPayAsync(stay.HostToken, bookingId);
 
         var response = await SendAsync(HttpMethod.Post, $"{BookingsRoute}/{bookingId}/cancellation", stay.HostToken);
 
@@ -310,7 +317,7 @@ public sealed class BookingEndpointsTests(BookingsApiFixture fixture) : IAsyncLi
     {
         var stay = await ArrangeAsync();
         var bookingId = await CreateBookingAsync(stay.OwnerToken, stay.ListingId, stay.PipocaId, checkIn: Today.AddDays(1));
-        await SendAsync(HttpMethod.Post, $"{BookingsRoute}/{bookingId}/acceptance", stay.HostToken);
+        await AcceptAndPayAsync(stay.HostToken, bookingId);
 
         var response = await SendAsync(HttpMethod.Post, $"{BookingsRoute}/{bookingId}/check-in", stay.HostToken);
 
@@ -395,6 +402,45 @@ public sealed class BookingEndpointsTests(BookingsApiFixture fixture) : IAsyncLi
         booking.TryGetProperty("expiredAt", out _).Should().BeTrue();
     }
 
+    [Fact]
+    public async Task Expiration_Should_ExpireAnAcceptedBooking_When_TheOwnerDoesNotPayIn24Hours()
+    {
+        var stay = await ArrangeAsync(capacity: 1);
+        var bookingId = await CreateBookingAsync(stay.OwnerToken, stay.ListingId, stay.PipocaId, checkIn: Today.AddDays(3));
+        await SendAsync(HttpMethod.Post, $"{BookingsRoute}/{bookingId}/acceptance", stay.HostToken);
+        await fixture.ExecuteAsync($"UPDATE booking.bookings SET responded_at = now() - interval '25 hours' WHERE id = '{bookingId}'");
+
+        await using (var scope = fixture.Services.CreateAsyncScope())
+        {
+            var expire = scope.ServiceProvider.GetRequiredService<ICommandHandler<ExpireOverdueBookingsCommand, ExpireOverdueBookingsResponse>>();
+            (await expire.HandleAsync(new ExpireOverdueBookingsCommand(), Ct)).Value!.Expired.Should().Be(1);
+        }
+
+        var booking = Data(await ReadAsync(await SendAsync(HttpMethod.Get, $"{BookingsRoute}/{bookingId}", stay.OwnerToken)));
+        booking.GetProperty("status").GetString().Should().Be("expired");
+
+        // A vaga que o aceite segurava volta para a busca.
+        var search = await SearchAsync(stay.OwnerToken, Today.AddDays(3), Today.AddDays(5));
+        search.GetProperty("totalCount").GetInt64().Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Create_Should_Return422_When_TheOwnerHasAnOverdueInstallment()
+    {
+        var stay = await ArrangeAsync();
+        await fixture.ExecuteAsync("""
+            INSERT INTO payment.payments (id, booking_id, owner_id, host_id, amount_cents, currency, installment_count, plan_revision, status, created_at, updated_at)
+            SELECT gen_random_uuid(), gen_random_uuid(), o.id, gen_random_uuid(), 20000, 'brl', 2, 1, 'active', now(), now() FROM owner.owners o;
+            INSERT INTO payment.payment_installments (id, payment_id, number, amount_cents, due_at, status, intent_open, payment_attempts, refund_status, refunded_cents, payout_status, host_payout_cents, platform_fee_cents, reversed_cents, dispute_status)
+            SELECT gen_random_uuid(), p.id, 2, 10000, now() - interval '3 days', 'overdue', false, 0, 'none', 0, 'held', 0, 0, 0, 'none' FROM payment.payments p;
+            """);
+
+        var response = await SendAsync(HttpMethod.Post, BookingsRoute, stay.OwnerToken, Pedido(stay.ListingId, [stay.PipocaId]));
+
+        response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+        Code(await ReadAsync(response)).Should().Be("BOOKING_OWNER_PAYMENT_OVERDUE");
+    }
+
     // ----- contato depois da confirmação -----
 
     [Fact]
@@ -405,10 +451,13 @@ public sealed class BookingEndpointsTests(BookingsApiFixture fixture) : IAsyncLi
 
         var beforeAccept = Data(await ReadAsync(await SendAsync(HttpMethod.Get, $"{BookingsRoute}/{bookingId}", stay.OwnerToken)));
         await SendAsync(HttpMethod.Post, $"{BookingsRoute}/{bookingId}/acceptance", stay.HostToken);
+        var beforePayment = Data(await ReadAsync(await SendAsync(HttpMethod.Get, $"{BookingsRoute}/{bookingId}", stay.OwnerToken)));
+        await PayAsync(bookingId);
         var ownerView = Data(await ReadAsync(await SendAsync(HttpMethod.Get, $"{BookingsRoute}/{bookingId}", stay.OwnerToken)));
         var hostView = Data(await ReadAsync(await SendAsync(HttpMethod.Get, $"{BookingsRoute}/{bookingId}", stay.HostToken)));
 
         beforeAccept.TryGetProperty("contact", out _).Should().BeFalse("antes da confirmação o tutor só vê o bairro");
+        beforePayment.TryGetProperty("contact", out _).Should().BeFalse("aceita, mas ainda não paga");
         ownerView.GetProperty("contact").GetProperty("phone").GetString().Should().Be("44999990000");
         ownerView.GetProperty("contact").GetProperty("address").GetProperty("street").GetString().Should().Be("Rua das Flores");
         ownerView.GetProperty("contact").GetProperty("address").GetProperty("number").GetString().Should().Be("120");
@@ -419,24 +468,38 @@ public sealed class BookingEndpointsTests(BookingsApiFixture fixture) : IAsyncLi
     // ----- e-mails -----
 
     [Fact]
-    public async Task Emails_Should_TellTheOwnerAcceptedAndTheHostConfirmed_ThenBothCancelled()
+    public async Task Emails_Should_TellTheOwnerAccepted_ThenBothConfirmedAfterPaying_ThenBothCancelled()
     {
         var stay = await ArrangeAsync();
         var bookingId = await CreateBookingAsync(stay.OwnerToken, stay.ListingId, stay.PipocaId);
 
         await SendAsync(HttpMethod.Post, $"{BookingsRoute}/{bookingId}/acceptance", stay.HostToken);
-        var afterAccept = await WaitForBookingEmailsAsync(2);
+        var accepted = await WaitForEmailAsync(e => e.ToAddress == "camila@exemplo.com" && e.Subject.Contains("aceita", StringComparison.Ordinal));
+        var confirmedTooEarly = BookingEmails().Any(e => e.Subject.Contains("confirmada", StringComparison.Ordinal) || e.Subject.Contains("garantida", StringComparison.Ordinal));
+
+        await PayAsync(bookingId);
+        var hostConfirmed = await WaitForEmailAsync(e => e.ToAddress == "cida@exemplo.com" && e.Subject.Contains("confirmada", StringComparison.Ordinal));
+        var ownerConfirmed = await WaitForEmailAsync(e => e.ToAddress == "camila@exemplo.com" && e.Subject.Contains("reserva garantida", StringComparison.Ordinal));
 
         await SendAsync(HttpMethod.Post, $"{BookingsRoute}/{bookingId}/cancellation", stay.OwnerToken, new { reason = "Mudei de planos" });
-        var all = await WaitForBookingEmailsAsync(4);
+        var hostCancelled = await WaitForEmailAsync(e => e.ToAddress == "cida@exemplo.com" && e.Subject.Contains("cancelada", StringComparison.Ordinal));
+        var ownerCancelled = await WaitForEmailAsync(e => e.ToAddress == "camila@exemplo.com" && e.Subject.Contains("cancelada", StringComparison.Ordinal));
 
-        afterAccept.Should().ContainSingle(e => e.ToAddress == "camila@exemplo.com" && e.Subject.Contains("aceita"));
-        afterAccept.Should().ContainSingle(e => e.ToAddress == "cida@exemplo.com" && e.Subject.Contains("confirmada"));
-        afterAccept.Single(e => e.ToAddress == "camila@exemplo.com").TextBody.Should().Contain("Rua das Flores, 120").And.Contain("(44) 99999-0000");
+        accepted.TextBody.Should().Contain("Pague até").And.NotContain("Rua das Flores", "o endereço só vai depois de pagar");
+        confirmedTooEarly.Should().BeFalse("o anfitrião só é avisado quando o tutor paga");
+        hostConfirmed.TextBody.Should().Contain("(44) 99999-0000");
+        ownerConfirmed.TextBody.Should().Contain("Rua das Flores, 120").And.Contain("(44) 99999-0000");
+        hostCancelled.TextBody.Should().Contain("cancelou a reserva").And.Contain("Mudei de planos");
+        ownerCancelled.TextBody.Should().Contain("Reembolso: 50% do valor pago.");
+    }
 
-        var cancelled = all.Where(e => e.Subject.Contains("cancelada")).ToList();
-        cancelled.Select(e => e.ToAddress).Should().BeEquivalentTo(["camila@exemplo.com", "cida@exemplo.com"]);
-        cancelled.Single(e => e.ToAddress == "cida@exemplo.com").TextBody.Should().Contain("cancelou a reserva").And.Contain("Mudei de planos");
+    /// <summary>Espera um e-mail específico (o despachante roda em segundo plano).</summary>
+    private async Task<PetHost.Shared.Infrastructure.Email.EmailMessage> WaitForEmailAsync(Func<PetHost.Shared.Infrastructure.Email.EmailMessage, bool> match)
+    {
+        for (var attempt = 0; attempt < 100 && !fixture.SentEmails.Any(match); attempt++)
+            await Task.Delay(100, Ct);
+
+        return fixture.SentEmails.First(match);
     }
 
     [Fact]
@@ -506,7 +569,7 @@ public sealed class BookingEndpointsTests(BookingsApiFixture fixture) : IAsyncLi
     {
         var stay = await ArrangeAsync();
         var bookingId = await CreateBookingAsync(stay.OwnerToken, stay.ListingId, stay.PipocaId);
-        await SendAsync(HttpMethod.Post, $"{BookingsRoute}/{bookingId}/acceptance", stay.HostToken);
+        await AcceptAndPayAsync(stay.HostToken, bookingId);
         await SendAsync(HttpMethod.Post, $"{BookingsRoute}/{bookingId}/check-in", stay.HostToken);
 
         var blocked = await SendAsync(HttpMethod.Post, "/api/v1/hosts/me/deactivate", stay.HostToken);
@@ -595,6 +658,21 @@ public sealed class BookingEndpointsTests(BookingsApiFixture fixture) : IAsyncLi
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
         return Data(await ReadAsync(response));
+    }
+
+    /// <summary>A 1ª parcela foi paga: o módulo de pagamento confirma a reserva pelo contrato público.</summary>
+    private async Task<BookingPaymentOutcome> PayAsync(Guid bookingId)
+    {
+        await using var scope = fixture.Services.CreateAsyncScope();
+        return await scope.ServiceProvider.GetRequiredService<IBookingPaymentOutcomes>().ConfirmPaidAsync(bookingId, Ct);
+    }
+
+    /// <summary>O anfitrião aceita e o tutor paga a 1ª parcela: a reserva fica confirmada.</summary>
+    private async Task AcceptAndPayAsync(string hostToken, Guid bookingId)
+    {
+        var accepted = await SendAsync(HttpMethod.Post, $"{BookingsRoute}/{bookingId}/acceptance", hostToken);
+        accepted.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await PayAsync(bookingId)).Should().Be(BookingPaymentOutcome.Done);
     }
 
     private sealed record Stay(string OwnerToken, string HostToken, Guid ListingId, Guid PipocaId, Guid ThorId);

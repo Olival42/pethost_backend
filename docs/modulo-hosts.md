@@ -459,7 +459,7 @@ As duas respostas vão com `Cache-Control: no-store`; o segredo e o link não s�
 **Webhook** (`POST /api/v1/stripe/webhooks`, um só para a API inteira, em `Shared.Infrastructure/Stripe`):
 
 - Anônimo e fora do rate limit; a origem é provada pela assinatura `Stripe-Signature` (HMAC com `Stripe:WebhookSecret` ou `Stripe:ConnectWebhookSecret`, tolerância de 5 min contra reenvio). Assinatura ausente, errada ou velha: `400` no campo `stripeSignature`.
-- O processador (`StripeWebhookProcessor`) entrega o evento aos `IStripeWebhookHandler` que aceitam o tipo; tipo que ninguém trata: `200`, ignorado. O Hosts registra `HostAccountUpdatedWebhookHandler` (`account.updated`). O módulo de pagamentos vai registrar os dele no mesmo endpoint.
+- O processador (`StripeWebhookProcessor`) entrega o evento aos `IStripeWebhookHandler` que aceitam o tipo; tipo que ninguém trata: `200`, ignorado. O Hosts registra `HostAccountUpdatedWebhookHandler` (`account.updated`); o Payments registra `PaymentWebhookHandler` (cobrança, reembolso e contestação — [`modulo-payments.md`](modulo-payments.md) seção 7). O repasse vai para a conta conectada que o `IHostDirectory` informa (`HostReference.StripeAccountId`).
 - **O evento é só um aviso:** a conta é relida na API (`GET /v1/accounts/{id}`) e o espelho gravado com o que veio. Evento repetido ou fora de ordem não estraga nada — por isso não precisou da tabela `stripe_events` aqui (ela continua prevista para os pagamentos).
 - Conta que não é de nenhum anfitrião: `200`, ignorada. Stripe fora do ar na releitura: `500`, e o Stripe reenvia mais tarde.
 

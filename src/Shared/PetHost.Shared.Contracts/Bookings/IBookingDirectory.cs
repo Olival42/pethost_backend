@@ -3,7 +3,8 @@ namespace PetHost.Shared.Contracts.Bookings;
 /// <summary>
 /// Contrato público de leitura do módulo Bookings (§5). Outros módulos perguntam por aqui o que
 /// depende das reservas — o Pets (pet com estadia em aberto; anfitrião que recebeu o pet), o
-/// Listings (vaga no período; selos) — sem referenciar o Bookings nem fazer JOIN entre schemas.
+/// Listings (vaga no período; selos), o Payments (status, valor e prazo da reserva) — sem
+/// referenciar o Bookings nem fazer JOIN entre schemas.
 /// </summary>
 public interface IBookingDirectory
 {
@@ -33,7 +34,7 @@ public interface IBookingDirectory
     Task<bool> IsPetBookedWithHostAsync(Guid petId, Guid hostId, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Para cada cantinho com reservas que ocupam vaga (confirmada ou em andamento) entre
+    /// Para cada cantinho com reservas que ocupam vaga (aceita, confirmada ou em andamento) entre
     /// <paramref name="checkIn"/> e <paramref name="checkOut"/>: o maior número de pets numa mesma
     /// noite do período. Cantinho vazio no período não aparece.
     /// </summary>
@@ -46,6 +47,12 @@ public interface IBookingDirectory
     Task<IReadOnlyDictionary<Guid, HostBookingStats>> GetHostStatsAsync(
         IReadOnlyCollection<Guid> hostIds,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// A reserva como o módulo de pagamento precisa vê-la (status, valor, datas, prazo para pagar e
+    /// reembolso), ou <c>null</c> se ela não existe. Sem nome, endereço nem outro dado pessoal.
+    /// </summary>
+    Task<BookingPaymentView?> GetForPaymentAsync(Guid bookingId, CancellationToken cancellationToken);
 }
 
 /// <summary>Números do anfitrião nas reservas.</summary>

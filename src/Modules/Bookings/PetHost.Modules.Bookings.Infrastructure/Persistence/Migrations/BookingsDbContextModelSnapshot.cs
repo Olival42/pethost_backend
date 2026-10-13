@@ -146,7 +146,7 @@ namespace PetHost.Modules.Bookings.Infrastructure.Persistence.Migrations
                         {
                             t.HasCheckConstraint("ck_bookings_amounts", "nightly_rate >= 0 AND total_price >= 0");
 
-                            t.HasCheckConstraint("ck_bookings_cancelled_by", "cancelled_by IS NULL OR cancelled_by IN ('owner', 'host')");
+                            t.HasCheckConstraint("ck_bookings_cancelled_by", "cancelled_by IS NULL OR cancelled_by IN ('owner', 'host', 'platform')");
 
                             t.HasCheckConstraint("ck_bookings_period", "check_out_date > check_in_date");
 

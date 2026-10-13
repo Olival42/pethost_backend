@@ -41,6 +41,17 @@ internal static class BookingsTestData
     /// <summary>Endereço exato do cantinho da Dona Cida.</summary>
     public static readonly BookingAddress ListingAddress = new("87020000", "Rua das Flores", "120", null, "Zona 7", "Maringá", "PR");
 
+    /// <summary>O pagamento: ninguém em atraso, e os avisos de mudança sempre passam.</summary>
+    public static Mock<IBookingPayments> Payments(bool ownerHasOverduePayment = false)
+    {
+        var payments = new Mock<IBookingPayments>(MockBehavior.Strict);
+
+        payments.Setup(p => p.HasOverduePaymentAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync(ownerHasOverduePayment);
+        payments.Setup(p => p.BookingChangedAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+
+        return payments;
+    }
+
     public static Mock<IBookingParties> Parties()
     {
         var parties = new Mock<IBookingParties>();

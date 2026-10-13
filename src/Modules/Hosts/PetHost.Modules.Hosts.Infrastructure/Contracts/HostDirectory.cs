@@ -51,5 +51,5 @@ internal sealed class HostDirectory(HostsDbContext dbContext) : IHostDirectory
     }
 
     private static HostReference ToReference(Host host) =>
-        new(host.Id.Value, host.UserId, PersonTypeValues.ToWire(host.PersonType), host.TradeName, host.IsActive, host.IsSuspended, host.StripePayoutsEnabled);
+        new(host.Id.Value, host.UserId, PersonTypeValues.ToWire(host.PersonType), host.TradeName, host.IsActive, host.IsSuspended, host.StripePayoutsEnabled, host.StripeAccountId);
 }

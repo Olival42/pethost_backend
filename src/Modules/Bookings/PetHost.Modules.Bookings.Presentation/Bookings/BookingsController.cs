@@ -48,7 +48,7 @@ public sealed class BookingsController(
     /// <c>BOOKING_PET_SIZE_NOT_ACCEPTED</c>. Pet já em outra reserva no período: 409
     /// <c>BOOKING_PET_PERIOD_CONFLICT</c>. Algum dia do período fora dos dias em que o cantinho
     /// recebe: 422 <c>BOOKING_WEEKDAY_NOT_AVAILABLE</c>. Sem vaga em alguma noite: 422
-    /// <c>BOOKING_CAPACITY_EXCEEDED</c>.
+    /// <c>BOOKING_CAPACITY_EXCEEDED</c>. Tutor com parcela em atraso: 422 <c>BOOKING_OWNER_PAYMENT_OVERDUE</c>.
     /// </para>
     /// </remarks>
     [HttpPost]
@@ -114,8 +114,9 @@ public sealed class BookingsController(
 
     /// <summary>O anfitrião aceita o pedido.</summary>
     /// <remarks>
-    /// Só <c>requested</c> e dentro de 24h do pedido (e antes do dia de chegada passar). Enquanto o
-    /// pagamento não existe, aceitar já confirma: vai para <c>confirmed</c> e ocupa vaga. Sem vaga
+    /// Só <c>requested</c> e dentro de 24h do pedido (e antes do dia de chegada passar). Vai para
+    /// <c>accepted</c>: segura a vaga e o tutor tem 24h para pagar a 1ª parcela (<c>paymentDeadline</c>);
+    /// quem confirma é o pagamento (<c>/bookings/{id}/payment</c>). Sem vaga
     /// em alguma noite: 422 <c>BOOKING_CAPACITY_EXCEEDED</c>. Prazo vencido: a reserva expira e
     /// volta 422 <c>BOOKING_RESPONSE_EXPIRED</c>. Outro status: 422 <c>BOOKING_NOT_AWAITING_RESPONSE</c>.
     /// Tutor suspenso ou inativo desde o pedido: 422 <c>BOOKING_OWNER_INACTIVE</c> (recuse ou deixe expirar).
@@ -165,8 +166,9 @@ public sealed class BookingsController(
     /// <remarks>
     /// Vale até o check-in (<c>requested</c>, <c>accepted</c> ou <c>confirmed</c>); depois que o pet
     /// chegou: 422 <c>BOOKING_CANNOT_CANCEL_AFTER_CHECK_IN</c>. Reserva confirmada (paga) leva o
-    /// reembolso em <c>refundPercentage</c>: 100 se o anfitrião cancela ou se o tutor cancela com 48h
-    /// ou mais de antecedência da chegada; 50 depois disso. Já cancelada: 422
+    /// reembolso em <c>refundPercentage</c>, sobre o que já foi pago: 100 se o anfitrião cancela ou se
+    /// o tutor cancela com 48h ou mais de antecedência da chegada; 50 depois disso. O pagamento devolve
+    /// o dinheiro e cancela as parcelas em aberto. Já cancelada: 422
     /// <c>BOOKING_ALREADY_CANCELLED</c>; recusada ou expirada: 422 <c>BOOKING_ALREADY_CLOSED</c>.
     /// </remarks>
     [HttpPost("{bookingId:guid}/cancellation")]

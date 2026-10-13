@@ -10,13 +10,13 @@ namespace PetHost.Modules.Bookings.Domain.Bookings;
 /// <c>booking.bookings</c> e <c>booking.booking_pets</c>.
 /// </summary>
 /// <remarks>
-/// Ciclo (escopo, seção 5): Solicitada → (aceite) Confirmada → (check-in) Em andamento →
-/// (check-out) Concluída. Fins antecipados: Recusada, Expirada (24h sem resposta) e Cancelada
-/// (tutor ou anfitrião, até o check-in).
+/// Ciclo (escopo, seção 5): Solicitada → (aceite) Aceita → (1ª parcela paga, pelo webhook do
+/// Stripe) Confirmada → (check-in) Em andamento → (check-out) Concluída. Fins antecipados:
+/// Recusada, Expirada (24h sem resposta ou 24h sem pagar) e Cancelada (tutor ou anfitrião até o
+/// check-in; ou a plataforma, quando uma parcela vence antes do check-in e não é paga).
 /// <para>
-/// Enquanto o módulo de pagamento não existe, o aceite do anfitrião leva direto a
-/// <see cref="BookingStatus.Confirmed"/>. Com o pagamento, o aceite passa a ir para
-/// <see cref="BookingStatus.Accepted"/> e o webhook do Stripe confirma.
+/// O aceite já segura a vaga (<see cref="OccupiesCapacity"/>) durante as 24h que o tutor tem para
+/// pagar: o anfitrião aceitou aquele pedido e dois tutores não pagam pela mesma vaga.
 /// </para>
 /// Guarda ids de outros módulos como FK lógica: tutor (<c>owner.owners.id</c>), cantinho
 /// (<c>listing.listings.id</c>), anfitrião (<c>host.hosts.id</c>, copiado do cantinho para a
@@ -38,6 +38,9 @@ public sealed class Booking : Entity<BookingId>
 
     /// <summary>Prazo do anfitrião para aceitar ou recusar o pedido.</summary>
     public static readonly TimeSpan ResponseWindow = TimeSpan.FromHours(24);
+
+    /// <summary>Prazo do tutor para pagar a 1ª parcela depois do aceite.</summary>
+    public static readonly TimeSpan PaymentWindow = TimeSpan.FromHours(24);
 
     /// <summary>Antecedência mínima para o tutor cancelar com 100% de volta.</summary>
     public static readonly TimeSpan FullRefundNotice = TimeSpan.FromHours(48);
@@ -98,7 +101,7 @@ public sealed class Booking : Entity<BookingId>
     /// <summary>Quando o anfitrião aceitou ou recusou.</summary>
     public DateTimeOffset? RespondedAt { get; private set; }
 
-    /// <summary>Quando a reserva foi confirmada (hoje, no aceite; com o pagamento, pelo webhook).</summary>
+    /// <summary>Quando a reserva foi confirmada: a 1ª parcela foi paga (aviso do Stripe).</summary>
     public DateTimeOffset? ConfirmedAt { get; private set; }
 
     /// <summary>Quando o anfitrião marcou "chegou".</summary>
@@ -113,7 +116,7 @@ public sealed class Booking : Entity<BookingId>
     /// <summary>Quando foi cancelada.</summary>
     public DateTimeOffset? CancelledAt { get; private set; }
 
-    /// <summary>Quem cancelou: o tutor ou o anfitrião.</summary>
+    /// <summary>Quem cancelou: o tutor, o anfitrião ou a plataforma (parcela não paga).</summary>
     public BookingParty? CancelledBy { get; private set; }
 
     /// <summary>Motivo do cancelamento, opcional.</summary>
@@ -135,13 +138,25 @@ public sealed class Booking : Entity<BookingId>
     public DateTimeOffset ResponseDeadline => RequestedAt + ResponseWindow;
 
     /// <summary>
+    /// Até quando o tutor pode pagar a 1ª parcela: 24h depois do aceite, sem passar do fim do dia
+    /// de chegada (horário de Brasília). Só enquanto a reserva está Aceita. Em UTC, como as outras datas.
+    /// </summary>
+    public DateTimeOffset? PaymentDeadline =>
+        Status == BookingStatus.Accepted && RespondedAt is { } acceptedAt
+            ? Min(acceptedAt + PaymentWindow, BookingClock.StartOf(Period.CheckIn.AddDays(1))).ToUniversalTime()
+            : null;
+
+    /// <summary>
     /// Libera o contato (endereço exato e telefone) entre tutor e anfitrião: só depois da
     /// confirmação (escopo, regra 7) — Confirmada, Em andamento ou Concluída. Cancelada não libera.
     /// </summary>
     public bool RevealsContact => Status is BookingStatus.Confirmed or BookingStatus.InProgress or BookingStatus.Completed;
 
-    /// <summary>Ocupa vaga no cantinho (Confirmada ou Em andamento): entra na conta de capacidade.</summary>
-    public bool OccupiesCapacity => Status is BookingStatus.Confirmed or BookingStatus.InProgress;
+    /// <summary>
+    /// Ocupa vaga no cantinho (Aceita, Confirmada ou Em andamento): entra na conta de capacidade. A
+    /// Aceita segura a vaga só durante o prazo de pagamento; sem pagar, expira e libera.
+    /// </summary>
+    public bool OccupiesCapacity => Status is BookingStatus.Accepted or BookingStatus.Confirmed or BookingStatus.InProgress;
 
     /// <summary>
     /// Pede uma estadia no cantinho para pets do tutor <paramref name="ownerId"/>. Confere, nesta
@@ -239,9 +254,15 @@ public sealed class Booking : Entity<BookingId>
         && (now > ResponseDeadline || BookingClock.Today(now) > Period.CheckIn);
 
     /// <summary>
+    /// Venceu o prazo de pagamento em <paramref name="now"/>? Reserva aceita sem a 1ª parcela paga
+    /// até <see cref="PaymentDeadline"/>.
+    /// </summary>
+    public bool IsPaymentOverdue(DateTimeOffset now) => PaymentDeadline is { } deadline && now > deadline;
+
+    /// <summary>
     /// O anfitrião aceita. Só pedido Solicitado e dentro do prazo; a capacidade é conferida de
-    /// novo (outra reserva pode ter sido confirmada depois do pedido). Sem o módulo de
-    /// pagamento, aceitar já confirma: a reserva passa a ocupar vaga.
+    /// novo (outra reserva pode ter ocupado a vaga depois do pedido). A reserva fica Aceita: segura
+    /// a vaga e o tutor tem <see cref="PaymentWindow"/> para pagar a 1ª parcela.
     /// </summary>
     /// <param name="listing">As condições atuais do cantinho (a capacidade pode ter mudado).</param>
     /// <param name="occupancy">Quem já ocupa vaga no cantinho no período.</param>
@@ -260,12 +281,66 @@ public sealed class Booking : Entity<BookingId>
         if (fits.IsFailure)
             return fits;
 
-        Status = BookingStatus.Confirmed;
+        Status = BookingStatus.Accepted;
         RespondedAt = now;
-        ConfirmedAt = now;
         UpdatedAt = now;
 
         return Result.Success();
+    }
+
+    /// <summary>
+    /// A 1ª parcela foi paga (aviso do Stripe): a reserva Aceita vira Confirmada e libera o
+    /// contato. Devolve <c>true</c> se mudou agora e <c>false</c> se já estava confirmada (ou além)
+    /// — aviso repetido. Cancelada, expirada ou em outro status:
+    /// <c>BOOKING_NOT_AWAITING_PAYMENT</c> (o pagamento devolve o dinheiro).
+    /// </summary>
+    /// <remarks>
+    /// Não confere o prazo: se o Stripe confirmou, o tutor pagou. Quem fecha a reserva vencida é a
+    /// expiração; o Pix nem é aceito depois do prazo (o QR code vence junto).
+    /// </remarks>
+    public Result<bool> ConfirmPayment(DateTimeOffset now)
+    {
+        switch (Status)
+        {
+            case BookingStatus.Confirmed or BookingStatus.InProgress or BookingStatus.Completed:
+                return Result<bool>.Success(false);
+            case not BookingStatus.Accepted:
+                return Result<bool>.Failure(BookingsErrors.NotAwaitingPayment);
+        }
+
+        Status = BookingStatus.Confirmed;
+        ConfirmedAt = now;
+        UpdatedAt = now;
+
+        return Result<bool>.Success(true);
+    }
+
+    /// <summary>
+    /// A plataforma cancela a reserva Confirmada porque uma parcela venceu antes do check-in e
+    /// passou da tolerância: devolve 100% do que foi pago. Devolve <c>true</c> se cancelou agora e
+    /// <c>false</c> se já estava cancelada. Depois do check-in não cancela (a parcela fica em
+    /// atraso); recusada ou expirada, também não.
+    /// </summary>
+    public Result<bool> CancelUnpaid(DateTimeOffset now)
+    {
+        switch (Status)
+        {
+            case BookingStatus.Cancelled:
+                return Result<bool>.Success(false);
+            case BookingStatus.InProgress or BookingStatus.Completed:
+                return Result<bool>.Failure(BookingsErrors.CannotCancelAfterCheckIn);
+            case not BookingStatus.Confirmed:
+                return Result<bool>.Failure(BookingsErrors.AlreadyClosed);
+        }
+
+        RefundPercentage = FullRefundPercentage;
+        Status = BookingStatus.Cancelled;
+        CancelledBy = BookingParty.Platform;
+        CancellationReason = null;
+        CancelledAt = now;
+        UpdatedAt = now;
+
+        return Result<bool>.Success(true);
     }
 
     /// <summary>O anfitrião recusa. Só pedido Solicitado e dentro do prazo.</summary>
@@ -286,12 +361,12 @@ public sealed class Booking : Entity<BookingId>
     }
 
     /// <summary>
-    /// Fecha o pedido que ficou sem resposta no prazo. Devolve se expirou (pedido já respondido
-    /// ou ainda no prazo não muda).
+    /// Fecha o pedido que ficou sem resposta no prazo, ou a reserva aceita que não foi paga no
+    /// prazo. Devolve se expirou (outro status, ou ainda no prazo, não muda).
     /// </summary>
     public bool Expire(DateTimeOffset now)
     {
-        if (!IsResponseOverdue(now))
+        if (!IsResponseOverdue(now) && !IsPaymentOverdue(now))
             return false;
 
         Status = BookingStatus.Expired;
@@ -378,4 +453,6 @@ public sealed class Booking : Entity<BookingId>
 
     /// <summary>Espaços nas pontas saem; texto vazio vira <c>null</c>.</summary>
     private static string? Normalize(string? text) => string.IsNullOrWhiteSpace(text) ? null : text.Trim();
+
+    private static DateTimeOffset Min(DateTimeOffset first, DateTimeOffset second) => first <= second ? first : second;
 }

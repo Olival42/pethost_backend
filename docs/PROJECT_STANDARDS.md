@@ -3,7 +3,7 @@
 > Documento normativo. Tudo é obrigatório salvo onde marcado como *recomendado*.
 > Em conflito com o código existente, este documento vence.
 
-**Atualizado:** 2026-10-12 · **Escopo:** backend (API)
+**Atualizado:** 2026-10-13 · **Escopo:** backend (API)
 
 ---
 
@@ -36,7 +36,7 @@
 4. **Erro esperado não usa exceção.** Fluxo de negócio previsível retorna `Result`. Exceção só para bug ou infraestrutura fora.
 5. **Toda regra de negócio tem teste unitário.** Sem exceção.
 
-**Módulos** (bounded contexts): `Auth` (conta, sessão, perfil comum), `Owners` (perfil de tutor), `Hosts` (anfitrião: verificação de identidade aprovada pelo admin e perfil verificado, PF/PJ), `Audit` (trilha de auditoria de todos os módulos), `Pets` (ficha do pet, do tutor ou do anfitrião), `Listings` (cantinho: o espaço do anfitrião, com fotos e busca com filtros e raio — [`modulo-listings.md`](modulo-listings.md)), `Bookings` (reserva: pedido, aceite/recusa, cancelamento, check-in e check-out — [`modulo-bookings.md`](modulo-bookings.md)), `Availability`, `Payments`, `Reviews`, `Notifications`. Criar módulo novo é decisão de arquitetura — discutir antes do PR.
+**Módulos** (bounded contexts): `Auth` (conta, sessão, perfil comum), `Owners` (perfil de tutor), `Hosts` (anfitrião: verificação de identidade aprovada pelo admin e perfil verificado, PF/PJ), `Audit` (trilha de auditoria de todos os módulos), `Pets` (ficha do pet, do tutor ou do anfitrião), `Listings` (cantinho: o espaço do anfitrião, com fotos e busca com filtros e raio — [`modulo-listings.md`](modulo-listings.md)), `Bookings` (reserva: pedido, aceite/recusa, cancelamento, check-in e check-out — [`modulo-bookings.md`](modulo-bookings.md)), `Payments` (pagamento da reserva: Pix ou cartão em até 6 parcelas, checkout transparente, webhook, reembolso, repasse 90/10 e contestação — [`modulo-payments.md`](modulo-payments.md)), `Availability`, `Reviews`, `Notifications`. Criar módulo novo é decisão de arquitetura — discutir antes do PR.
 
 ---
 
@@ -117,7 +117,7 @@ Proibido: referenciar projeto de outro módulo, compartilhar `DbContext`, fazer 
 
 **Recurso de infraestrutura usado por mais de um módulo** (conexão Redis, bucket, caixa de saída de e-mail, cliente do Stripe) é registrado pelo `Shared.Infrastructure`, de forma idempotente (`TryAdd*`): cada módulo chama `AddRedis(...)`/`AddStripe(...)`, e nenhum depende do registro feito por outro. Cada módulo usa um prefixo próprio nas chaves (`pethost:<módulo>:...`).
 
-**Webhook de serviço externo** (Stripe) tem **um** endpoint para a API inteira, no `Shared.Infrastructure` (`POST /api/v1/stripe/webhooks`): ele confere a assinatura uma vez e entrega o evento a cada `IStripeWebhookHandler` que o módulo registrou para o tipo (`AddScoped<IStripeWebhookHandler, ...>`). O handler trata o evento como **aviso** e relê o objeto na API do serviço — idempotente e imune a evento repetido ou fora de ordem. Exceção no handler = `500`, e o serviço reenvia.
+**Webhook de serviço externo** (Stripe) tem **um** endpoint para a API inteira, no `Shared.Infrastructure` (`POST /api/v1/stripe/webhooks`): ele confere a assinatura uma vez e entrega o evento a cada `IStripeWebhookHandler` que o módulo registrou para o tipo (`AddScoped<IStripeWebhookHandler, ...>`). O handler trata o evento como **aviso** e relê o objeto na API do serviço — idempotente e imune a evento repetido ou fora de ordem. Exceção no handler = `500`, e o serviço reenvia. Hoje: o Hosts trata `account.updated`; o Payments, os eventos de cobrança, reembolso e contestação (e guarda os ids tratados em `payment.stripe_events`).
 
 **Regra que atravessa módulos** (ex.: o CPF identifica a pessoa entre tutor e anfitrião): cada módulo implementa um contrato de consulta pequeno em `Shared.Contracts` (`ICpfHolderLookup`), registrado com `AddScoped` — todos são lidos —, e a regra mora num lugar só (`ICpfOwnership`, implementado em `Shared.Infrastructure`). Nenhum módulo conhece o outro.
 
@@ -510,7 +510,7 @@ public sealed class BookingsController(
 | Regra | Detalhe |
 |-------|---------|
 | Um `DbContext` por módulo | `BookingsDbContext`, `AuthDbContext` |
-| Um schema por módulo | `auth`, `owner`, `host`, `pet`, `listing`, `booking`, `audit` (singular). Infraestrutura compartilhada que precisa de tabela também ganha schema e `DbContext` próprios em `Shared.Infrastructure`: `email` (caixa de saída de e-mails) |
+| Um schema por módulo | `auth`, `owner`, `host`, `pet`, `listing`, `booking`, `payment`, `audit` (singular). Infraestrutura compartilhada que precisa de tabela também ganha schema e `DbContext` próprios em `Shared.Infrastructure`: `email` (caixa de saída de e-mails) |
 | Migrations e histórico isolados | `Persistence/Migrations`, `__ef_migrations_history` no schema do módulo |
 | Sem `JOIN` entre schemas | Cruzar dado só pelo §5 |
 | `DbContext` nunca sai da `Infrastructure` | `Application` só conhece interfaces |
@@ -586,6 +586,13 @@ O time pensa em português, o código fala inglês. Esta é a tradução oficial
 | Ocupação do cantinho (pets por noite) | `ListingOccupancy` | Valor total da estadia | `TotalPrice` |
 | Selo (automático) | `Badge` (`ListingBadges`: `neighbor`, `fast_responder`, `yard`, `experienced`) | Datas da busca | `StayWindow` (`checkIn`/`checkOut`) |
 | Contato liberado (endereço exato e telefone) | `Contact` (`RevealsContact`) | Histórico do anfitrião (estadias, tempo de resposta) | `HostTrackRecord` / `HostBookingStats` |
+| Pagamento da reserva (o plano de parcelas) | `Payment` (`InstallmentCount`) | Parcela | `Installment` *(❌ Parcel, Quota)* |
+| Prazo para pagar a 1ª parcela (24h depois do aceite) | `PaymentDeadline` (`PaymentWindow`) | Checkout transparente (abrir o pagamento da parcela) | `PaymentSession` (rota `/payment-session`) |
+| Parcela em atraso / tolerância de 24h | `Overdue` / `OverdueGrace` | Lembrete de vencimento | `Reminder` (`TakeReminders`) |
+| Contestação no cartão (chargeback) | `Dispute` | Estorno do repasse (contestação perdida) | `TransferReversal` (`PayoutStatus.Reversed`) |
+| Taxa da plataforma (10%) | `PlatformFee` | Parte do anfitrião (90%) | `HostShare` / `HostPayout` |
+| Ganhos do anfitrião (os repasses) | `HostEarnings` (`/payments/payouts/me`) | Pendências de pagamento (admin) | `PaymentIssues` |
+| Cancelada pela plataforma (parcela não paga) | `BookingParty.Platform` (`CancelUnpaid`) | Releitura do Stripe / reconciliação | `ChargeSnapshot` / `Reconcile` (`PaymentReconciler`) |
 
 ---
 
@@ -638,6 +645,9 @@ PUT    /api/v1/listings/{listingId:guid}/photos/order
 POST   /api/v1/bookings               ·  GET  /api/v1/bookings/me  ·  GET /api/v1/bookings/{bookingId:guid}
 POST   /api/v1/bookings/{bookingId:guid}/acceptance  ·  POST /api/v1/bookings/{bookingId:guid}/refusal
 POST   /api/v1/bookings/{bookingId:guid}/cancellation  ·  POST /api/v1/bookings/{bookingId:guid}/check-in  ·  /check-out
+GET    /api/v1/bookings/{bookingId:guid}/payment  ·  PUT /api/v1/bookings/{bookingId:guid}/payment  ·  POST .../payment/synchronization
+POST   /api/v1/bookings/{bookingId:guid}/payment/installments/{installmentNumber:int}/payment-session
+GET    /api/v1/payments/payouts/me  ·  GET /api/v1/payments/issues  ·  POST /api/v1/stripe/webhooks
 GET    /api/v1/hosts/{hostId:guid}/availability?from=2026-11-01&to=2026-11-30
 ```
 

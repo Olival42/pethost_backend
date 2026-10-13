@@ -31,6 +31,7 @@ public interface IHostDirectory
 /// <param name="TradeName">Nome fantasia, só de empresa. Pessoa física usa o nome da conta.</param>
 /// <param name="IsSuspended">Suspenso pelo admin. Diferente de inativo: só o admin tira.</param>
 /// <param name="PayoutsEnabled">O Stripe liberou os repasses (cadastro de recebimento concluído).</param>
+/// <param name="StripeAccountId">Conta conectada no Stripe (<c>acct_...</c>), destino dos repasses. Nula sem cadastro.</param>
 public sealed record HostReference(
     Guid Id,
     Guid UserId,
@@ -38,7 +39,8 @@ public sealed record HostReference(
     string? TradeName,
     bool IsActive,
     bool IsSuspended = false,
-    bool PayoutsEnabled = false)
+    bool PayoutsEnabled = false,
+    string? StripeAccountId = null)
 {
     /// <summary>Valor de <see cref="PersonType"/> da pessoa jurídica.</summary>
     public const string CompanyPersonType = "pj";

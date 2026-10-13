@@ -48,6 +48,12 @@
     <Project Path="src/Modules/Bookings/PetHost.Modules.Bookings.Infrastructure/PetHost.Modules.Bookings.Infrastructure.csproj" />
     <Project Path="src/Modules/Bookings/PetHost.Modules.Bookings.Presentation/PetHost.Modules.Bookings.Presentation.csproj" />
   </Folder>
+  <Folder Name="/src/Modules/Payments/">
+    <Project Path="src/Modules/Payments/PetHost.Modules.Payments.Application/PetHost.Modules.Payments.Application.csproj" />
+    <Project Path="src/Modules/Payments/PetHost.Modules.Payments.Domain/PetHost.Modules.Payments.Domain.csproj" />
+    <Project Path="src/Modules/Payments/PetHost.Modules.Payments.Infrastructure/PetHost.Modules.Payments.Infrastructure.csproj" />
+    <Project Path="src/Modules/Payments/PetHost.Modules.Payments.Presentation/PetHost.Modules.Payments.Presentation.csproj" />
+  </Folder>
   <Folder Name="/src/Shared/" />
   <Folder Name="/tests/">
     <Project Path="tests/PetHost.ArchitectureTests/PetHost.ArchitectureTests.csproj" />
@@ -88,6 +94,11 @@
     <Project Path="tests/Modules/Bookings/PetHost.Modules.Bookings.Application.UnitTests/PetHost.Modules.Bookings.Application.UnitTests.csproj" />
     <Project Path="tests/Modules/Bookings/PetHost.Modules.Bookings.Domain.UnitTests/PetHost.Modules.Bookings.Domain.UnitTests.csproj" />
     <Project Path="tests/Modules/Bookings/PetHost.Modules.Bookings.IntegrationTests/PetHost.Modules.Bookings.IntegrationTests.csproj" />
+  </Folder>
+  <Folder Name="/tests/Modules/Payments/">
+    <Project Path="tests/Modules/Payments/PetHost.Modules.Payments.Application.UnitTests/PetHost.Modules.Payments.Application.UnitTests.csproj" />
+    <Project Path="tests/Modules/Payments/PetHost.Modules.Payments.Domain.UnitTests/PetHost.Modules.Payments.Domain.UnitTests.csproj" />
+    <Project Path="tests/Modules/Payments/PetHost.Modules.Payments.IntegrationTests/PetHost.Modules.Payments.IntegrationTests.csproj" />
   </Folder>
   <Folder Name="/tests/Shared/">
     <Project Path="tests/Shared/PetHost.Shared.Contracts.UnitTests/PetHost.Shared.Contracts.UnitTests.csproj" />

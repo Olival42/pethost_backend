@@ -33,13 +33,14 @@ public sealed class CancelBookingCommandValidator : AbstractValidator<CancelBook
 /// <summary>
 /// Só o tutor que pediu ou o anfitrião do cantinho. O reembolso (<c>refundPercentage</c>) sai da
 /// regra do domínio (<see cref="Booking.Cancel"/>): 100% se o anfitrião cancela ou se o tutor
-/// cancela com 48h de antecedência; 50% depois disso; nenhum se nada foi pago. Avisa os dois
-/// lados por e-mail.
+/// cancela com 48h de antecedência; 50% depois disso; nenhum se nada foi pago. Avisa o pagamento
+/// (que devolve o dinheiro e cancela as parcelas em aberto) e os dois lados por e-mail.
 /// </summary>
 public sealed class CancelBookingCommandHandler(
     IBookingRepository bookingRepository,
     IBookingsUnitOfWork unitOfWork,
     IBookingParties bookingParties,
+    IBookingPayments bookingPayments,
     BookingResponseBuilder responseBuilder,
     BookingNotifications notifications,
     IAuditTrail auditTrail,
@@ -65,6 +66,7 @@ public sealed class CancelBookingCommandHandler(
             return Result<BookingResponse>.FromFailure(saved);
 
         await BookingTrail.RecordCancelledAsync(auditTrail, booking, cancellationToken).ConfigureAwait(false);
+        await bookingPayments.BookingChangedAsync(booking.Id.Value, cancellationToken).ConfigureAwait(false);
 
         var response = await responseBuilder.BuildAsync(booking, side, cancellationToken).ConfigureAwait(false);
         await notifications.CancelledAsync(booking, response, cancellationToken).ConfigureAwait(false);
