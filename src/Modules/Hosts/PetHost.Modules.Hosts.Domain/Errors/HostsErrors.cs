@@ -227,4 +227,11 @@ public static class HostsErrors
     /// <summary>404: a conta do token ainda não é anfitriã verificada.</summary>
     public static readonly Error ProfileNotFound =
         new("HOST_NOT_FOUND", "This account is not a verified host yet.");
+
+    /// <summary>
+    /// 422: o anfitrião tem reserva em aberto (solicitada, aceita, confirmada ou em andamento).
+    /// Responda, cancele ou conclua as estadias antes de inativar o perfil.
+    /// </summary>
+    public static readonly Error HasOpenBooking =
+        new("HOST_HAS_OPEN_BOOKING", "This host has open bookings. Answer, cancel or finish them before deactivating the profile.");
 }

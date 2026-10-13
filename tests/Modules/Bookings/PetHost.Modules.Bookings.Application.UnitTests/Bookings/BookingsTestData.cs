@@ -62,6 +62,8 @@ internal static class BookingsTestData
         parties.Setup(p => p.FindHostByAccountAsync(SuspendedHostUserId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new PartyProfile(BookingBuilder.HostId, IsAvailable: false));
 
+        parties.Setup(p => p.IsOwnerAvailableAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync(true);
+
         parties.Setup(p => p.GetOwnersAsync(It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((IReadOnlyCollection<Guid> ids, CancellationToken _) =>
                 ids.ToDictionary(id => id, id => new PartyInfo(id, "Camila Souza", null, OwnerPhone, OwnerEmail)));

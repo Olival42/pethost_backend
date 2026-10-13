@@ -150,6 +150,7 @@ Na ordem em que são conferidas. Formato e período voltam **todos juntos** num 
 
 - **Só o anfitrião do cantinho**, com perfil ativo e sem suspensão (`403 BOOKING_HOST_DEACTIVATED`; sem perfil, `404 BOOKING_HOST_NOT_FOUND`). Reserva de outro anfitrião: `404 BOOKING_NOT_FOUND`.
 - **Só `requested`**; outro status: `422 BOOKING_NOT_AWAITING_RESPONSE`.
+- **O tutor ainda precisa estar ativo e sem suspensão.** Suspenso (ou inativo) depois do pedido: `422 BOOKING_OWNER_INACTIVE`, sem gravar nem mandar e-mail — o aceite mandaria a ele o endereço exato do anfitrião. O anfitrião recusa ou deixa expirar.
 - **Prazo**: 24h desde o pedido **ou** até a data de chegada passar, o que vier primeiro. Fora do prazo, a reserva **expira na hora** (é gravada como `expired`) e o pedido volta `422 BOOKING_RESPONSE_EXPIRED`.
 - **Aceitar confere a capacidade de novo**, com as condições atuais do cantinho (a capacidade pode ter mudado e outras reservas podem ter sido confirmadas): `422 BOOKING_CAPACITY_EXCEEDED`.
 - **Dois aceites ao mesmo tempo** no mesmo cantinho não passam juntos do limite: a conta e a gravação rodam numa transação com o cantinho travado (`pg_advisory_xact_lock`, chave tirada do id do cantinho). Quem chega depois espera e já vê o que o primeiro gravou.
@@ -168,7 +169,7 @@ O cancelamento não é barrado pelo prazo, mas o **reembolso** depende de quem c
 | **Tutor** | `confirmed` | menos de 48h antes (inclusive no dia) | **50** (os outros 50% seguem o 90/10) |
 | **Anfitrião** | `confirmed` | a qualquer momento antes da chegada | **100** |
 
-Quem inativou o próprio perfil (tutor ou anfitrião) ainda pode cancelar o que estava marcado. Motivo opcional, até 500 caracteres.
+Cancelar não exige perfil ativo, mas quem está inativo ou suspenso não tem sessão (a conta perde as sessões na hora). Por isso **tutor e anfitrião não inativam o perfil com reserva em aberto** (`422 OWNER_HAS_OPEN_BOOKING` / `422 HOST_HAS_OPEN_BOOKING`): cancelam, respondem ou fazem o check-out antes. Motivo opcional, até 500 caracteres.
 
 ## 7. Check-in e check-out
 
@@ -204,15 +205,15 @@ Nenhuma referência a outro módulo (§5, verificado em `BookingsModuleBoundaryT
 | `IBookingNotifier` | `BookingEmailNotifier` | `IEmailOutbox` (`Shared.Infrastructure`) |
 | `IBookingPets` | `BookingPets` | **`IPetDirectory`** (novo, implementado pelo Pets) |
 
-No sentido contrário, o Bookings **implementa** o contrato `IBookingDirectory` (`Shared.Contracts/Bookings`, adaptador `Infrastructure/Directory/BookingDirectory.cs`): pet com reserva em aberto e pet reservado com o anfitrião (Pets), maior ocupação por noite num período e números do anfitrião para os selos (Listings). O `OwnerReference` ganhou `IsSuspended` (com `IsAvailable`): tutor suspenso não pede estadia.
+No sentido contrário, o Bookings **implementa** o contrato `IBookingDirectory` (`Shared.Contracts/Bookings`, adaptador `Infrastructure/Directory/BookingDirectory.cs`): pet com reserva em aberto e pet reservado com o anfitrião (Pets), tutor e anfitrião com reserva em aberto (Owners e Hosts, para barrar a inativação), maior ocupação por noite num período e números do anfitrião para os selos (Listings). O `OwnerReference` ganhou `IsSuspended` (com `IsAvailable`): tutor suspenso não pede estadia, e o aceite confere de novo (`IBookingParties.IsOwnerAvailableAsync`).
 
 Contratos novos em `Shared.Contracts`: `Listings/IListingDirectory` (`ListingReference`: dono, título, bairro, ativo, capacidade, diária, espécies, portes e dias da semana — sem endereço exato) e `Pets/IPetDirectory` (`PetReference`: dono, nome, espécie, porte, ativo — sem a ficha de saúde).
 
 ## 10. Testes
 
 - **Domínio** (`Bookings.Domain.UnitTests`, 81): `StayPeriod` (cada regra, limites, noites × dias, sobreposição, formato da data), `BookableListing` (porte, primeiro dia fechado incluindo a saída), `ListingOccupancy` (só confirmadas contam, troca de vaga no mesmo dia), `Booking.Request` (cada ramo de falha), cada transição e cada ramo de falha (aceite, recusa, expiração por 24h e pela data, cancelamento com 100/50/sem reembolso, check-in cedo/tarde, check-out), `BookingClock` em Brasília.
-- **Application** (`Bookings.Application.UnitTests`, 70): cada handler, caminho feliz e cada falha, com `Times.Never` no `SaveChanges` quando falha; quem recebe cada e-mail (aceite: tutor com endereço exato e anfitrião, cada um com o telefone do outro; recusa: só o tutor, sem telefone nem endereço; cancelamento: os dois); trava do cantinho no aceite; expiração gravada no aceite/recusa fora do prazo; validador (campos juntos, formato, período, pets).
-- **Integração** (`Bookings.IntegrationTests`, 29, Postgres + Redis + RustFS em container): o caminho inteiro (pedido → aceite → check-in → cancelar recusado → check-out), `400` com todos os campos, período inválido, dia da semana fechado, capacidade, pet em duas reservas (`409`), pet de outro tutor, porte, papel errado (`403`), **dois aceites simultâneos disputando a última vaga** (um `200`, um `422`), recusa sem corpo, reembolso 50/100, cancelar duas vezes, check-in cedo e sem confirmação, check-out sem check-in, quem vê (`404` para estranho), listagem paginada e ordenada, filtro de status inválido, expiração pela tarefa; contato só depois da confirmação; e-mails de aceite/confirmação, recusa e cancelamento entregues; pet com reserva em aberto não desativa; ficha do pet liberada ao anfitrião depois do pedido; busca por datas escondendo o cantinho cheio só nas noites ocupadas, com selos.
+- **Application** (`Bookings.Application.UnitTests`, 71): cada handler, caminho feliz e cada falha, com `Times.Never` no `SaveChanges` quando falha; quem recebe cada e-mail (aceite: tutor com endereço exato e anfitrião, cada um com o telefone do outro; recusa: só o tutor, sem telefone nem endereço; cancelamento: os dois); trava do cantinho no aceite; aceite de tutor suspenso recusado sem gravar nem mandar e-mail; expiração gravada no aceite/recusa fora do prazo; validador (campos juntos, formato, período, pets).
+- **Integração** (`Bookings.IntegrationTests`, 32, Postgres + Redis + RustFS em container): o caminho inteiro (pedido → aceite → check-in → cancelar recusado → check-out), `400` com todos os campos, período inválido, dia da semana fechado, capacidade, pet em duas reservas (`409`), pet de outro tutor, porte, papel errado (`403`), **dois aceites simultâneos disputando a última vaga** (um `200`, um `422`), recusa sem corpo, reembolso 50/100, cancelar duas vezes, check-in cedo e sem confirmação, check-out sem check-in, quem vê (`404` para estranho), listagem paginada e ordenada, filtro de status inválido, expiração pela tarefa; contato só depois da confirmação; e-mails de aceite/confirmação, recusa e cancelamento entregues; pet com reserva em aberto não desativa; tutor com reserva em aberto não inativa (e inativa depois de cancelar); anfitrião com estadia em andamento não inativa (e inativa depois do check-out); aceite de tutor suspenso depois do pedido (`422 BOOKING_OWNER_INACTIVE`, reserva continua `requested`, sem e-mail de aceite); ficha do pet liberada ao anfitrião depois do pedido; busca por datas escondendo o cantinho cheio só nas noites ocupadas, com selos.
 
 ## 11. Decisões e pendências
 
@@ -228,9 +229,10 @@ Contratos novos em `Shared.Contracts`: `Listings/IListingDirectory` (`ListingRef
 | Datas como texto no JSON | Padrão do projeto: erro de formato volta no campo, junto com os outros. |
 | E-mail depois de gravar, pela caixa de saída | Não segura o request no SMTP e não se perde se a API cair. |
 | Fuso fixo UTC−3 | Piloto em Maringá; sem horário de verão. Trocar por fuso por cantinho se houver outras cidades. |
+| Inativar com reserva em aberto é barrado; o aceite confere o tutor | A conta inativa perde as sessões e não entra nem para cancelar ou fazer o check-out (a estadia ficaria presa). O aceite mandaria o endereço exato do anfitrião a um tutor suspenso. Mesmo critério do pet com reserva em aberto. |
 
 **Pendências**
 
 1. **Pagamento** (módulo Payments): aceite → `accepted`; webhook → `confirmed`; 24h sem pagar → `expired`; reembolso com `refundPercentage`; repasse no check-out.
 2. **Agenda** (`availability_blocks`): datas bloqueadas pelo anfitrião ainda não barram o pedido.
-3. **Tutor ou anfitrião suspenso com reserva em aberto**: hoje a reserva continua; o admin cancela se precisar. Cancelar automaticamente fica para quando houver pagamento (reembolso).
+3. **Tutor ou anfitrião suspenso pelo admin com reserva em aberto.** Inativar o próprio perfil já é barrado com reserva em aberto e o aceite confere o tutor, mas a **suspensão** não mexe nas reservas: `confirmed` fica até alguém cancelar (o tutor de anfitrião suspenso cancela, mas a menos de 48h leva 50%), e `in_progress` de anfitrião suspenso fica presa — não há rota de admin para cancelar nem fazer o check-out. Próximos passos: na suspensão, cancelar automaticamente `requested`/`confirmed` (100% para a outra parte, com e-mail) e uma rota de admin para encerrar a estadia em andamento.

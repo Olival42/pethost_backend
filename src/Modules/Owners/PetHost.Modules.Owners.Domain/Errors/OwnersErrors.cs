@@ -66,4 +66,11 @@ public static class OwnersErrors
     /// <summary>404: a conta do token não tem perfil de tutor (conta antiga, de antes do cadastro unificado).</summary>
     public static readonly Error ProfileNotFound =
         new("OWNER_NOT_FOUND", "This account has no owner profile yet.");
+
+    /// <summary>
+    /// 422: o tutor tem reserva em aberto (solicitada, aceita, confirmada ou em andamento).
+    /// Cancele ou conclua as estadias antes de inativar o perfil.
+    /// </summary>
+    public static readonly Error HasOpenBooking =
+        new("OWNER_HAS_OPEN_BOOKING", "This owner has open bookings. Cancel or finish them before deactivating the profile.");
 }

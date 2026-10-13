@@ -21,6 +21,7 @@ public sealed class AcceptBookingCommandHandlerTests
     private readonly Mock<IBookingsUnitOfWork> _unitOfWork = BookingsTestData.UnitOfWork();
     private readonly Mock<IAuditTrail> _auditTrail = new();
     private readonly Mock<IBookingNotifier> _notifier = new();
+    private readonly Mock<IBookingParties> _parties = BookingsTestData.Parties();
     private Mock<IBookingListings> _listings = BookingsTestData.Listings();
     private DateTimeOffset _now = BookingBuilder.DefaultNow.AddHours(2);
 
@@ -29,7 +30,7 @@ public sealed class AcceptBookingCommandHandlerTests
     private AcceptBookingCommandHandler Sut() => new(
         _repository.Object,
         _unitOfWork.Object,
-        BookingsTestData.Parties().Object,
+        _parties.Object,
         _listings.Object,
         BookingsTestData.ResponseBuilder(),
         BookingsTestData.Notifications(_notifier.Object),
@@ -108,6 +109,22 @@ public sealed class AcceptBookingCommandHandlerTests
 
         // Assert
         result.FirstError.Should().Be(BookingsErrors.HostNotFound);
+    }
+
+    [Fact]
+    public async Task HandleAsync_Should_ReturnOwnerInactiveWithoutSavingOrEmailing_When_OwnerWasSuspendedAfterTheRequest()
+    {
+        // Arrange
+        _parties.Setup(p => p.IsOwnerAvailableAsync(BookingBuilder.OwnerId, It.IsAny<CancellationToken>())).ReturnsAsync(false);
+
+        // Act
+        var result = await AcceptAsync();
+
+        // Assert
+        result.FirstError.Should().Be(BookingsErrors.OwnerInactive);
+        _booking.Status.Should().Be(BookingStatus.Requested);
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+        _notifier.VerifyNoOtherCalls();
     }
 
     [Fact]

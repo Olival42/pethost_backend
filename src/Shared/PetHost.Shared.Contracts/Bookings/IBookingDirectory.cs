@@ -14,6 +14,18 @@ public interface IBookingDirectory
     Task<bool> HasOpenBookingForPetAsync(Guid petId, CancellationToken cancellationToken);
 
     /// <summary>
+    /// O tutor <paramref name="ownerId"/> (<c>owner.owners.id</c>) tem alguma reserva em aberto
+    /// (solicitada, aceita, confirmada ou em andamento)? Tutor assim não pode inativar o perfil.
+    /// </summary>
+    Task<bool> HasOpenBookingForOwnerAsync(Guid ownerId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// O anfitrião <paramref name="hostId"/> (<c>host.hosts.id</c>) tem alguma reserva em aberto
+    /// (solicitada, aceita, confirmada ou em andamento)? Anfitrião assim não pode inativar o perfil.
+    /// </summary>
+    Task<bool> HasOpenBookingForHostAsync(Guid hostId, CancellationToken cancellationToken);
+
+    /// <summary>
     /// O pet foi pedido para um cantinho do anfitrião <paramref name="hostId"/> numa reserva
     /// ainda válida ou já concluída (solicitada, aceita, confirmada, em andamento ou concluída)?
     /// É o que deixa o anfitrião ler a ficha completa do pet. Recusada, expirada ou cancelada não conta.

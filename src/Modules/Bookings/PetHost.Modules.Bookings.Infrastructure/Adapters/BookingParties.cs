@@ -29,6 +29,13 @@ internal sealed class BookingParties(
         return host is null ? null : new PartyProfile(host.Id, host.IsAvailable);
     }
 
+    public async Task<bool> IsOwnerAvailableAsync(Guid ownerId, CancellationToken cancellationToken)
+    {
+        var owners = await ownerDirectory.GetByIdsAsync([ownerId], cancellationToken).ConfigureAwait(false);
+
+        return owners.Any(owner => owner.IsAvailable);
+    }
+
     public async Task<IReadOnlyDictionary<Guid, PartyInfo>> GetOwnersAsync(
         IReadOnlyCollection<Guid> ownerIds,
         CancellationToken cancellationToken)

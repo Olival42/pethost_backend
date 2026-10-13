@@ -169,7 +169,9 @@ public sealed class OwnersController(
     /// <summary>Inativa o tutor logado: o perfil de tutor e a conta, juntos.</summary>
     /// <remarks>
     /// Todas as sessões da conta caem na hora. A conta de anfitrião da mesma pessoa não é
-    /// afetada. Para voltar, use <c>POST /api/v1/owners/reactivate</c>.
+    /// afetada. Para voltar, use <c>POST /api/v1/owners/reactivate</c>. Com reserva em aberto
+    /// (solicitada, confirmada ou em andamento): 422 <c>OWNER_HAS_OPEN_BOOKING</c> — cancele ou
+    /// conclua antes.
     /// </remarks>
     [HttpPost("me/deactivate")]
     [EnableRateLimiting(RateLimitPolicies.AccountSensitive)]
@@ -178,6 +180,7 @@ public sealed class OwnersController(
     [ProducesResponseType<ApiResponse<Unit>>(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType<ApiResponse<Unit>>(StatusCodes.Status403Forbidden)]
     [ProducesResponseType<ApiResponse<Unit>>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ApiResponse<Unit>>(StatusCodes.Status422UnprocessableEntity)]
     [ProducesResponseType<ApiResponse<Unit>>(StatusCodes.Status429TooManyRequests)]
     public async Task<IActionResult> DeactivateMeAsync(CancellationToken cancellationToken)
     {

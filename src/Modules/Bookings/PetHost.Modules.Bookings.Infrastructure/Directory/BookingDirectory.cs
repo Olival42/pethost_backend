@@ -24,6 +24,16 @@ internal sealed class BookingDirectory(BookingsDbContext dbContext) : IBookingDi
             .AsNoTracking()
             .AnyAsync(b => Open.Contains(b.Status) && b.Pets.Any(p => p.PetId == petId), cancellationToken);
 
+    public Task<bool> HasOpenBookingForOwnerAsync(Guid ownerId, CancellationToken cancellationToken) =>
+        dbContext.Bookings
+            .AsNoTracking()
+            .AnyAsync(b => b.OwnerId == ownerId && Open.Contains(b.Status), cancellationToken);
+
+    public Task<bool> HasOpenBookingForHostAsync(Guid hostId, CancellationToken cancellationToken) =>
+        dbContext.Bookings
+            .AsNoTracking()
+            .AnyAsync(b => b.HostId == hostId && Open.Contains(b.Status), cancellationToken);
+
     public Task<bool> IsPetBookedWithHostAsync(Guid petId, Guid hostId, CancellationToken cancellationToken) =>
         dbContext.Bookings
             .AsNoTracking()

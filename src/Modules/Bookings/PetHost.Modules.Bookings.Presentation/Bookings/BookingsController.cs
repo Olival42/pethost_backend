@@ -118,6 +118,7 @@ public sealed class BookingsController(
     /// pagamento não existe, aceitar já confirma: vai para <c>confirmed</c> e ocupa vaga. Sem vaga
     /// em alguma noite: 422 <c>BOOKING_CAPACITY_EXCEEDED</c>. Prazo vencido: a reserva expira e
     /// volta 422 <c>BOOKING_RESPONSE_EXPIRED</c>. Outro status: 422 <c>BOOKING_NOT_AWAITING_RESPONSE</c>.
+    /// Tutor suspenso ou inativo desde o pedido: 422 <c>BOOKING_OWNER_INACTIVE</c> (recuse ou deixe expirar).
     /// </remarks>
     [HttpPost("{bookingId:guid}/acceptance")]
     [Authorize(Roles = Roles.Host)]

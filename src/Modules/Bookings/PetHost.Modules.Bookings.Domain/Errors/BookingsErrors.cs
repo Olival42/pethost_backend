@@ -82,6 +82,13 @@ public static class BookingsErrors
     public static readonly Error OwnerDeactivated =
         new("BOOKING_OWNER_DEACTIVATED", "This owner profile is deactivated or suspended.");
 
+    /// <summary>
+    /// 422: o tutor que pediu foi suspenso (ou inativado) depois do pedido. O anfitrião não
+    /// aceita; recusa ou deixa expirar.
+    /// </summary>
+    public static readonly Error OwnerInactive =
+        new("BOOKING_OWNER_INACTIVE", "The owner who requested this booking is no longer active. Decline the request or let it expire.");
+
     /// <summary>404: a conta do token não tem perfil de anfitrião (ainda não foi verificada).</summary>
     public static readonly Error HostNotFound =
         new("BOOKING_HOST_NOT_FOUND", "This account has no verified host profile yet.");

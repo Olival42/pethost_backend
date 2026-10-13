@@ -10,7 +10,8 @@ namespace PetHost.Modules.Owners.Application.Owners.DeactivateMyOwner;
 
 /// <summary>
 /// Inativa o perfil de tutor e a conta ligada, o que derruba todas as sessões na hora. A
-/// outra conta da mesma pessoa (anfitrião) não é afetada.
+/// outra conta da mesma pessoa (anfitrião) não é afetada. Com reserva em aberto, recusa
+/// (<c>422 OWNER_HAS_OPEN_BOOKING</c>).
 /// </summary>
 /// <remarks>
 /// O perfil é gravado primeiro; se inativar a conta falhar, o perfil volta a ficar ativo
@@ -20,6 +21,7 @@ public sealed class DeactivateMyOwnerCommandHandler(
     IOwnerRepository ownerRepository,
     IOwnersUnitOfWork unitOfWork,
     IOwnerAccounts ownerAccounts,
+    IOwnerBookings ownerBookings,
     IAuditTrail auditTrail,
     TimeProvider timeProvider) : ICommandHandler<DeactivateMyOwnerCommand, Unit>
 {
@@ -32,6 +34,12 @@ public sealed class DeactivateMyOwnerCommandHandler(
             return Result<Unit>.Failure(OwnersErrors.ProfileNotFound);
 
         var wasActive = owner.IsActive;
+
+        // Com reserva em aberto, inativar deixaria a estadia sem ninguém do lado do tutor:
+        // a conta inativa não entra nem para cancelar.
+        if (wasActive && await ownerBookings.HasOpenBookingAsync(owner.Id.Value, cancellationToken).ConfigureAwait(false))
+            return Result<Unit>.Failure(OwnersErrors.HasOpenBooking);
+
         owner.Deactivate(timeProvider.GetUtcNow());
         await unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 

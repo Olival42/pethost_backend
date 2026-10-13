@@ -30,7 +30,8 @@ public sealed class AcceptBookingCommandValidator : AbstractValidator<AcceptBook
 /// <summary>
 /// Só o anfitrião do cantinho, ativo. A capacidade é conferida com o cantinho travado: dois
 /// aceites ao mesmo tempo não passam juntos do limite. Prazo vencido: a reserva expira e o
-/// aceite volta <c>422 BOOKING_RESPONSE_EXPIRED</c>. Avisa por e-mail o tutor (aceita) e o
+/// aceite volta <c>422 BOOKING_RESPONSE_EXPIRED</c>. Tutor suspenso ou inativo desde o pedido:
+/// <c>422 BOOKING_OWNER_INACTIVE</c>, sem gravar. Avisa por e-mail o tutor (aceita) e o
 /// anfitrião (confirmada).
 /// </summary>
 public sealed class AcceptBookingCommandHandler(
@@ -57,6 +58,14 @@ public sealed class AcceptBookingCommandHandler(
 
         if (booking.Expire(now))
             return await ExpireAsync(booking, cancellationToken).ConfigureAwait(false);
+
+        // Tutor suspenso depois do pedido: aceitar mandaria a ele o endereço exato do anfitrião.
+        // Outro status cai no erro do próprio Accept.
+        if (booking.Status == BookingStatus.Requested
+            && !await bookingParties.IsOwnerAvailableAsync(booking.OwnerId, cancellationToken).ConfigureAwait(false))
+        {
+            return Result<BookingResponse>.Failure(BookingsErrors.OwnerInactive);
+        }
 
         var listing = await bookingListings.FindAsync(booking.ListingId, cancellationToken).ConfigureAwait(false);
         if (listing is null)

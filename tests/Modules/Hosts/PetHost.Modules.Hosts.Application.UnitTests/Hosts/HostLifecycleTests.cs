@@ -8,6 +8,7 @@ using PetHost.Modules.Hosts.Application.Hosts.GetHostById;
 using PetHost.Modules.Hosts.Application.Hosts.ReactivateHost;
 using PetHost.Modules.Hosts.Application.Hosts.SuspendHost;
 using PetHost.Modules.Hosts.Application.Hosts.UpdateMyHost;
+using PetHost.Modules.Hosts.Domain.Errors;
 using PetHost.Modules.Hosts.Domain.Hosts;
 using PetHost.Shared.Contracts.Accounts;
 using PetHost.Shared.Contracts.Audit;
@@ -28,6 +29,7 @@ public sealed class HostLifecycleTests
     private readonly Mock<IHostsUnitOfWork> _unitOfWork = UnitOfWork();
     private readonly Mock<IHostAccounts> _accounts = Accounts();
     private readonly Mock<IAuditTrail> _auditTrail = new();
+    private readonly Mock<IHostBookings> _bookings = new();
     private readonly Mock<IImageStorage> _images = new();
     private readonly FakeTimeProvider _time = new(Now.AddDays(1));
     private readonly Host _individual = Host.CreateIndividual(UserId, AnyCpf, Guid.CreateVersion7(), AdminId, Now);
@@ -253,6 +255,23 @@ public sealed class HostLifecycleTests
     }
 
     [Fact]
+    public async Task Deactivate_Should_RefuseWithoutTouchingAnything_When_HostHasAnOpenBooking()
+    {
+        // Arrange
+        Is(_individual);
+        _bookings.Setup(b => b.HasOpenBookingAsync(_individual.Id.Value, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+
+        // Act
+        var result = await Deactivate().HandleAsync(new DeactivateMyHostCommand(UserId), CancellationToken.None);
+
+        // Assert
+        result.FirstError.Should().Be(HostsErrors.HasOpenBooking);
+        _individual.IsActive.Should().BeTrue();
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+        _accounts.Verify(a => a.DeactivateAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
     public async Task Deactivate_Should_ReactivateTheProfileAgain_When_TheAccountCannotBeDeactivated()
     {
         // Arrange
@@ -451,5 +470,5 @@ public sealed class HostLifecycleTests
         _auditTrail.Verify(a => a.RecordAsync(It.Is<AuditRecord>(r => r.Action == AuditActions.HostsListed), It.IsAny<CancellationToken>()), Times.Once);
     }
 
-    private DeactivateMyHostCommandHandler Deactivate() => new(_hosts.Object, _unitOfWork.Object, _accounts.Object, _auditTrail.Object, _time);
+    private DeactivateMyHostCommandHandler Deactivate() => new(_hosts.Object, _unitOfWork.Object, _accounts.Object, _bookings.Object, _auditTrail.Object, _time);
 }

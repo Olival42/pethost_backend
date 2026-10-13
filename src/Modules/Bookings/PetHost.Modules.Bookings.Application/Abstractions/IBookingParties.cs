@@ -13,6 +13,12 @@ public interface IBookingParties
     /// <summary>O anfitrião da conta <paramref name="userId"/>, ou <c>null</c> se ela não tem perfil de anfitrião.</summary>
     Task<PartyProfile?> FindHostByAccountAsync(Guid userId, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// O tutor <paramref name="ownerId"/> (<c>owner.owners.id</c>) está ativo e sem suspensão?
+    /// Tutor que sumiu conta como indisponível.
+    /// </summary>
+    Task<bool> IsOwnerAvailableAsync(Guid ownerId, CancellationToken cancellationToken);
+
     /// <summary>Nome, foto, e-mail e telefone de cada tutor, numa consulta por módulo. Quem sumiu não aparece.</summary>
     Task<IReadOnlyDictionary<Guid, PartyInfo>> GetOwnersAsync(
         IReadOnlyCollection<Guid> ownerIds,

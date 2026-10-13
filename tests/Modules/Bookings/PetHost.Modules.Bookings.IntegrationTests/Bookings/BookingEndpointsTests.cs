@@ -9,6 +9,7 @@ using PetHost.Modules.Bookings.Application.Bookings.ExpireOverdueBookings;
 using PetHost.Modules.Bookings.Domain.Bookings;
 using PetHost.Modules.Hosts.Domain.Hosts;
 using PetHost.Modules.Hosts.Infrastructure.Persistence;
+using PetHost.Modules.Owners.Infrastructure.Persistence;
 using PetHost.Shared.Kernel.Messaging;
 using Xunit;
 
@@ -481,6 +482,66 @@ public sealed class BookingEndpointsTests(BookingsApiFixture fixture) : IAsyncLi
         blocked.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
         Code(await ReadAsync(blocked)).Should().Be("PET_HAS_OPEN_BOOKING");
         allowed.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    // ----- inativar e suspender com reserva em aberto -----
+
+    [Fact]
+    public async Task OwnerDeactivation_Should_Return422_While_TheOwnerHasAnOpenBooking_And_WorkAfterCancelling()
+    {
+        var stay = await ArrangeAsync();
+        var bookingId = await CreateBookingAsync(stay.OwnerToken, stay.ListingId, stay.PipocaId);
+
+        var blocked = await SendAsync(HttpMethod.Post, "/api/v1/owners/me/deactivate", stay.OwnerToken);
+        await SendAsync(HttpMethod.Post, $"{BookingsRoute}/{bookingId}/cancellation", stay.OwnerToken);
+        var allowed = await SendAsync(HttpMethod.Post, "/api/v1/owners/me/deactivate", stay.OwnerToken);
+
+        blocked.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+        Code(await ReadAsync(blocked)).Should().Be("OWNER_HAS_OPEN_BOOKING");
+        allowed.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task HostDeactivation_Should_Return422_While_AStayIsInProgress_And_WorkAfterCheckOut()
+    {
+        var stay = await ArrangeAsync();
+        var bookingId = await CreateBookingAsync(stay.OwnerToken, stay.ListingId, stay.PipocaId);
+        await SendAsync(HttpMethod.Post, $"{BookingsRoute}/{bookingId}/acceptance", stay.HostToken);
+        await SendAsync(HttpMethod.Post, $"{BookingsRoute}/{bookingId}/check-in", stay.HostToken);
+
+        var blocked = await SendAsync(HttpMethod.Post, "/api/v1/hosts/me/deactivate", stay.HostToken);
+        await SendAsync(HttpMethod.Post, $"{BookingsRoute}/{bookingId}/check-out", stay.HostToken);
+        var allowed = await SendAsync(HttpMethod.Post, "/api/v1/hosts/me/deactivate", stay.HostToken);
+
+        blocked.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+        Code(await ReadAsync(blocked)).Should().Be("HOST_HAS_OPEN_BOOKING");
+        allowed.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Accept_Should_Return422AndSendNoEmail_When_TheOwnerWasSuspendedAfterTheRequest()
+    {
+        var stay = await ArrangeAsync();
+        var bookingId = await CreateBookingAsync(stay.OwnerToken, stay.ListingId, stay.PipocaId);
+        await SuspendTheOwnerAsync();
+
+        var response = await SendAsync(HttpMethod.Post, $"{BookingsRoute}/{bookingId}/acceptance", stay.HostToken);
+        var booking = await SendAsync(HttpMethod.Get, $"{BookingsRoute}/{bookingId}", stay.HostToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+        Code(await ReadAsync(response)).Should().Be("BOOKING_OWNER_INACTIVE");
+        Status(await ReadAsync(booking)).Should().Be("requested");
+        await Task.Delay(500, Ct);
+        BookingEmails().Should().NotContain(e => e.Subject.Contains("foi aceita!", StringComparison.Ordinal) || e.Subject.Contains("confirmada", StringComparison.Ordinal));
+    }
+
+    /// <summary>Suspende a Camila direto em <c>owner.owners</c> (o aceite só olha o perfil de tutor).</summary>
+    private async Task SuspendTheOwnerAsync()
+    {
+        await using var scope = fixture.Services.CreateAsyncScope();
+        var owners = scope.ServiceProvider.GetRequiredService<OwnersDbContext>();
+        owners.Owners.Single().Suspend(DateTimeOffset.UtcNow);
+        await owners.SaveChangesAsync(Ct);
     }
 
     [Fact]
