@@ -107,6 +107,12 @@ public sealed class ListingsController(
     /// é a coordenada enviada ou, sem ela, o endereço da conta logada. Só com estado/cidade/bairro,
     /// não há raio: vem do mais novo ao mais antigo, sem <c>distanceKm</c>.
     /// </para>
+    /// <para>
+    /// Datas: <c>checkIn</c> e <c>checkOut</c> (<c>yyyy-MM-dd</c>, juntos; mesmas regras do pedido
+    /// de reserva) e <c>pets</c> (quantos vão, padrão 1): só cantinhos que recebem em todos os dias
+    /// do período e com vaga para todos os pets em todas as noites. Cada item traz os selos em
+    /// <c>badges</c> (<c>neighbor</c>, <c>fast_responder</c>, <c>yard</c>, <c>experienced</c>).
+    /// </para>
     /// Só aparecem cantinhos ativos de anfitrião ativo. Cada item traz bairro, cidade e distância —
     /// nunca o endereço nem a coordenada. Paginado: <c>page</c> a partir de 1, <c>pageSize</c> até
     /// 100. Busca por raio com conta sem endereço: 422 <c>LISTING_SEARCH_ADDRESS_REQUIRED</c>.
@@ -145,7 +151,10 @@ public sealed class ListingsController(
                 request.HasCats,
                 request.HasKids,
                 request.Page,
-                request.PageSize),
+                request.PageSize,
+                request.CheckIn,
+                request.CheckOut,
+                request.Pets),
             cancellationToken);
 
         return result.ToActionResult();

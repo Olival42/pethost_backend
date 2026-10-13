@@ -511,10 +511,4 @@ As duas respostas vão com `Cache-Control: no-store`; o segredo e o link não s�
 
 | # | Pendência | Impacto |
 |---|---|---|
-| 1 | ~~CPF entre papéis (restrição 9).~~ | Feito: seção 4.1. |
-| 2 | ~~EXIF das fotos não é removido.~~ | Feito: metadados removidos em todo upload ([`armazenamento-de-imagens.md`](armazenamento-de-imagens.md) seção 3.1). |
-| 3 | ~~Pessoa jurídica.~~ | Feito: seção 3.1. Falta só o anfitrião de demonstração em versão empresa (o seed cria pessoa física). |
-| 4 | ~~Trava de identidade depois da aprovação.~~ | Feito: seção 4.2. Falta corrigir nome/nascimento **antes** da aprovação (a conta ainda não tem rota de edição; hoje é cancelar e falar com o suporte). |
-| 5 | ~~Inativar, reativar e suspender anfitrião.~~ | Feito: seção 4.2 (também liberar CPF/CNPJ, foto e listagem do admin). Feito no cantinho: anfitrião inativo ou suspenso some da busca e do detalhe (`IHostDirectory.GetUnavailableIdsAsync`, `HostReference.IsSuspended`). |
-| 6 | ~~Onboarding do Stripe e webhook `account.updated`.~~ | Feito: seção 9 (com releitura periódica, lembretes, recusa definitiva e filtro do admin: 9.1). Falta o painel Express (login link) no app e o tratamento de `account.application.deauthorized` (anfitrião desconectando a conta). |
-| 7 | Anfitrião aprovado que recebe reservas e **depois** é recusado/bloqueado pelo Stripe. | Módulo de reservas: bloquear repasses pendentes e avisar o admin para reembolsar |
+| 1 | Anfitrião aprovado que recebe reservas e **depois** é recusado/bloqueado pelo Stripe. | Módulo de reservas: bloquear repasses pendentes e avisar o admin para reembolsar |

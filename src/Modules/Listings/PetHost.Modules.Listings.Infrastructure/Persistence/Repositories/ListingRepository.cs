@@ -47,6 +47,13 @@ internal sealed class ListingRepository(ListingsDbContext dbContext) : IListingR
             dbContext.Listings.AsNoTracking().Where(l => l.IsActive && !excluded.Contains(l.HostId)),
             search.Filters);
 
+        // Sem vaga nas datas da busca.
+        if (search.ExcludedListingIds is { Count: > 0 } full)
+        {
+            var fullIds = full.ToList();
+            matching = matching.Where(l => !fullIds.Contains(l.Id));
+        }
+
         var ranked = search.Area is { } area
             ? WithinRadius(matching, area)
             : matching
@@ -79,6 +86,25 @@ internal sealed class ListingRepository(ListingsDbContext dbContext) : IListingR
             .ToList();
 
         return (items, total);
+    }
+
+    public async Task<IReadOnlyDictionary<ListingId, int>> GetCapacitiesAsync(
+        IReadOnlyCollection<ListingId> ids,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(ids);
+
+        if (ids.Count == 0)
+            return new Dictionary<ListingId, int>();
+
+        var wanted = ids.ToList();
+
+        return await dbContext.Listings
+            .AsNoTracking()
+            .Where(l => wanted.Contains(l.Id))
+            .Select(l => new { l.Id, l.Details.Capacity })
+            .ToDictionaryAsync(l => l.Id, l => l.Capacity, cancellationToken)
+            .ConfigureAwait(false);
     }
 
     public void Add(Listing listing) => dbContext.Listings.Add(listing);

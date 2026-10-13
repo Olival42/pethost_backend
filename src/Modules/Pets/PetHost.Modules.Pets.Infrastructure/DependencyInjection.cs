@@ -14,9 +14,12 @@ using PetHost.Modules.Pets.Application.Pets.ReplacePetPhoto;
 using PetHost.Modules.Pets.Application.Pets.Responses;
 using PetHost.Modules.Pets.Application.Pets.UpdatePet;
 using PetHost.Modules.Pets.Domain.Pets;
+using PetHost.Modules.Pets.Infrastructure.Bookings;
+using PetHost.Modules.Pets.Infrastructure.Directory;
 using PetHost.Modules.Pets.Infrastructure.Keepers;
 using PetHost.Modules.Pets.Infrastructure.Persistence;
 using PetHost.Modules.Pets.Infrastructure.Persistence.Repositories;
+using PetHost.Shared.Contracts.Pets;
 using PetHost.Shared.Infrastructure.Validation;
 using PetHost.Shared.Kernel.Messaging;
 
@@ -47,6 +50,10 @@ public static class DependencyInjection
         services.AddScoped<IPetRepository, PetRepository>();
         services.AddScoped<IPetsUnitOfWork, PetsUnitOfWork>();
         services.AddScoped<IPetKeepers, PetKeepers>();
+        services.AddScoped<IPetBookings, PetBookings>();
+
+        // Contrato público: o Bookings confere os pets da reserva por aqui (§5).
+        services.AddScoped<IPetDirectory, PetDirectory>();
 
         services.AddValidatedCommandHandler<RegisterPetCommandHandler, RegisterPetCommand, PetResponse>();
         services.AddValidatedCommandHandler<UpdatePetCommandHandler, UpdatePetCommand, PetResponse>();

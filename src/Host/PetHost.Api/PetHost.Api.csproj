@@ -16,6 +16,8 @@
     <ProjectReference Include="..\..\Modules\Pets\PetHost.Modules.Pets.Presentation\PetHost.Modules.Pets.Presentation.csproj" />
     <ProjectReference Include="..\..\Modules\Listings\PetHost.Modules.Listings.Infrastructure\PetHost.Modules.Listings.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Listings\PetHost.Modules.Listings.Presentation\PetHost.Modules.Listings.Presentation.csproj" />
+    <ProjectReference Include="..\..\Modules\Bookings\PetHost.Modules.Bookings.Infrastructure\PetHost.Modules.Bookings.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Bookings\PetHost.Modules.Bookings.Presentation\PetHost.Modules.Bookings.Presentation.csproj" />
   </ItemGroup>
 
   <ItemGroup>

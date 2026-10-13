@@ -15,6 +15,7 @@ public sealed class GetPetByIdQueryHandlerTests
 {
     private readonly Mock<IPetRepository> _petRepository = new();
     private readonly Mock<IPetKeepers> _petKeepers = PetsTestData.Keepers();
+    private readonly Mock<IPetBookings> _petBookings = PetsTestData.Bookings();
     private readonly Pet _ownerPet = new PetProfileBuilder().BuildPet(PetsTestData.Owner);
     private readonly Pet _hostPet = new PetProfileBuilder().WithName("Thor").BuildPet(PetsTestData.Host);
     private readonly GetPetByIdQueryHandler _sut;
@@ -24,7 +25,7 @@ public sealed class GetPetByIdQueryHandlerTests
         _petRepository.Setup(r => r.GetByIdAsync(_ownerPet.Id, It.IsAny<CancellationToken>())).ReturnsAsync(_ownerPet);
         _petRepository.Setup(r => r.GetByIdAsync(_hostPet.Id, It.IsAny<CancellationToken>())).ReturnsAsync(_hostPet);
 
-        _sut = new GetPetByIdQueryHandler(_petRepository.Object, _petKeepers.Object);
+        _sut = new GetPetByIdQueryHandler(_petRepository.Object, _petKeepers.Object, _petBookings.Object);
     }
 
     [Fact]

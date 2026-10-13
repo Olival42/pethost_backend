@@ -42,6 +42,10 @@ public sealed class AuditModuleBoundaryTests
         typeof(Modules.Listings.Application.Listings.CreateListing.CreateListingCommand).Assembly,
         typeof(Modules.Listings.Infrastructure.DependencyInjection).Assembly,
         typeof(Modules.Listings.Presentation.Listings.ListingsController).Assembly,
+        typeof(Modules.Bookings.Domain.Bookings.Booking).Assembly,
+        typeof(Modules.Bookings.Application.Bookings.CreateBooking.CreateBookingCommand).Assembly,
+        typeof(Modules.Bookings.Infrastructure.DependencyInjection).Assembly,
+        typeof(Modules.Bookings.Presentation.Bookings.BookingsController).Assembly,
     ];
 
     [Fact]
@@ -63,7 +67,7 @@ public sealed class AuditModuleBoundaryTests
         {
             Types.InAssembly(assembly)
                 .Should()
-                .NotHaveDependencyOnAny("PetHost.Modules.Auth", "PetHost.Modules.Owners", "PetHost.Modules.Pets", "PetHost.Modules.Hosts", "PetHost.Modules.Listings")
+                .NotHaveDependencyOnAny("PetHost.Modules.Auth", "PetHost.Modules.Owners", "PetHost.Modules.Pets", "PetHost.Modules.Hosts", "PetHost.Modules.Listings", "PetHost.Modules.Bookings")
                 .GetResult().IsSuccessful.Should().BeTrue($"{assembly.GetName().Name} não pode referenciar outro módulo (§5)");
         }
     }

@@ -49,4 +49,13 @@ public sealed class ListingSearchRequest
     public int Page { get; init; } = 1;
 
     public int PageSize { get; init; } = 20;
+
+    /// <summary>Chegada (<c>yyyy-MM-dd</c>), junto com <see cref="CheckOut"/>: só cantinhos com vaga e que recebem em todos os dias.</summary>
+    public string? CheckIn { get; init; }
+
+    /// <summary>Saída (<c>yyyy-MM-dd</c>).</summary>
+    public string? CheckOut { get; init; }
+
+    /// <summary>Quantos pets vão (padrão 1): a vaga precisa caber todos.</summary>
+    public int? Pets { get; init; }
 }

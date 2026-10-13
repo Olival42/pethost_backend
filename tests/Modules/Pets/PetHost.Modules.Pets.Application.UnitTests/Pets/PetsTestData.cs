@@ -37,9 +37,20 @@ internal static class PetsTestData
             .ReturnsAsync((IReadOnlyCollection<PetKeeper> requested, CancellationToken _) =>
                 requested.ToDictionary(k => k, Summary));
 
-        keepers.Setup(k => k.HostExistsAsync(HostId, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        keepers.Setup(k => k.IsHostAvailableAsync(HostId, It.IsAny<CancellationToken>())).ReturnsAsync(true);
 
         return keepers;
+    }
+
+    /// <summary>Reservas: por padrão, nenhum pet está reservado.</summary>
+    public static Mock<IPetBookings> Bookings()
+    {
+        var bookings = new Mock<IPetBookings>();
+
+        bookings.Setup(b => b.HasOpenBookingAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync(false);
+        bookings.Setup(b => b.IsBookedWithHostAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync(false);
+
+        return bookings;
     }
 
     private static KeeperSummary Summary(PetKeeper keeper) =>

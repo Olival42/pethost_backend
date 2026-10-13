@@ -6,16 +6,21 @@ O **cantinho** é o espaço que o anfitrião oferece — o "quarto" da metáfora
 
 ## Sumário
 
-1. [Quem tem cantinho](#1-quem-tem-cantinho)
-2. [Estrutura](#2-estrutura)
-3. [Endpoints](#3-endpoints)
-4. [Regras](#4-regras)
-5. [Busca, filtros e geocodificação](#5-busca-filtros-e-geocodificação)
-6. [Fotos (até 5, em ordem)](#6-fotos-até-5-em-ordem)
-7. [Banco](#7-banco)
-8. [Comunicação com outros módulos](#8-comunicação-com-outros-módulos)
-9. [Testes](#9-testes)
-10. [Decisões e pendências](#10-decisões-e-pendências)
+- [PetHost — Módulo Listings (cantinhos)](#pethost--módulo-listings-cantinhos)
+  - [Sumário](#sumário)
+  - [1. Quem tem cantinho](#1-quem-tem-cantinho)
+  - [2. Estrutura](#2-estrutura)
+  - [3. Endpoints](#3-endpoints)
+    - [3.1 Corpo do cadastro / PATCH](#31-corpo-do-cadastro--patch)
+    - [3.2 Resposta](#32-resposta)
+  - [4. Regras](#4-regras)
+  - [5. Busca, filtros e geocodificação](#5-busca-filtros-e-geocodificação)
+    - [5.1 Selos](#51-selos)
+  - [6. Fotos (até 5, em ordem)](#6-fotos-até-5-em-ordem)
+  - [7. Banco](#7-banco)
+  - [8. Comunicação com outros módulos](#8-comunicação-com-outros-módulos)
+  - [9. Testes](#9-testes)
+  - [10. Decisões e pendências](#10-decisões-e-pendências)
 
 ---
 
@@ -53,7 +58,7 @@ src/Modules/Listings/
 | Método | Rota | Quem | O quê |
 |---|---|---|---|
 | `POST` | `/api/v1/listings` | host | Cadastra um cantinho. `201` + `Location`. |
-| `GET` | `/api/v1/listings?[radiusKm=][&latitude=&longitude=][&state=&city=&neighborhood=][&species=&sizes=&weekdays=][&minNightlyRate=&maxNightlyRate=][&minCapacity=][&hasYard=][&homeType=][&hasDogs=&hasCats=&hasKids=][&page=&pageSize=]` | qualquer logado | Busca com filtros somados; por raio (do mais perto ao mais longe) ou só por lugar (do mais novo ao mais antigo). Paginada. |
+| `GET` | `/api/v1/listings?[radiusKm=][&latitude=&longitude=][&state=&city=&neighborhood=][&species=&sizes=&weekdays=][&minNightlyRate=&maxNightlyRate=][&minCapacity=][&hasYard=][&homeType=][&hasDogs=&hasCats=&hasKids=][&checkIn=&checkOut=][&pets=][&page=&pageSize=]` | qualquer logado | Busca com filtros somados; por raio (do mais perto ao mais longe) ou só por lugar (do mais novo ao mais antigo). Com datas, só cantinhos com vaga. Cada item com os selos. Paginada. |
 | `GET` | `/api/v1/listings/me` | host | Todos os cantinhos do anfitrião logado (ativos e inativos), `{ host, listings }`, sem paginação. |
 | `GET` | `/api/v1/listings/{listingId}` | qualquer logado | Um cantinho. Dono: tudo, inclusive inativo. Outros: visão pública, só se ativo. |
 | `PATCH` | `/api/v1/listings/{listingId}` | host dono | Altera (só o que vier). Endereço novo recalcula a coordenada. |
@@ -98,7 +103,7 @@ src/Modules/Listings/
 
 **Visão pública** (quem não é dono nem admin): `address` só com `neighborhood`, `city` e `state`; sem `zipCode`, `street`, `number`, `complement` e sem `location` (escopo, regra 7: endereço só depois do pagamento; "Bairro, não coordenada").
 
-Item da busca (`ListingSummaryResponse`): `id`, `hostId`, `host`, `title`, `neighborhood`, `city`, `state`, **`distanceKm`** (1 casa; omitido na busca sem raio), `nightlyRate`, `capacity`, `homeType`, `hasYard`, `acceptedSpecies`, `accepts*`, `availableWeekdays`, `coverPhotoUrl`. Nunca endereço nem coordenada.
+Item da busca (`ListingSummaryResponse`): `id`, `hostId`, `host`, `title`, `neighborhood`, `city`, `state`, **`distanceKm`** (1 casa; omitido na busca sem raio), `nightlyRate`, `capacity`, `homeType`, `hasYard`, `acceptedSpecies`, `accepts*`, `availableWeekdays`, `coverPhotoUrl`, **`badges`** (selos, seção 5.1). Nunca endereço nem coordenada. O detalhe (`GET /listings/{id}`) também traz `badges`.
 
 ## 4. Regras
 
@@ -139,6 +144,9 @@ Inativar é idempotente e não apaga nada (escopo, restrição 9). Cantinho inat
 
 Listas aceitam o parâmetro repetido (`species=dog&species=cat`) ou separado por vírgula (`species=dog,cat`). Todos os erros voltam juntos num só `400`.
 
+| `checkIn`, `checkOut` | Datas da estadia (`yyyy-MM-dd`, **juntas**). Mesmas regras do pedido de reserva: chegada de hoje (Brasília) até 365 dias à frente, saída depois, até 30 noites. O cantinho precisa **receber em todos os dias** do período (inclusive o da saída) e ter **vaga em todas as noites**: a maior ocupação de uma noite (estadias confirmadas e em andamento) mais os pets da busca não passa da capacidade. | Só uma das datas (`400` na que falta), formato, passado, longe demais, saída antes da chegada, mais de 30 noites. |
+| `pets` | Quantos pets vão (padrão 1): a capacidade precisa caber todos; com datas, a vaga também. | Fora de 1 a 200. |
+
 **Raio ou só lugar?**
 
 - É **busca por raio** quando vem `radiusKm`, ou `latitude`+`longitude`, ou quando **não** vem `state`/`city`/`neighborhood` (o "perto de casa" de sempre). `radiusKm` de **5 a 50** (padrão 10; fora disso, `400` em `radiusKm`). Ordem: distância (empate: mais novo primeiro).
@@ -150,6 +158,19 @@ Listas aceitam o parâmetro repetido (`species=dog&species=cat`) ou separado por
 **O que aparece:** só cantinhos **ativos** de anfitrião **ativo, sem suspensão e com os repasses liberados pelo Stripe** (`hosts.stripe_payouts_enabled`, cadastro de recebimento concluído — [`modulo-hosts.md`](modulo-hosts.md) seção 9) — `IHostDirectory.GetUnavailableIdsAsync`. Vale também para o detalhe (`GET /listings/{id}`) visto por outra conta: `404`. Se o Stripe bloquear os repasses **depois**, os cantinhos já criados somem para os outros, mas o anfitrião continua vendo e editando (em `host.payoutsEnabled` da resposta ele vê `false`). Paginação padrão (§13).
 
 **No banco** (`ListingRepository.SearchAsync`): (1) cada filtro enviado vira mais um `AND` (espécies e dias por máscara de bits: `(accepted_species & x) = x`); (2) na busca por raio, uma caixa em volta do círculo filtra por `latitude`/`longitude` (índice parcial `ix_listings_latitude_longitude_active`) e a distância exata é calculada no Postgres pela fórmula de **haversine** (`asin`, `sin`, `cos`, `power`, `LEAST`); (3) conta, ordena e pagina; (4) carrega só os cantinhos da página, com as fotos. Sem PostGIS: para o volume do MVP (uma cidade) é suficiente.
+
+### 5.1 Selos
+
+Calculados a cada leitura (`ListingBadges`), nunca cadastrados (escopo, regra 10). Saem em `badges`, nesta ordem:
+
+| Valor | Selo | Regra |
+|---|---|---|
+| `neighbor` | Vizinho | O cantinho fica no mesmo bairro **e** cidade do endereço da conta de quem vê (sem diferença de acento nem maiúsculas). Conta sem endereço não ganha. |
+| `fast_responder` | Responde rápido | Tempo médio entre o pedido e a resposta (aceite ou recusa) do anfitrião abaixo de **2h**. Quem nunca respondeu não ganha. |
+| `yard` | Casa com quintal | `hasYard` marcado no cantinho. |
+| `experienced` | Experiente | **5 ou mais** estadias concluídas pelo anfitrião. |
+
+"Bem avaliado" (nota 4,5+ com 3+ avaliações) fica para quando existir o módulo de avaliações. Os números do anfitrião vêm do Bookings pelo contrato `IBookingDirectory` (porta `IListingBookings`), uma consulta para a página inteira.
 
 **Geocodificação** (`IGeocoder` → `CachedGeocoder` → `NominatimGeocoder`):
 
@@ -205,6 +226,10 @@ Nenhuma referência a outro módulo (§5, verificado em `ListingsModuleBoundaryT
 | `IAccountAddresses` | `AccountAddresses` | `IUserDirectory` (endereço da conta, origem da busca) |
 | `IGeocoder` | `CachedGeocoder` (Redis) → `NominatimGeocoder` | HTTP externo + `IConnectionMultiplexer` do `Shared` |
 
+Para datas, vaga e selos o Listings lê as reservas pela porta `IListingBookings` (adaptador `Infrastructure/Bookings/ListingBookings.cs`) sobre o contrato `IBookingDirectory`, implementado pelo Bookings.
+
+No sentido contrário, o Listings **implementa** o contrato `IListingDirectory` (`Shared.Contracts/Listings`, adaptador `Infrastructure/Directory/ListingDirectory.cs`): o módulo Bookings lê por ele as condições do cantinho para reservar (capacidade, diária, espécies, portes e dias da semana) e, à parte, o endereço exato (`GetAddressesAsync`) — que o Bookings só mostra ao tutor de reserva confirmada.
+
 O `IHostDirectory` ganhou `HostReference.IsSuspended` (com `IsCompany` e `IsAvailable`), `HostReference.PayoutsEnabled` (com `IsListable` = disponível + repasses liberados) e `GetUnavailableIdsAsync()` (inativo, suspenso **ou sem repasses liberados**). `ListingHostSummary` (o `host` da resposta) ganhou `payoutsEnabled`.
 
 ## 9. Testes
@@ -229,9 +254,3 @@ O `IHostDirectory` ganhou `HostReference.IsSuspended` (com `IsCompany` e `IsAvai
 | Busca sem raio só com estado/cidade/bairro | Quem procura em outra cidade (viagem) não quer o raio de casa; sem nenhum lugar, o padrão continua "perto de casa" (10 km). |
 | Cidade/bairro com `unaccent` (extensão do Postgres) | O usuário digita "Maringa" ou "maringá"; sem índice (a função não é `IMMUTABLE`), o que basta para o volume do MVP. |
 | Listas da busca exigem **todos** os valores | O tutor leva cachorro **e** gato: o cantinho precisa aceitar os dois. |
-
-**Pendências**
-
-1. ~~Filtro de busca por `stripe_payouts_enabled`.~~ Feito: anfitrião sem repasses liberados entra na lista de indisponíveis ([`modulo-hosts.md`](modulo-hosts.md) seção 9).
-2. Filtros que dependem de outros módulos: datas (agenda/reservas), "vaga para todos os pets escolhidos" e selos.
-3. ~~Cache do geocodificador por instância (memória).~~ Feito: o cache está no Redis. Ainda por instância: a fila de 1 pedido/s ao Nominatim (`GeocodingRateGate`); com várias instâncias, cada uma respeita o limite sozinha — mover para um lock no Redis ou usar instância própria do Nominatim.

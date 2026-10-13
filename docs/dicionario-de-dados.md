@@ -311,22 +311,26 @@ erDiagram
         uuid id PK
         uuid owner_id FK
         uuid listing_id FK
+        uuid host_id FK
         date check_in_date
         date check_out_date
         int pet_count
-        int nightly_rate_cents
-        int total_cents
+        numeric nightly_rate
+        numeric total_price
         enum status
-        timestamp requested_at
-        timestamp responded_at "nullable"
-        timestamp confirmed_at "nullable"
-        timestamp checked_in_at "nullable"
-        timestamp checked_out_at "nullable"
-        timestamp cancelled_at "nullable"
-        uuid cancelled_by_id FK "nullable"
-        text cancellation_reason "nullable"
-        timestamp created_at
-        timestamp updated_at
+        timestamptz requested_at
+        timestamptz responded_at "nullable"
+        timestamptz confirmed_at "nullable"
+        timestamptz checked_in_at "nullable"
+        timestamptz checked_out_at "nullable"
+        timestamptz expired_at "nullable"
+        timestamptz cancelled_at "nullable"
+        enum cancelled_by "nullable"
+        varchar cancellation_reason "nullable"
+        varchar decline_reason "nullable"
+        int refund_percentage "nullable"
+        timestamptz created_at
+        timestamptz updated_at
     }
     booking_pets {
         uuid booking_id PK, FK
@@ -657,31 +661,35 @@ Períodos em que o anfitrião fechou a agenda. Por padrão tudo está disponíve
 
 ### `bookings` · Reservas
 
-Uma estadia: um tutor, um cantinho, um período e um ou mais pets. Guarda o ciclo de status e uma cópia do preço no momento do pedido.
+Uma estadia: um tutor, um cantinho, um período e um ou mais pets. Guarda o ciclo de status e uma cópia da diária no momento do pedido. Fica no schema `booking` (módulo Bookings, [`modulo-bookings.md`](modulo-bookings.md)); `owner_id`, `listing_id`, `host_id` e `booking_pets.pet_id` são **FKs lógicas, sem constraint física**.
 
 | Coluna | Tipo | Chave | Nulo | Descrição |
 |---|---|---|---|---|
 | `id` | `uuid` | `PK` | não | Identificador da reserva. |
-| `owner_id` | `uuid` | `FK` | não | Tutor que pediu → users.id. |
-| `listing_id` | `uuid` | `FK` | não | Cantinho → listings.id. |
-| `check_in_date` | `date` |  | não | Dia de chegada. |
-| `check_out_date` | `date` |  | não | Dia de saída. Deve ser maior que check_in_date. |
-| `pet_count` | `int` |  | não | Quantidade de pets (igual às linhas em booking_pets). |
-| `nightly_rate_cents` | `int` |  | não | Cópia da diária no momento do pedido. |
-| `total_cents` | `int` |  | não | Diária × noites × pets. |
-| `status` | `enum` |  | não | requested, accepted, confirmed, in_progress, completed, declined, expired, cancelled. |
-| `requested_at` | `timestamp` |  | não | Quando o tutor pediu. Base do prazo de 24h e do selo "Responde rápido". |
-| `responded_at` | `timestamp` |  | sim | Quando o anfitrião aceitou ou recusou. |
-| `confirmed_at` | `timestamp` |  | sim | Quando o pagamento foi confirmado. |
-| `checked_in_at` | `timestamp` |  | sim | Quando o anfitrião marcou "chegou". |
-| `checked_out_at` | `timestamp` |  | sim | Quando marcou "voltou pra casa". Libera repasse e avaliações. |
-| `cancelled_at` | `timestamp` |  | sim | Quando foi cancelada. |
-| `cancelled_by_id` | `uuid` | `FK` | sim | Quem cancelou → users.id. |
-| `cancellation_reason` | `text` |  | sim | Motivo do cancelamento ou da expiração. |
-| `created_at` | `timestamp` |  | não | Quando o registro foi criado (UTC). |
-| `updated_at` | `timestamp` |  | não | Última alteração do registro (UTC). |
+| `owner_id` | `uuid` | `FK` | não | Tutor que pediu → owner.owners.id (o id do tutor, como nos pets; não o da conta). |
+| `listing_id` | `uuid` | `FK` | não | Cantinho → listing.listings.id. |
+| `host_id` | `uuid` | `FK` | não | Anfitrião dono do cantinho → host.hosts.id, copiado no pedido (listagem do anfitrião). |
+| `check_in_date` | `date` |  | não | Dia de chegada (a partir de hoje, horário de Brasília; até 365 dias à frente). |
+| `check_out_date` | `date` |  | não | Dia de saída. Maior que check_in_date; no máximo 30 noites. |
+| `pet_count` | `int` |  | não | Quantidade de pets, 1 a 10 (igual às linhas em booking_pets). |
+| `nightly_rate` | `numeric(10,2)` |  | não | Cópia da diária por pet (reais) no momento do pedido. |
+| `total_price` | `numeric(12,2)` |  | não | Diária × noites × pets, em reais. |
+| `status` | `varchar(20)` |  | não | requested, accepted, confirmed, in_progress, completed, declined, expired, cancelled. |
+| `requested_at` | `timestamptz` |  | não | Quando o tutor pediu. Base do prazo de 24h e do selo "Responde rápido". |
+| `responded_at` | `timestamptz` |  | sim | Quando o anfitrião aceitou ou recusou. |
+| `confirmed_at` | `timestamptz` |  | sim | Quando foi confirmada (hoje, no aceite; com o pagamento, pelo webhook). |
+| `checked_in_at` | `timestamptz` |  | sim | Quando o anfitrião marcou "chegou". |
+| `checked_out_at` | `timestamptz` |  | sim | Quando marcou "voltou pra casa". Libera repasse e avaliações. |
+| `expired_at` | `timestamptz` |  | sim | Quando expirou sem resposta. |
+| `cancelled_at` | `timestamptz` |  | sim | Quando foi cancelada. |
+| `cancelled_by` | `varchar(10)` |  | sim | Quem cancelou: owner ou host (a conta vai na trilha de auditoria). |
+| `cancellation_reason` | `varchar(500)` |  | sim | Motivo do cancelamento, opcional. |
+| `decline_reason` | `varchar(500)` |  | sim | Motivo da recusa, opcional. |
+| `refund_percentage` | `int` |  | sim | Quanto volta para o tutor no cancelamento de reserva paga (100 ou 50). Nulo se nada foi pago. |
+| `created_at` | `timestamptz` |  | não | Quando o registro foi criado (UTC). |
+| `updated_at` | `timestamptz` |  | não | Última alteração do registro (UTC). |
 
-> Índice em (`listing_id, check_in_date, check_out_date`) para checar capacidade e disponibilidade.
+> CHECKs: período, pet_count, status, cancelled_by, refund_percentage e valores. Concorrência otimista pelo `xmin`. Índices: (`listing_id, check_in_date, check_out_date`) para a capacidade; (`owner_id, check_in_date`) e (`host_id, check_in_date`) para as listagens; (`status, requested_at`) para a expiração. Dinheiro em reais (`numeric`), como a diária do cantinho; centavos ficam com o módulo de pagamento.
 
 ### `booking_pets` · Pets da reserva
 
@@ -690,7 +698,7 @@ Tabela associativa: quais pets vão em cada reserva (N:N).
 | Coluna | Tipo | Chave | Nulo | Descrição |
 |---|---|---|---|---|
 | `booking_id` | `uuid` | `PK FK` | não | Reserva → bookings.id. |
-| `pet_id` | `uuid` | `PK FK` | não | Pet → pets.id. Precisa ser do mesmo tutor da reserva. |
+| `pet_id` | `uuid` | `PK FK` | não | Pet → pet.pets.id (FK lógica). Precisa ser do mesmo tutor da reserva, ativo, de espécie e porte aceitos. |
 
 
 ### `payments` · Pagamentos
@@ -860,6 +868,7 @@ Avaliação feita depois da reserva concluída. Cada lado avalia o outro uma vez
 | `listings.accepted_species` | bits dos valores de `pets.species` (`dog` = 1, `cat` = 2, `cockatiel` = 4 … `exotic` = 2048); no JSON, lista de nomes | Tipos aceitos |
 | `listings.available_weekdays` | bits `1 << dia` (domingo = 1, segunda = 2 … sábado = 64); no JSON, `monday` … `sunday` | Dias em que recebe |
 | `bookings.status` | `requested` · `accepted` · `confirmed` · `in_progress` · `completed` · `declined` · `expired` · `cancelled` | Solicitada · Aceita · Confirmada · Em andamento · Concluída · Recusada · Expirada · Cancelada |
+| `bookings.cancelled_by` | `owner` · `host` | Tutor · Anfitrião |
 | `payments.method` | `card` · `pix` | Cartão · Pix |
 | `payments.status` | `pending` · `succeeded` · `failed` · `refunded` · `partially_refunded` | Pendente · Pago · Falhou · Estornado · Estornado parcial |
 | `payments.payout_status` | `held` · `transferred` · `canceled` | Retido · Repassado · Sem repasse |
@@ -873,6 +882,7 @@ stateDiagram-v2
     requested --> declined
     requested --> expired: 24h sem resposta
     accepted --> confirmed: pagamento confirmado
+    requested --> confirmed: aceite (enquanto não há pagamento)
     accepted --> expired: 24h sem pagar
     requested --> cancelled
     accepted --> cancelled

@@ -323,8 +323,4 @@ O `cus_...` volta para `owners.stripe_customer_id` (`Owner.LinkStripeCustomer`) 
 | # | Pendência | Impacto |
 |---|---|---|
 | 1 | Troca de e-mail. | Precisa da verificação de e-mail: código para o e-mail novo, troca só depois de confirmado, aviso para o antigo. |
-| 2 | ~~Anfitrião sem perfil próprio.~~ | Feito: o módulo Hosts tem a verificação de identidade e o perfil verificado ([`modulo-hosts.md`](modulo-hosts.md)). |
-| 3 | ~~CPF único só entre tutores.~~ | Feito: o mesmo CPF só fica num tutor e num anfitrião do **mesmo e-mail** (restrição 9), pelo contrato `ICpfOwnership` — o Owners informa os tutores (`OwnerCpfHolderLookup`) e consulta todos os módulos antes de gravar ([`modulo-hosts.md`](modulo-hosts.md) seção 4.1). |
-| 4 | Titularidade do CPF do tutor não é verificada. | O dígito confere, mas não prova que o CPF é de quem digitou — e quem cadastra primeiro fica com ele. Opções (decisão de custo): Serpro Datavalid (CPF + nome + nascimento) no cadastro, ou Stripe Identity (documento + selfie) no primeiro pagamento. |
-| 5 | Disputa de CPF sem tela. | As rotas existem (seção 3.7) e tudo fica na trilha; falta a tela no admin e o canal de suporte por onde a pessoa abre o pedido. |
-| 6 | Suspender anfitrião. | Mesmo contrato (`IAccountStatusManager.SuspendAsync`); as rotas entram no módulo do anfitrião. |
+| 2 | Disputa de CPF sem tela. | As rotas existem (seção 3.7) e tudo fica na trilha; falta a tela no admin e o canal de suporte por onde a pessoa abre o pedido. |

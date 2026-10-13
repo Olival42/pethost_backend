@@ -36,7 +36,7 @@
 4. **Erro esperado não usa exceção.** Fluxo de negócio previsível retorna `Result`. Exceção só para bug ou infraestrutura fora.
 5. **Toda regra de negócio tem teste unitário.** Sem exceção.
 
-**Módulos** (bounded contexts): `Auth` (conta, sessão, perfil comum), `Owners` (perfil de tutor), `Hosts` (anfitrião: verificação de identidade aprovada pelo admin e perfil verificado, PF/PJ), `Audit` (trilha de auditoria de todos os módulos), `Pets` (ficha do pet, do tutor ou do anfitrião), `Listings` (cantinho: o espaço do anfitrião, com fotos e busca com filtros e raio — [`modulo-listings.md`](modulo-listings.md)), `Booking`, `Availability`, `Payments`, `Reviews`, `Notifications`. Criar módulo novo é decisão de arquitetura — discutir antes do PR.
+**Módulos** (bounded contexts): `Auth` (conta, sessão, perfil comum), `Owners` (perfil de tutor), `Hosts` (anfitrião: verificação de identidade aprovada pelo admin e perfil verificado, PF/PJ), `Audit` (trilha de auditoria de todos os módulos), `Pets` (ficha do pet, do tutor ou do anfitrião), `Listings` (cantinho: o espaço do anfitrião, com fotos e busca com filtros e raio — [`modulo-listings.md`](modulo-listings.md)), `Bookings` (reserva: pedido, aceite/recusa, cancelamento, check-in e check-out — [`modulo-bookings.md`](modulo-bookings.md)), `Availability`, `Payments`, `Reviews`, `Notifications`. Criar módulo novo é decisão de arquitetura — discutir antes do PR.
 
 ---
 
@@ -509,8 +509,8 @@ public sealed class BookingsController(
 
 | Regra | Detalhe |
 |-------|---------|
-| Um `DbContext` por módulo | `BookingDbContext`, `AuthDbContext` |
-| Um schema por módulo | `auth`, `owner`, `host`, `pet`, `listing`, `audit` (singular). Infraestrutura compartilhada que precisa de tabela também ganha schema e `DbContext` próprios em `Shared.Infrastructure`: `email` (caixa de saída de e-mails) |
+| Um `DbContext` por módulo | `BookingsDbContext`, `AuthDbContext` |
+| Um schema por módulo | `auth`, `owner`, `host`, `pet`, `listing`, `booking`, `audit` (singular). Infraestrutura compartilhada que precisa de tabela também ganha schema e `DbContext` próprios em `Shared.Infrastructure`: `email` (caixa de saída de e-mails) |
 | Migrations e histórico isolados | `Persistence/Migrations`, `__ef_migrations_history` no schema do módulo |
 | Sem `JOIN` entre schemas | Cruzar dado só pelo §5 |
 | `DbContext` nunca sai da `Infrastructure` | `Application` só conhece interfaces |
@@ -524,10 +524,10 @@ Mapeamento `PascalCase → snake_case` via `UseSnakeCaseNamingConvention()`; con
 **Migrations:** nome em inglês, `PascalCase`, imperativo (`CreateBookingsTable`, `AddCancellationReasonToBookings`). Migration já aplicada em produção **nunca** é editada — crie outra. Em produção não rodam no startup: step dedicado do pipeline.
 
 ```bash
-dotnet ef migrations add CreateBookingsTable \
-  --project src/Modules/Booking/PetHost.Modules.Booking.Infrastructure \
+dotnet ef migrations add CreateBookingsTables \
+  --project src/Modules/Bookings/PetHost.Modules.Bookings.Infrastructure \
   --startup-project src/Host/PetHost.Api \
-  --context BookingDbContext --output-dir Persistence/Migrations
+  --context BookingsDbContext --output-dir Persistence/Migrations
 ```
 
 ---
@@ -580,6 +580,12 @@ O time pensa em português, o código fala inglês. Esta é a tradução oficial
 | Repasses liberados pelo Stripe | `PayoutsEnabled` | Anfitrião disponível para os outros (cantinho na busca) | `IsListable` |
 | Lembrete (e-mail de "termine o cadastro") | `Reminder` | Manutenção do cadastro de recebimento (releitura + lembretes) | `PayoutsMaintenance` |
 | Representante legal (da empresa) | `Representative` (o CPF do `HostApplication`/`Host` de empresa) | Dados da empresa | `CompanyDetails` |
+| Período da estadia (chegada e saída) | `StayPeriod` (`CheckIn`/`CheckOut`, `DateOnly`) | Aceitar / recusar o pedido (anfitrião) | `Accept` / `Decline` (rotas `/acceptance`, `/refusal`) |
+| Prazo para responder (24h) | `ResponseDeadline` (`ResponseWindow`) | Expirar (sem resposta no prazo) | `Expire` (`Expired`) |
+| Quem cancelou (tutor ou anfitrião) | `CancelledBy` (`BookingParty`: `owner`/`host`) | Percentual de reembolso | `RefundPercentage` |
+| Ocupação do cantinho (pets por noite) | `ListingOccupancy` | Valor total da estadia | `TotalPrice` |
+| Selo (automático) | `Badge` (`ListingBadges`: `neighbor`, `fast_responder`, `yard`, `experienced`) | Datas da busca | `StayWindow` (`checkIn`/`checkOut`) |
+| Contato liberado (endereço exato e telefone) | `Contact` (`RevealsContact`) | Histórico do anfitrião (estadias, tempo de resposta) | `HostTrackRecord` / `HostBookingStats` |
 
 ---
 
@@ -629,8 +635,9 @@ POST   /api/v1/pets/{petId:guid}/deactivation  ·  DELETE /api/v1/pets/{petId:gu
 GET    /api/v1/hosts/{hostId:guid}/pets
 POST   /api/v1/listings           ·  GET  /api/v1/listings/me  ·  GET /api/v1/listings?radiusKm=10&city=Maringá&species=dog
 PUT    /api/v1/listings/{listingId:guid}/photos/order
-POST   /api/v1/bookings               ·  GET  /api/v1/bookings/{bookingId:guid}
-POST   /api/v1/bookings/{bookingId:guid}/cancellation
+POST   /api/v1/bookings               ·  GET  /api/v1/bookings/me  ·  GET /api/v1/bookings/{bookingId:guid}
+POST   /api/v1/bookings/{bookingId:guid}/acceptance  ·  POST /api/v1/bookings/{bookingId:guid}/refusal
+POST   /api/v1/bookings/{bookingId:guid}/cancellation  ·  POST /api/v1/bookings/{bookingId:guid}/check-in  ·  /check-out
 GET    /api/v1/hosts/{hostId:guid}/availability?from=2026-11-01&to=2026-11-30
 ```
 

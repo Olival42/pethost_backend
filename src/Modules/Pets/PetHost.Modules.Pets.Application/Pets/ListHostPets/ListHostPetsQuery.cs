@@ -9,7 +9,8 @@ namespace PetHost.Modules.Pets.Application.Pets.ListHostPets;
 
 /// <summary>
 /// Os pets que moram na casa de um anfitrião: o tutor vê com quem o pet dele vai conviver
-/// durante a estadia. Só os ativos.
+/// durante a estadia. Só os ativos, e só de anfitrião ativo e sem suspensão: a casa de quem saiu
+/// do ar responde <c>404</c>, mas os pets continuam ativos e voltam a aparecer com ele.
 /// </summary>
 /// <param name="HostId">Id do anfitrião (não o da conta).</param>
 public sealed record ListHostPetsQuery(Guid HostId) : IQuery<KeeperPetsResponse>;
@@ -22,7 +23,7 @@ public sealed class ListHostPetsQueryHandler(
     public async Task<Result<KeeperPetsResponse>> HandleAsync(ListHostPetsQuery query, CancellationToken cancellationToken)
     {
         if (query.HostId == Guid.Empty
-            || !await petKeepers.HostExistsAsync(query.HostId, cancellationToken).ConfigureAwait(false))
+            || !await petKeepers.IsHostAvailableAsync(query.HostId, cancellationToken).ConfigureAwait(false))
         {
             return Result<KeeperPetsResponse>.Failure(PetsErrors.HostNotFound(query.HostId));
         }

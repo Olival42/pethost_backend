@@ -248,7 +248,7 @@ O que a inativação faz na conta, venha de onde vier:
 - Vale **só para aquela conta**: a outra conta da mesma pessoa continua ativa. Derruba todas as sessões: login passa a responder `403 AUTH_ACCOUNT_DEACTIVATED`; refresh, `401`; e o access token já emitido é recusado **na hora** com `401` (seção 6.6.1). Idempotente. O admin não pode ser inativado (`AUTH_ADMIN_DEACTIVATION_FORBIDDEN`).
 - A reativação pede as credenciais do login (e-mail, senha, papel) — conta inativa não consegue entrar para pedir isso logada — e já abre a sessão. Credenciais erradas: `401 AUTH_INVALID_CREDENTIALS`. Numa conta ativa, funciona como login. Conta **suspensa** não reativa: `403 AUTH_ACCOUNT_SUSPENDED`.
 
-**Suspensão (admin).** Também só pelo contrato (`IAccountStatusManager.SuspendAsync` / `LiftSuspensionAsync`); hoje o tutor é suspenso em `POST /api/v1/owners/{ownerId}/suspension` ([`modulo-owners.md`](modulo-owners.md) seção 3.7).
+**Suspensão (admin).** Também só pelo contrato (`IAccountStatusManager.SuspendAsync` / `LiftSuspensionAsync`); o tutor é suspenso em `POST /api/v1/owners/{ownerId}/suspension` ([`modulo-owners.md`](modulo-owners.md) seção 3.7) e o anfitrião em `POST /api/v1/hosts/{hostId}/suspension` ([`modulo-hosts.md`](modulo-hosts.md)); `DELETE` na mesma rota tira a suspensão.
 
 - Grava `suspended_at`, `suspension_reason` (obrigatório, até 500 caracteres) e `suspended_by` (o admin) e derruba as sessões na hora.
 - Recusa, sempre depois da senha conferida: login (`403 AUTH_ACCOUNT_SUSPENDED`, antes de "inativa"), refresh (`401`), troca de conta (`404`, como conta inexistente), reativação (`403`), troca de senha (`403`). "Esqueci a senha" responde `200` mas não manda e-mail.
@@ -690,10 +690,4 @@ Bugs encontrados durante o desenvolvimento:
 
 | # | O quê | Impacto |
 |---|---|---|
-| 4 | E-mail não é verificado. | É o que obriga a troca de conta a pedir senha. A verificação seria: token por e-mail no cadastro (mesmo molde do "esqueci a senha"), `email_verified_at` em `users`, e só contas verificadas trocariam sem senha. |
-| 5 | Logout não revoga o access token da sessão. | Ele vale até expirar (15 min). Dá para revogar por `jti` se for preciso. |
-| 2 | Rate limit só por IP/usuário, em memória. | Feito: limite geral e políticas por endpoint crítico (`PROJECT_STANDARDS` §13). Falta: limite por e-mail no login e no "esqueci a senha" (ataque distribuído em muitos IPs contra uma conta) e contadores no Redis quando houver mais de uma instância. |
-| 3 | ~~E-mail na fila se perde se a API reiniciar.~~ | Feito: a caixa de saída é a tabela `email.outbox_emails`, com novas tentativas (seção 6.4). |
-| 6 | Seed dos tipos de pet (Cachorro, Gato, Pequenos animais). | É do módulo Pets, fora do escopo do Auth. |
-| 8 | ~~Anfitrião não inativa nem reativa a conta.~~ | Feito no módulo Hosts: `POST /hosts/me/deactivate`, `POST /hosts/reactivate`, e a suspensão pelo admin, pelo contrato `IAccountStatusManager` ([`modulo-hosts.md`](modulo-hosts.md) seção 4.2). |
-| 7 | ~~Data de nascimento do anfitrião sem trava.~~ | Feito: no `PATCH /hosts/me` nome, nascimento, CPF, CNPJ e razão social ficam travados depois da verificação (`422 HOST_IDENTITY_LOCKED`) ([`modulo-hosts.md`](modulo-hosts.md) seção 4.2). |
+| 1 | E-mail não é verificado. | É o que obriga a troca de conta a pedir senha. A verificação seria: token por e-mail no cadastro (mesmo molde do "esqueci a senha"), `email_verified_at` em `users`, e só contas verificadas trocariam sem senha. 

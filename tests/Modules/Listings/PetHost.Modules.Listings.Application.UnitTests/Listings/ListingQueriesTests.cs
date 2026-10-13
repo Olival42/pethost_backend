@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.Extensions.Time.Testing;
 using Moq;
 using PetHost.Modules.Listings.Application.Abstractions;
 using PetHost.Modules.Listings.Application.Listings.GetListingById;
@@ -21,7 +22,7 @@ public sealed class GetListingByIdQueryHandlerTests
     public GetListingByIdQueryHandlerTests()
     {
         _repository.Setup(r => r.GetByIdAsync(_listing.Id, It.IsAny<CancellationToken>())).ReturnsAsync(_listing);
-        _sut = new GetListingByIdQueryHandler(_repository.Object, ListingsTestData.Hosts().Object);
+        _sut = new GetListingByIdQueryHandler(_repository.Object, ListingsTestData.Hosts().Object, ListingsTestData.Bookings().Object, new Mock<IAccountAddresses>().Object);
     }
 
     [Fact]
@@ -104,7 +105,7 @@ public sealed class GetListingByIdQueryHandlerTests
             {
                 [ListingsTestData.IndividualHostId] = new(ListingsTestData.IndividualHostId, "Dona Cida", null, IsCompany: false, IsAvailable: true, PayoutsEnabled: false),
             });
-        var sut = new GetListingByIdQueryHandler(_repository.Object, hosts.Object);
+        var sut = new GetListingByIdQueryHandler(_repository.Object, hosts.Object, ListingsTestData.Bookings().Object, new Mock<IAccountAddresses>().Object);
 
         // Act
         var byOwner = await sut.HandleAsync(new GetListingByIdQuery(ListingsTestData.OwnerUserId, Roles.Owner, _listing.Id.Value), CancellationToken.None);
@@ -170,7 +171,7 @@ public sealed class SearchListingsQueryHandlerTests
         _addresses.Setup(a => a.GetAsync(ListingsTestData.OwnerUserId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ListingBuilder().BuildAddressData());
 
-        _sut = new SearchListingsQueryHandler(_repository.Object, ListingsTestData.Hosts().Object, _addresses.Object, _geocoder.Object);
+        _sut = new SearchListingsQueryHandler(_repository.Object, ListingsTestData.Hosts().Object, _addresses.Object, _geocoder.Object, ListingsTestData.Bookings().Object, new FakeTimeProvider(ListingBuilder.DefaultNow));
     }
 
     [Fact]
@@ -199,7 +200,7 @@ public sealed class SearchListingsQueryHandlerTests
         result.IsSuccess.Should().BeTrue();
         _search!.Area!.Origin.Latitude.Should().Be(-23.4m);
         _search.Area.Origin.Longitude.Should().Be(-51.9m);
-        _addresses.Verify(a => a.GetAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+        _addresses.Verify(a => a.GetAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Once, "o endereço só é lido para o selo Vizinho; o mapa não é consultado");
         _geocoder.Verify(g => g.LocateAsync(It.IsAny<ListingAddressData>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
@@ -245,7 +246,7 @@ public sealed class SearchListingsQueryHandlerTests
     {
         // Arrange
         var geocoder = ListingsTestData.Geocoder(new GeocodingResult(status));
-        var sut = new SearchListingsQueryHandler(_repository.Object, ListingsTestData.Hosts().Object, _addresses.Object, geocoder.Object);
+        var sut = new SearchListingsQueryHandler(_repository.Object, ListingsTestData.Hosts().Object, _addresses.Object, geocoder.Object, ListingsTestData.Bookings().Object, new FakeTimeProvider(ListingBuilder.DefaultNow));
 
         // Act
         var result = await sut.HandleAsync(new SearchListingsQuery(ListingsTestData.OwnerUserId), CancellationToken.None);
@@ -283,7 +284,7 @@ public sealed class SearchListingsQueryHandlerTests
         _search!.Area.Should().BeNull();
         _search.Filters.Should().Be(new ListingFilters(State: "PR", City: "Maringá", Neighborhood: "Zona 7"));
         result.Value!.Items.Should().ContainSingle().Which.DistanceKm.Should().BeNull();
-        _addresses.Verify(a => a.GetAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+        _addresses.Verify(a => a.GetAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Once, "o endereço só é lido para o selo Vizinho; o mapa não é consultado");
         _geocoder.Verify(g => g.LocateAsync(It.IsAny<ListingAddressData>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 

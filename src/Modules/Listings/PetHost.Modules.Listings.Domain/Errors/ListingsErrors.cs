@@ -174,6 +174,33 @@ public static class ListingsErrors
     public static readonly Error MinCapacityFilterInvalid =
         Error.Validation("minCapacity", $"Minimum capacity must be between 1 and {ListingDetails.MaxCapacityCompany}.");
 
+    public static readonly Error CheckInFilterRequired =
+        Error.Validation("checkIn", "Send check-in and check-out together.");
+
+    public static readonly Error CheckOutFilterRequired =
+        Error.Validation("checkOut", "Send check-in and check-out together.");
+
+    public static readonly Error CheckInFilterInvalid =
+        Error.Validation("checkIn", $"Check-in must be a date in the format {StayWindow.DateFormat}.");
+
+    public static readonly Error CheckOutFilterInvalid =
+        Error.Validation("checkOut", $"Check-out must be a date in the format {StayWindow.DateFormat}.");
+
+    public static readonly Error CheckInFilterInThePast =
+        Error.Validation("checkIn", "Check-in cannot be in the past.");
+
+    public static readonly Error CheckInFilterTooFarAhead =
+        Error.Validation("checkIn", $"Check-in can be at most {StayWindow.MaxDaysAhead} days ahead.");
+
+    public static readonly Error CheckOutFilterNotAfterCheckIn =
+        Error.Validation("checkOut", "Check-out must be after check-in.");
+
+    public static readonly Error StayFilterTooLong =
+        Error.Validation("checkOut", $"A stay can have at most {StayWindow.MaxNights} nights.");
+
+    public static readonly Error PetsFilterInvalid =
+        Error.Validation("pets", $"Pets must be between 1 and {ListingDetails.MaxCapacityCompany}.");
+
     public static readonly Error PageInvalid =
         Error.Validation("page", "Page must be 1 or greater.");
 
