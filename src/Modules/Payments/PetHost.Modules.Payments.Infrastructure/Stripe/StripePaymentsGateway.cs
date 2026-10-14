@@ -50,6 +50,10 @@ internal sealed partial class StripePaymentsGateway(
         if (clientProvider.Client is not { } client)
             return NotConfigured<StripeCheckout>();
 
+        var metadata = Metadata(draft.PaymentId, draft.BookingId, draft.InstallmentNumber);
+        if (draft.LateFeeCents > 0)
+            metadata["late_fee_cents"] = draft.LateFeeCents.ToString(CultureInfo.InvariantCulture);
+
         var options = new PaymentIntentCreateOptions
         {
             Amount = draft.AmountCents,
@@ -61,7 +65,7 @@ internal sealed partial class StripePaymentsGateway(
             },
             TransferGroup = TransferGroup(draft.BookingId),
             Description = string.Create(CultureInfo.InvariantCulture, $"PetHost - reserva {draft.BookingId} - parcela {draft.InstallmentNumber}/{draft.InstallmentCount}"),
-            Metadata = Metadata(draft.PaymentId, draft.BookingId, draft.InstallmentNumber),
+            Metadata = metadata,
         };
 
         var requestOptions = new RequestOptions { IdempotencyKey = Key(draft.InstallmentId, $"intent-{draft.Attempt}") };
@@ -73,7 +77,7 @@ internal sealed partial class StripePaymentsGateway(
                 .ConfigureAwait(false);
 
             LogIntentCreated(logger, intent.Id, draft.BookingId, draft.InstallmentNumber);
-            return Result<StripeCheckout>.Success(new StripeCheckout(intent.Id, intent.ClientSecret, StateOf(intent.Status)));
+            return Result<StripeCheckout>.Success(new StripeCheckout(intent.Id, intent.ClientSecret, StateOf(intent.Status), intent.Amount));
         }
         catch (StripeException exception)
         {
@@ -81,7 +85,7 @@ internal sealed partial class StripePaymentsGateway(
         }
     }
 
-    public async Task<Result<StripeCheckout>> PrepareIntentAsync(string paymentIntentId, DateTimeOffset pixExpiresAt, CancellationToken cancellationToken)
+    public async Task<Result<StripeCheckout>> PrepareIntentAsync(string paymentIntentId, long amountCents, DateTimeOffset pixExpiresAt, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(paymentIntentId);
 
@@ -94,7 +98,8 @@ internal sealed partial class StripePaymentsGateway(
         {
             var intent = await service.GetAsync(paymentIntentId, options: null, requestOptions: null, cancellationToken).ConfigureAwait(false);
 
-            // O Pix anterior venceu (ou o cartão foi recusado): renova o prazo do próximo QR code.
+            // O Pix anterior venceu (ou o cartão foi recusado): atualiza o valor (multa e juros do dia)
+            // e renova o prazo do próximo QR code. Com o QR code valendo, o valor dele fica como está.
             if (intent.Status == "requires_payment_method")
             {
                 intent = await service
@@ -102,6 +107,7 @@ internal sealed partial class StripePaymentsGateway(
                         paymentIntentId,
                         new PaymentIntentUpdateOptions
                         {
+                            Amount = amountCents,
                             PaymentMethodOptions = new PaymentIntentPaymentMethodOptionsOptions
                             {
                                 Pix = new PaymentIntentPaymentMethodOptionsPixOptions { ExpiresAt = pixExpiresAt.UtcDateTime },
@@ -112,7 +118,7 @@ internal sealed partial class StripePaymentsGateway(
                     .ConfigureAwait(false);
             }
 
-            return Result<StripeCheckout>.Success(new StripeCheckout(intent.Id, intent.ClientSecret, StateOf(intent.Status)));
+            return Result<StripeCheckout>.Success(new StripeCheckout(intent.Id, intent.ClientSecret, StateOf(intent.Status), intent.Amount));
         }
         catch (StripeException exception)
         {
@@ -194,7 +200,8 @@ internal sealed partial class StripePaymentsGateway(
                 charge?.Id,
                 intent.LastPaymentError?.DeclineCode ?? intent.LastPaymentError?.Code,
                 refund,
-                dispute));
+                dispute,
+                intent.Status == "succeeded" ? intent.AmountReceived : intent.Amount));
         }
         catch (StripeException exception)
         {

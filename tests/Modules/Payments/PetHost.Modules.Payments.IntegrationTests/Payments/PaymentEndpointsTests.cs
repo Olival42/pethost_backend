@@ -276,6 +276,23 @@ public sealed class PaymentEndpointsTests(PaymentsApiFixture fixture) : IAsyncLi
     // ----- parcela vencida -----
 
     [Fact]
+    public async Task Maintenance_Should_ConfirmTheBooking_When_TheOwnerPaidButTheWebhookNeverArrived()
+    {
+        var stay = await ArrangeAsync();
+        var bookingId = await RequestAndAcceptAsync(stay, nights: 2);
+        await SendAsync(HttpMethod.Put, PaymentRoute(bookingId), stay.OwnerToken, new { installmentCount = 1 });
+        var intent = Data(await ReadAsync(await SendAsync(HttpMethod.Post, SessionRoute(bookingId, 1), stay.OwnerToken))).GetProperty("paymentIntentId").GetString()!;
+
+        // Pago com Pix no Stripe, mas nenhum webhook chega (API fora, destino errado, ngrok caído).
+        fixture.Stripe.Pay(intent, PaymentMethod.Pix);
+
+        await RunAsync<RunPaymentsMaintenanceCommand, RunPaymentsMaintenanceResponse>(new RunPaymentsMaintenanceCommand());
+
+        Status(await ReadAsync(await SendAsync(HttpMethod.Get, $"{BookingsRoute}/{bookingId}", stay.OwnerToken))).Should().Be("confirmed");
+        Data(await ReadAsync(await SendAsync(HttpMethod.Get, PaymentRoute(bookingId), stay.OwnerToken))).GetProperty("status").GetString().Should().Be("paid");
+    }
+
+    [Fact]
     public async Task Maintenance_Should_CancelTheBookingAndRefund_When_AnInstallmentIsMissedBeforeCheckIn()
     {
         var stay = await ArrangeAsync();
@@ -320,6 +337,52 @@ public sealed class PaymentEndpointsTests(PaymentsApiFixture fixture) : IAsyncLi
 
         var allowed = await SendAsync(HttpMethod.Post, BookingsRoute, stay.OwnerToken, Pedido(stay.ListingId, [stay.ThorId], Today.AddDays(10), 2));
         allowed.StatusCode.Should().Be(HttpStatusCode.Created);
+    }
+
+    [Fact]
+    public async Task OverduePayment_Should_ChargeTheFineAndInterest_AndTransferNinetyPercentOfWhatWasPaid()
+    {
+        var stay = await ArrangeAsync();
+
+        // R$ 242,00 em 2x de R$ 121,00; a 1ª paga, estadia feita.
+        var bookingId = await RequestAndAcceptAsync(stay, nights: 4);
+        await SendAsync(HttpMethod.Put, PaymentRoute(bookingId), stay.OwnerToken, new { installmentCount = 2 });
+        await PayInstallmentAsync(stay, bookingId, 1);
+        await SendAsync(HttpMethod.Post, $"{BookingsRoute}/{bookingId}/check-in", stay.HostToken);
+        await SendAsync(HttpMethod.Post, $"{BookingsRoute}/{bookingId}/check-out", stay.HostToken);
+
+        // A 2ª venceu há 3 dias: multa de 2% (R$ 2,42) + juros de 1% ao mês por 3 dias (R$ 0,12).
+        var dueAt = PaymentClock.EndOf(Today.AddDays(-3)).ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
+        await fixture.ExecuteAsync($"UPDATE payment.payment_installments SET due_at = '{dueAt}' WHERE number = 2");
+        await RunAsync<RunPaymentsMaintenanceCommand, RunPaymentsMaintenanceResponse>(new RunPaymentsMaintenanceCommand());
+
+        var overdue = Data(await ReadAsync(await SendAsync(HttpMethod.Get, PaymentRoute(bookingId), stay.OwnerToken))).GetProperty("installments")[1];
+        overdue.GetProperty("status").GetString().Should().Be("overdue");
+        overdue.GetProperty("amount").GetDecimal().Should().Be(121m);
+        overdue.GetProperty("lateFee").GetDecimal().Should().Be(2.54m);
+        overdue.GetProperty("amountDue").GetDecimal().Should().Be(123.54m);
+
+        var notice = await WaitForEmailsAsync(e => e.Subject.Contains("parcela em atraso", StringComparison.Ordinal), 1);
+        notice[0].TextBody.Should().Contain("123,54").And.Contain("multa de 2%");
+
+        // O checkout cobra o valor com o acréscimo.
+        var session = Data(await ReadAsync(await SendAsync(HttpMethod.Post, SessionRoute(bookingId, 2), stay.OwnerToken)));
+        session.GetProperty("amount").GetDecimal().Should().Be(123.54m);
+        session.GetProperty("lateFee").GetDecimal().Should().Be(2.54m);
+        var intent = session.GetProperty("paymentIntentId").GetString()!;
+        fixture.Stripe.AmountOf(intent).Should().Be(12_354);
+
+        fixture.Stripe.Pay(intent);
+        (await SendWebhookAsync("payment_intent.succeeded", intent, "payment_intent")).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Repasse de 90% do que o tutor pagou (R$ 123,54 → R$ 111,18).
+        fixture.Stripe.Transfers.Select(t => t.AmountCents).Should().Equal(10_890L, 11_118L);
+        var hostView = Data(await ReadAsync(await SendAsync(HttpMethod.Get, PaymentRoute(bookingId), stay.HostToken)));
+        hostView.GetProperty("status").GetString().Should().Be("paid");
+        hostView.GetProperty("paidAmount").GetDecimal().Should().Be(244.54m);
+        hostView.GetProperty("payout").GetProperty("transferred").GetDecimal().Should().Be(220.08m);
+        hostView.GetProperty("installments")[1].GetProperty("lateFee").GetDecimal().Should().Be(2.54m);
+        hostView.GetProperty("installments")[1].TryGetProperty("amountDue", out _).Should().BeFalse();
     }
 
     // ----- contestação -----

@@ -9,7 +9,8 @@ public static class PaymentResponseMapper
     /// <summary>Valor de <see cref="PaymentResponse.Status"/> antes de o tutor escolher as parcelas.</summary>
     public const string NotStarted = "not_started";
 
-    public static PaymentResponse ToResponse(Payment? payment, PaymentBooking booking, PaymentViewer viewer)
+    /// <param name="now">Para o acréscimo das parcelas em atraso (quanto pagar agora).</param>
+    public static PaymentResponse ToResponse(Payment? payment, PaymentBooking booking, PaymentViewer viewer, DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(booking);
 
@@ -54,14 +55,18 @@ public static class PaymentResponseMapper
             payment.InstallmentCount,
             awaiting ? booking.PaymentDeadline : null,
             payment.RefundPercentage,
-            [.. installments.Select(i => ToResponse(i, viewer))],
+            [.. installments.Select(i => ToResponse(payment, i, viewer, now))],
             options,
             viewer == PaymentViewer.Owner ? null : Payout(installments),
             payment.CreatedAt,
             payment.UpdatedAt);
     }
 
-    private static InstallmentResponse ToResponse(Installment installment, PaymentViewer viewer) => new(
+    private static InstallmentResponse ToResponse(Payment payment, Installment installment, PaymentViewer viewer, DateTimeOffset now)
+    {
+        var lateFee = installment.IsOpen ? payment.LateFeeDue(installment.Number, now).TotalCents : installment.LateFeeCents;
+
+        return new InstallmentResponse(
         installment.Number,
         Reais(installment.AmountCents),
         installment.DueAt,
@@ -85,7 +90,10 @@ public static class PaymentResponseMapper
                 installment.StripeTransferReversalId,
                 installment.StripeDisputeId,
                 installment.PayoutFailureCode)
-            : null);
+            : null,
+        lateFee > 0 ? Reais(lateFee) : null,
+        installment.IsOpen ? Reais(installment.AmountCents + lateFee) : null);
+    }
 
     /// <summary>Transferido (menos estornos), guardado (90% do que foi pago e ainda não repassado) e estornado.</summary>
     public static PayoutSummaryResponse Payout(IReadOnlyCollection<Installment> installments)
@@ -98,7 +106,7 @@ public static class PaymentResponseMapper
 
         var held = installments
             .Where(i => i.IsPaid && i.PayoutStatus == PayoutStatus.Held)
-            .Sum(i => Payment.HostShare(i.AmountCents - i.RefundedCents));
+            .Sum(i => Payment.HostShare(i.ChargedCents - i.RefundedCents));
 
         var reversed = installments.Sum(i => i.ReversedCents);
 

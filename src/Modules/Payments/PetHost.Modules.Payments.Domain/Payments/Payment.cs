@@ -23,6 +23,12 @@ namespace PetHost.Modules.Payments.Domain.Payments;
 /// é cancelada com 100% de reembolso; depois do check-in, a parcela fica em atraso.
 /// </para>
 /// <para>
+/// <b>Atraso</b>: parcela paga depois da tolerância tem multa de <see cref="LateFinePercentage"/>% e
+/// juros de <see cref="MonthlyInterestPercentage"/>% ao mês por dia desde o vencimento
+/// (<see cref="LateFeeFor"/>). O acréscimo entra na cobrança e segue a parcela: reembolso e repasse
+/// (90/10) contam sobre o que o tutor pagou.
+/// </para>
+/// <para>
 /// O agregado decide (<see cref="Reconcile"/> devolve os pedidos ao Stripe) e registra os resultados
 /// (<c>Record...</c>); quem chama o Stripe é a Application. Assim tudo é testável sem rede, e repetir
 /// a reconciliação nunca repete um pedido já registrado.
@@ -55,6 +61,15 @@ public sealed class Payment : Entity<PaymentId>
 
     /// <summary>Com quanta antecedência do vencimento o tutor recebe o lembrete.</summary>
     public static readonly TimeSpan ReminderNotice = TimeSpan.FromDays(3);
+
+    /// <summary>Multa por atraso, em % da parcela (o CDC limita a 2%).</summary>
+    public const int LateFinePercentage = 2;
+
+    /// <summary>Juros de mora, em % ao mês, simples, contados por dia (mês de 30 dias).</summary>
+    public const int MonthlyInterestPercentage = 1;
+
+    /// <summary>De quanto em quanto tempo o tutor é lembrado de uma parcela em atraso.</summary>
+    public static readonly TimeSpan OverdueReminderInterval = TimeSpan.FromDays(7);
 
     /// <summary>Validade do QR code do Pix gerado ao abrir o pagamento.</summary>
     public static readonly TimeSpan PixLifetime = TimeSpan.FromHours(24);
@@ -129,8 +144,8 @@ public sealed class Payment : Entity<PaymentId>
         Status == PaymentStatus.Pending
         && _installments.All(i => i.Status is InstallmentStatus.Pending or InstallmentStatus.Cancelled);
 
-    /// <summary>Quanto já foi pago, em centavos.</summary>
-    public long PaidCents => _installments.Where(i => i.IsPaid).Sum(i => i.AmountCents);
+    /// <summary>Quanto já foi pago, em centavos (acréscimos por atraso incluídos).</summary>
+    public long PaidCents => _installments.Where(i => i.IsPaid).Sum(i => i.ChargedCents);
 
     /// <summary>Até quantas parcelas o valor permite (cada uma de pelo menos <see cref="MinInstallmentCents"/>).</summary>
     public static int MaxInstallmentsFor(long amountCents) =>
@@ -248,6 +263,58 @@ public sealed class Payment : Entity<PaymentId>
         return expiresAt < now + MinPixLifetime ? now + MinPixLifetime : expiresAt;
     }
 
+    /// <summary>
+    /// Multa e juros de uma parcela paga em <paramref name="now"/>, com vencimento em
+    /// <paramref name="dueAt"/>. Dentro da tolerância (<see cref="OverdueGrace"/>): nada. Depois:
+    /// <see cref="LateFinePercentage"/>% de multa e <see cref="MonthlyInterestPercentage"/>% ao mês de
+    /// juros pelos dias de calendário (Brasília) desde o dia do vencimento — pagar no dia seguinte ao
+    /// fim da tolerância conta 2 dias. Arredonda o meio para cima.
+    /// </summary>
+    public static LateFee LateFeeFor(long amountCents, DateTimeOffset dueAt, DateTimeOffset now)
+    {
+        if (now < dueAt + OverdueGrace)
+            return LateFee.None;
+
+        // O vencimento é o fim do dia (a meia-noite seguinte): o dia dele é o anterior a essa meia-noite.
+        var dueDate = PaymentClock.Today(dueAt.AddTicks(-1));
+        var days = PaymentClock.Today(now).DayNumber - dueDate.DayNumber;
+
+        var fine = (long)Math.Round(amountCents * LateFinePercentage / 100m, MidpointRounding.AwayFromZero);
+        var interest = (long)Math.Round(amountCents * MonthlyInterestPercentage / 100m * days / 30m, MidpointRounding.AwayFromZero);
+
+        return new LateFee(days, fine, interest);
+    }
+
+    /// <summary>
+    /// O acréscimo que a parcela <paramref name="number"/> teria se fosse paga agora. Só da 2ª em
+    /// diante e ainda em aberto: a 1ª nunca atrasa (a reserva expira) e paga não muda mais.
+    /// </summary>
+    public LateFee LateFeeDue(int number, DateTimeOffset now)
+    {
+        var installment = Require(number);
+
+        return installment.Number > 1 && installment.IsOpen
+            ? LateFeeFor(installment.AmountCents, installment.DueAt, now)
+            : LateFee.None;
+    }
+
+    /// <summary>Quanto o tutor paga pela parcela agora: o valor dela mais o acréscimo por atraso.</summary>
+    public long AmountDue(int number, DateTimeOffset now) => Require(number).AmountCents + LateFeeDue(number, now).TotalCents;
+
+    /// <summary>
+    /// A cobrança da parcela pede <paramref name="chargeCents"/> (criada ou atualizada com o
+    /// acréscimo do dia). O que passar do valor da parcela fica gravado como acréscimo.
+    /// </summary>
+    public void RecordCharge(int number, long chargeCents, DateTimeOffset now)
+    {
+        var installment = Require(number);
+        if (installment.IsPaid)
+            return;
+
+        installment.SetCharge(chargeCents);
+        Touch(now);
+    }
+
     /// <summary>Liga a cobrança criada no Stripe à parcela.</summary>
     public void AttachIntent(int number, string paymentIntentId, DateTimeOffset now)
     {
@@ -338,7 +405,7 @@ public sealed class Payment : Entity<PaymentId>
         {
             if (installment.RefundStatus == RefundStatus.None)
             {
-                var refund = RefundFor(installment.AmountCents, RefundPercentage ?? FullRefundPercentage);
+                var refund = RefundFor(installment.ChargedCents, RefundPercentage ?? FullRefundPercentage);
                 if (refund > 0)
                 {
                     actions.Add(new PaymentAction(PaymentActionKind.Refund, installment.Number, installment.StripePaymentIntentId!, refund));
@@ -364,7 +431,7 @@ public sealed class Payment : Entity<PaymentId>
         if (installment.PayoutStatus != PayoutStatus.Held || installment.StripeChargeId is null)
             return;
 
-        var retained = installment.AmountCents - installment.RefundedCents;
+        var retained = installment.ChargedCents - installment.RefundedCents;
         if (retained <= 0)
         {
             installment.CancelPayout();
@@ -476,6 +543,30 @@ public sealed class Payment : Entity<PaymentId>
 
         foreach (var installment in due)
             installment.MarkReminded(now);
+
+        if (due.Count > 0)
+            Touch(now);
+
+        return due;
+    }
+
+    /// <summary>
+    /// As parcelas em atraso cujo último aviso (a entrada em atraso ou o lembrete anterior) foi há
+    /// <see cref="OverdueReminderInterval"/> ou mais. Marca o lembrete: chamar de novo não repete.
+    /// </summary>
+    public IReadOnlyList<Installment> TakeOverdueReminders(DateTimeOffset now)
+    {
+        if (Status is not (PaymentStatus.Active or PaymentStatus.Pending))
+            return [];
+
+        var due = _installments
+            .Where(i => i.Status == InstallmentStatus.Overdue
+                && i.OverdueSince is { } since
+                && now >= (i.OverdueRemindedAt ?? since) + OverdueReminderInterval)
+            .ToList();
+
+        foreach (var installment in due)
+            installment.MarkOverdueReminded(now);
 
         if (due.Count > 0)
             Touch(now);

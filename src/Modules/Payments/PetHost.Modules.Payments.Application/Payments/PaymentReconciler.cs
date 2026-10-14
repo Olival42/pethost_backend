@@ -13,7 +13,8 @@ namespace PetHost.Modules.Payments.Application.Payments;
 /// </summary>
 /// <remarks>
 /// Ordem: (1) 1ª parcela paga confirma a reserva aceita; (2) parcela vencida cancela a reserva
-/// (antes do check-in) ou entra em atraso (depois); (3) lembretes; (4) os pedidos ao Stripe que o
+/// (antes do check-in) ou entra em atraso (depois); (3) lembretes (do vencimento e, a cada 7 dias,
+/// da parcela em atraso, com o valor já com multa e juros); (4) os pedidos ao Stripe que o
 /// agregado decide (<see cref="Payment.Reconcile"/>) — cancelar cobranças, reembolsar, repassar,
 /// estornar —, em rodadas até não sobrar nada (o repasse do que ficou retido sai depois do reembolso).
 /// Um pedido que falha no Stripe fica para a próxima vez: o resto segue e o que deu certo é gravado.
@@ -28,9 +29,10 @@ public sealed class PaymentReconciler(
     private const int MaxRounds = 4;
 
     /// <summary>
-    /// As parcelas que valem uma releitura no Stripe. Na manutenção, só o que pode ter mudado sem
-    /// aviso: cobrança em processamento, reembolso a caminho, contestação aberta. Pedida pelo app
-    /// (<paramref name="everything"/>), toda parcela com cobrança que ainda não chegou ao fim.
+    /// As parcelas que valem uma releitura no Stripe. Na manutenção, o que pode ter mudado sem que o
+    /// webhook chegasse: cobrança aberta (o tutor pode ter pago — webhook perdido, API fora do ar,
+    /// destino mal configurado), cobrança em processamento, reembolso a caminho, contestação aberta.
+    /// Pedida pelo app (<paramref name="everything"/>), toda parcela com cobrança que ainda não chegou ao fim.
     /// </summary>
     public static IReadOnlyList<Installment> NeedingRefresh(Payment payment, bool everything)
     {
@@ -38,7 +40,8 @@ public sealed class PaymentReconciler(
 
         return [.. payment.Installments.Where(i => i.StripePaymentIntentId is not null && (everything
             ? !i.IsSettled
-            : i.Status == InstallmentStatus.Processing
+            : (i.IntentOpen && !i.IsPaid)
+                || i.Status == InstallmentStatus.Processing
                 || i.RefundStatus == RefundStatus.Pending
                 || i.DisputeStatus == DisputeStatus.Open))];
     }
@@ -95,10 +98,13 @@ public sealed class PaymentReconciler(
         }
 
         foreach (var number in overdue.BecameOverdue)
-            effects.Add(PaymentEffectKind.InstallmentOverdue, number, payment.FindInstallment(number)!.AmountCents);
+            effects.Add(PaymentEffectKind.InstallmentOverdue, number, payment.AmountDue(number, now));
 
         foreach (var installment in payment.TakeReminders(now))
             effects.Add(PaymentEffectKind.InstallmentReminder, installment.Number, installment.AmountCents);
+
+        foreach (var installment in payment.TakeOverdueReminders(now))
+            effects.Add(PaymentEffectKind.InstallmentOverdueReminder, installment.Number, payment.AmountDue(installment.Number, now));
 
         for (var round = 0; round < MaxRounds; round++)
         {

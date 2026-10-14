@@ -173,7 +173,8 @@ public sealed class SyncBookingPaymentCommandHandlerTests
             _bookings.Object,
             parties.Object,
             new PaymentReconciler(_stripe.Object, _bookings.Object, parties.Object, new FakeTimeProvider(Now)),
-            new PaymentCommitter(_unitOfWork.Object, PaymentsTestData.Publisher()));
+            new PaymentCommitter(_unitOfWork.Object, PaymentsTestData.Publisher()),
+            new FakeTimeProvider(Now));
     }
 
     [Fact]
@@ -457,6 +458,18 @@ public sealed class PaymentEffectsPublisherTests
 
         // Assert
         _notifier.Verify(n => n.NotifyAsync(It.Is<PaymentNotice>(x => x.Kind == PaymentNoticeKind.InstallmentReminder), It.IsAny<CancellationToken>()), Times.Once);
+        _auditTrail.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task PublishAsync_Should_OnlyEmailTheOwner_When_ItIsTheWeeklyOverdueReminder()
+    {
+        // Act
+        await PublishAsync(PaymentEffectKind.InstallmentOverdueReminder);
+
+        // Assert
+        _notifier.Verify(n => n.NotifyAsync(It.Is<PaymentNotice>(x => x.Kind == PaymentNoticeKind.InstallmentOverdueReminder && x.Email == PaymentsTestData.OwnerContact.Email && x.AmountCents == 10_000), It.IsAny<CancellationToken>()), Times.Once);
+        _notifier.Verify(n => n.AlertAdminAsync(It.IsAny<PaymentAlert>(), It.IsAny<CancellationToken>()), Times.Never);
         _auditTrail.VerifyNoOtherCalls();
     }
 

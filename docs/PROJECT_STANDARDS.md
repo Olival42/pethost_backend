@@ -589,6 +589,7 @@ O time pensa em português, o código fala inglês. Esta é a tradução oficial
 | Pagamento da reserva (o plano de parcelas) | `Payment` (`InstallmentCount`) | Parcela | `Installment` *(❌ Parcel, Quota)* |
 | Prazo para pagar a 1ª parcela (24h depois do aceite) | `PaymentDeadline` (`PaymentWindow`) | Checkout transparente (abrir o pagamento da parcela) | `PaymentSession` (rota `/payment-session`) |
 | Parcela em atraso / tolerância de 24h | `Overdue` / `OverdueGrace` | Lembrete de vencimento | `Reminder` (`TakeReminders`) |
+| Multa e juros por atraso | `LateFee` (`LateFeeFor`, `LateFeeCents`) *(❌ Interest, Penalty)* | Lembrete semanal da parcela em atraso | `OverdueReminder` (`TakeOverdueReminders`) |
 | Contestação no cartão (chargeback) | `Dispute` | Estorno do repasse (contestação perdida) | `TransferReversal` (`PayoutStatus.Reversed`) |
 | Taxa da plataforma (10%) | `PlatformFee` | Parte do anfitrião (90%) | `HostShare` / `HostPayout` |
 | Ganhos do anfitrião (os repasses) | `HostEarnings` (`/payments/payouts/me`) | Pendências de pagamento (admin) | `PaymentIssues` |

@@ -85,8 +85,9 @@ internal sealed class PaymentConfiguration : IEntityTypeConfiguration<Payment>
                 table.HasCheckConstraint("ck_payment_installments_refund_status", $"refund_status IN ({InList(RefundStatusValues.All)})");
                 table.HasCheckConstraint("ck_payment_installments_payout_status", $"payout_status IN ({InList(PayoutStatusValues.All)})");
                 table.HasCheckConstraint("ck_payment_installments_dispute_status", $"dispute_status IN ({InList(DisputeStatusValues.All)})");
-                table.HasCheckConstraint("ck_payment_installments_refunded_cents", "refunded_cents BETWEEN 0 AND amount_cents");
-                table.HasCheckConstraint("ck_payment_installments_split", "host_payout_cents >= 0 AND platform_fee_cents >= 0 AND host_payout_cents + platform_fee_cents <= amount_cents");
+                table.HasCheckConstraint("ck_payment_installments_late_fee_cents", "late_fee_cents >= 0");
+                table.HasCheckConstraint("ck_payment_installments_refunded_cents", "refunded_cents BETWEEN 0 AND amount_cents + late_fee_cents");
+                table.HasCheckConstraint("ck_payment_installments_split", "host_payout_cents >= 0 AND platform_fee_cents >= 0 AND host_payout_cents + platform_fee_cents <= amount_cents + late_fee_cents");
                 table.HasCheckConstraint("ck_payment_installments_reversed_cents", "reversed_cents BETWEEN 0 AND host_payout_cents");
             });
 
@@ -100,6 +101,7 @@ internal sealed class PaymentConfiguration : IEntityTypeConfiguration<Payment>
 
             installments.Property(i => i.Number).HasColumnName("number").IsRequired();
             installments.Property(i => i.AmountCents).HasColumnName("amount_cents").IsRequired();
+            installments.Property(i => i.LateFeeCents).HasColumnName("late_fee_cents").IsRequired();
             installments.Property(i => i.DueAt).HasColumnName("due_at").HasColumnType("timestamptz").IsRequired();
 
             installments.Property(i => i.Status)
@@ -121,6 +123,7 @@ internal sealed class PaymentConfiguration : IEntityTypeConfiguration<Payment>
             installments.Property(i => i.PaidAt).HasColumnName("paid_at").HasColumnType("timestamptz");
             installments.Property(i => i.ReminderSentAt).HasColumnName("reminder_sent_at").HasColumnType("timestamptz");
             installments.Property(i => i.OverdueSince).HasColumnName("overdue_since").HasColumnType("timestamptz");
+            installments.Property(i => i.OverdueRemindedAt).HasColumnName("overdue_reminded_at").HasColumnType("timestamptz");
 
             installments.Property(i => i.RefundStatus)
                 .HasColumnName("refund_status")
@@ -171,6 +174,7 @@ internal sealed class PaymentConfiguration : IEntityTypeConfiguration<Payment>
             installments.Ignore(i => i.IsPaid);
             installments.Ignore(i => i.IsOpen);
             installments.Ignore(i => i.IsSettled);
+            installments.Ignore(i => i.ChargedCents);
         });
 
         builder.Navigation(p => p.Installments).UsePropertyAccessMode(PropertyAccessMode.Field);

@@ -246,11 +246,12 @@ public sealed class StartInstallmentPaymentCommandHandlerTests
     private readonly Mock<IStripePayments> _stripe = PaymentsTestData.Stripe();
     private Payment _payment = new PaymentBuilder().Build();
     private Mock<IPaymentBookings> _bookings = PaymentsTestData.Bookings();
+    private DateTimeOffset _now = Now;
 
     private StartInstallmentPaymentCommandHandler Sut()
     {
         var parties = PaymentsTestData.Parties();
-        var time = new FakeTimeProvider(Now);
+        var time = new FakeTimeProvider(_now);
 
         return new(
             PaymentsTestData.Repository(_payment).Object,
@@ -291,16 +292,17 @@ public sealed class StartInstallmentPaymentCommandHandlerTests
     {
         // Arrange
         _payment.AttachIntent(1, "pi_open", Now);
-        _stripe.Setup(s => s.PrepareIntentAsync("pi_open", It.IsAny<DateTimeOffset>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Result<StripeCheckout>.Success(new StripeCheckout("pi_open", "pi_open_secret", ChargeState.AwaitingPayment)));
+        _stripe.Setup(s => s.PrepareIntentAsync("pi_open", 10_000, It.IsAny<DateTimeOffset>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<StripeCheckout>.Success(new StripeCheckout("pi_open", "pi_open_secret", ChargeState.AwaitingPayment, 10_000)));
 
         // Act
         var result = await StartAsync();
 
         // Assert
         result.Value!.ClientSecret.Should().Be("pi_open_secret");
+        result.Value.LateFee.Should().Be(0m);
         _stripe.Verify(s => s.CreateIntentAsync(It.IsAny<IntentDraft>(), It.IsAny<CancellationToken>()), Times.Never);
-        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+        _payment.FindInstallment(1)!.LateFeeCents.Should().Be(0);
     }
 
     [Fact]
@@ -308,8 +310,8 @@ public sealed class StartInstallmentPaymentCommandHandlerTests
     {
         // Arrange
         _payment.AttachIntent(1, "pi_canceled", Now);
-        _stripe.Setup(s => s.PrepareIntentAsync("pi_canceled", It.IsAny<DateTimeOffset>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Result<StripeCheckout>.Success(new StripeCheckout("pi_canceled", "secret", ChargeState.Canceled)));
+        _stripe.Setup(s => s.PrepareIntentAsync("pi_canceled", It.IsAny<long>(), It.IsAny<DateTimeOffset>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<StripeCheckout>.Success(new StripeCheckout("pi_canceled", "secret", ChargeState.Canceled, 10_000)));
 
         // Act
         var result = await StartAsync();
@@ -325,8 +327,8 @@ public sealed class StartInstallmentPaymentCommandHandlerTests
         // Arrange
         _payment.AttachIntent(1, PaymentBuilder.IntentId(1), Now);
         _bookings = PaymentsTestData.Bookings(PaymentsTestData.Booking(), PaymentsTestData.Booking(), PaymentsTestData.Booking(BookingStage.Confirmed));
-        _stripe.Setup(s => s.PrepareIntentAsync(PaymentBuilder.IntentId(1), It.IsAny<DateTimeOffset>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Result<StripeCheckout>.Success(new StripeCheckout(PaymentBuilder.IntentId(1), "secret", ChargeState.Succeeded)));
+        _stripe.Setup(s => s.PrepareIntentAsync(PaymentBuilder.IntentId(1), It.IsAny<long>(), It.IsAny<DateTimeOffset>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<StripeCheckout>.Success(new StripeCheckout(PaymentBuilder.IntentId(1), "secret", ChargeState.Succeeded, 10_000)));
         _stripe.Setup(s => s.GetChargeAsync(PaymentBuilder.IntentId(1), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Result<ChargeSnapshot>.Success(PaymentBuilder.Succeeded(1)));
 
@@ -338,6 +340,53 @@ public sealed class StartInstallmentPaymentCommandHandlerTests
         _payment.FindInstallment(1)!.IsPaid.Should().BeTrue();
         _bookings.Verify(b => b.ConfirmPaidAsync(PaymentBuilder.BookingId, It.IsAny<CancellationToken>()), Times.Once);
         _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task HandleAsync_Should_ChargeTheFineAndInterest_When_TheInstallmentIsOverdue()
+    {
+        // Arrange — estadia concluída, 2ª parcela vencida e passada a tolerância (2 dias de atraso).
+        _payment = new PaymentBuilder().BuildPaid(1);
+        _now = _payment.FindInstallment(2)!.DueAt + Payment.OverdueGrace;
+        _payment.CheckOverdue(BookingStage.Completed, _now);
+        _bookings = PaymentsTestData.Bookings(PaymentsTestData.Booking(BookingStage.Completed));
+
+        // Act
+        var result = await StartAsync(2);
+
+        // Assert
+        var session = result.Value!;
+        session.Amount.Should().Be(102.07m);
+        session.LateFee.Should().Be(2.07m);
+        _stripe.Verify(s => s.CreateIntentAsync(
+            It.Is<IntentDraft>(d => d.InstallmentNumber == 2 && d.AmountCents == 10_207 && d.LateFeeCents == 207),
+            It.IsAny<CancellationToken>()), Times.Once);
+        _payment.FindInstallment(2)!.LateFeeCents.Should().Be(207);
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task HandleAsync_Should_UpdateTheOpenChargeToTodaysAmount_When_TheOverdueOwnerComesBack()
+    {
+        // Arrange — a cobrança foi aberta antes e o atraso já tem 9 dias.
+        _payment = new PaymentBuilder().BuildPaid(1);
+        var overdueAt = _payment.FindInstallment(2)!.DueAt + Payment.OverdueGrace;
+        _payment.CheckOverdue(BookingStage.Completed, overdueAt);
+        _payment.AttachIntent(2, "pi_late", overdueAt);
+        _payment.RecordCharge(2, 10_207, overdueAt);
+        _now = overdueAt.AddDays(7);
+        _bookings = PaymentsTestData.Bookings(PaymentsTestData.Booking(BookingStage.Completed));
+        _stripe.Setup(s => s.PrepareIntentAsync("pi_late", 10_230, It.IsAny<DateTimeOffset>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<StripeCheckout>.Success(new StripeCheckout("pi_late", "pi_late_secret", ChargeState.AwaitingPayment, 10_230)));
+
+        // Act
+        var result = await StartAsync(2);
+
+        // Assert
+        result.Value!.Amount.Should().Be(102.30m);
+        result.Value.LateFee.Should().Be(2.30m);
+        _payment.FindInstallment(2)!.LateFeeCents.Should().Be(230);
+        _stripe.Verify(s => s.CreateIntentAsync(It.IsAny<IntentDraft>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -410,7 +459,7 @@ public sealed class GetBookingPaymentQueryHandlerTests
     private Mock<IPaymentBookings> _bookings = PaymentsTestData.Bookings();
 
     private Task<Result<PaymentResponse>> GetAsync(Guid userId, string role) =>
-        new GetBookingPaymentQueryHandler(PaymentsTestData.Repository(_payment).Object, _bookings.Object, PaymentsTestData.Parties().Object)
+        new GetBookingPaymentQueryHandler(PaymentsTestData.Repository(_payment).Object, _bookings.Object, PaymentsTestData.Parties().Object, new FakeTimeProvider(PaymentBuilder.DefaultNow))
             .HandleAsync(new GetBookingPaymentQuery(userId, role, PaymentBuilder.BookingId), CancellationToken.None);
 
     [Fact]

@@ -10,10 +10,15 @@ namespace PetHost.Modules.Payments.Domain.Payments;
 /// <param name="FailureCode">Por que a última tentativa falhou (código do Stripe), se falhou.</param>
 /// <param name="Refund">O reembolso, se houver.</param>
 /// <param name="Dispute">A contestação, se houver.</param>
+/// <param name="AmountCents">
+/// Quanto a cobrança pede (paga: quanto o tutor pagou), em centavos — o que passa do valor da
+/// parcela é multa e juros por atraso. Nulo: não informado (o acréscimo gravado continua valendo).
+/// </param>
 public sealed record ChargeSnapshot(
     ChargeState State,
     PaymentMethod? Method = null,
     string? ChargeId = null,
     string? FailureCode = null,
     RefundSnapshot? Refund = null,
-    DisputeSnapshot? Dispute = null);
+    DisputeSnapshot? Dispute = null,
+    long? AmountCents = null);

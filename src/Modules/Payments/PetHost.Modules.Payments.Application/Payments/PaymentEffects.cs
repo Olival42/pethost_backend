@@ -23,7 +23,7 @@ public sealed class PaymentEffects
         ArgumentNullException.ThrowIfNull(installment);
 
         if (change.BecamePaid)
-            Add(PaymentEffectKind.InstallmentPaid, change.Number, installment.AmountCents, installment.Method is { } method ? PaymentMethodValues.ToWire(method) : null);
+            Add(PaymentEffectKind.InstallmentPaid, change.Number, installment.ChargedCents, installment.Method is { } method ? PaymentMethodValues.ToWire(method) : null);
 
         if (change.DisputeOpened)
             Add(PaymentEffectKind.DisputeOpened, change.Number, installment.AmountCents);
@@ -52,7 +52,7 @@ public enum PaymentEffectKind
     /// <summary>Uma parcela vence em breve (lembrete).</summary>
     InstallmentReminder,
 
-    /// <summary>Uma parcela entrou em atraso (depois do check-in).</summary>
+    /// <summary>Uma parcela entrou em atraso (depois do check-in). Valor: quanto pagar, com multa e juros.</summary>
     InstallmentOverdue,
 
     /// <summary>Um reembolso foi pedido ao Stripe.</summary>
@@ -75,4 +75,7 @@ public enum PaymentEffectKind
 
     /// <summary>A contestação foi decidida.</summary>
     DisputeClosed,
+
+    /// <summary>Uma parcela continua em atraso (lembrete semanal). Valor: quanto pagar, com multa e juros.</summary>
+    InstallmentOverdueReminder,
 }

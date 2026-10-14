@@ -9,7 +9,7 @@ using PetHost.Shared.Infrastructure.Email;
 namespace PetHost.Modules.Payments.Infrastructure.Notifications;
 
 /// <summary>
-/// E-mails do pagamento: parcela paga, lembrete, atraso e reembolso (ao tutor), repasse e estorno
+/// E-mails do pagamento: parcela paga, lembrete, atraso (e o lembrete semanal) e reembolso (ao tutor), repasse e estorno
 /// (ao anfitrião) e alertas ao admin. Vão pela caixa de saída (<see cref="IEmailOutbox"/>), em segundo plano.
 /// </summary>
 internal sealed class PaymentEmailNotifier(IEmailOutbox outbox, IOptions<PaymentsOptions> options) : IPaymentNotifier
@@ -39,13 +39,23 @@ internal sealed class PaymentEmailNotifier(IEmailOutbox outbox, IOptions<Payment
                 {
                     $"A parcela {notice.InstallmentNumber} de {notice.InstallmentCount} da sua reserva ({amount}) vence em {due}.",
                     "Pague pelo app, com Pix ou cartão. Se ela vencer antes da chegada do seu pet e não for paga em até 24h, a reserva é cancelada e devolvemos o que você já pagou.",
+                    LateFeeTerms,
                 }),
             PaymentNoticeKind.InstallmentOverdue => (
                 "PetHost — parcela em atraso",
                 new[]
                 {
-                    $"A parcela {notice.InstallmentNumber} de {notice.InstallmentCount} da sua reserva ({amount}) venceu em {due} e não foi paga.",
+                    $"A parcela {notice.InstallmentNumber} de {notice.InstallmentCount} da sua reserva venceu em {due} e não foi paga. Valor para pagar hoje: {amount}.",
+                    LateFeeTerms,
                     "Pague pelo app assim que puder. Enquanto houver parcela em atraso, não dá para pedir outra estadia.",
+                }),
+            PaymentNoticeKind.InstallmentOverdueReminder => (
+                "PetHost — parcela ainda em atraso",
+                new[]
+                {
+                    $"A parcela {notice.InstallmentNumber} de {notice.InstallmentCount} da sua reserva, vencida em {due}, continua em aberto. Valor atualizado para pagar hoje: {amount}.",
+                    LateFeeTerms,
+                    "Pague pelo app, com Pix ou cartão. Enquanto houver parcela em atraso, não dá para pedir outra estadia.",
                 }),
             PaymentNoticeKind.RefundCreated => (
                 "PetHost — reembolso a caminho",
@@ -95,6 +105,10 @@ internal sealed class PaymentEmailNotifier(IEmailOutbox outbox, IOptions<Payment
             ],
             cancellationToken);
     }
+
+    private static readonly string LateFeeTerms = string.Create(
+        PtBr,
+        $"Parcela paga depois do vencimento (e das 24h de tolerância) tem multa de {Payment.LateFinePercentage}% e juros de {Payment.MonthlyInterestPercentage}% ao mês, contados por dia.");
 
     private static string Money(long cents) => string.Create(PtBr, $"{cents / 100m:C}");
 

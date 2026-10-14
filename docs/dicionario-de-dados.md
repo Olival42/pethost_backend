@@ -358,6 +358,7 @@ erDiagram
         uuid payment_id FK
         int number
         bigint amount_cents
+        bigint late_fee_cents
         timestamptz due_at
         enum status
         enum method "nullable"
@@ -750,7 +751,8 @@ Uma parcela do pagamento — uma cobrança no Stripe (`PaymentIntent`), com o re
 | `id` | `uuid` | `PK` | não | Identificador da parcela (UUID v7). Base das chaves de idempotência no Stripe. |
 | `payment_id` | `uuid` | `FK` | não | Pagamento → payments.id (FK física, `ON DELETE CASCADE`). |
 | `number` | `int` |  | não | 1 a 6, na ordem de vencimento. Único por pagamento. |
-| `amount_cents` | `bigint` |  | não | Valor da parcela (os centavos que sobram da divisão vão na 1ª). |
+| `amount_cents` | `bigint` |  | não | Valor da parcela (os centavos que sobram da divisão vão na 1ª), sem acréscimo. |
+| `late_fee_cents` | `bigint` |  | não | Multa (2%) e juros (1% ao mês, por dia) por atraso que entraram na cobrança: o que a cobrança aberta pede a mais e, depois de paga, o que o tutor pagou a mais. 0 se em dia. |
 | `due_at` | `timestamptz` |  | não | Vencimento: a 1ª no prazo da reserva (24h depois do aceite); as outras no fim do dia (Brasília), a cada 30 dias. |
 | `status` | `varchar(20)` |  | não | pending, processing, paid, overdue ou cancelled. |
 | `method` | `varchar(10)` |  | sim | card ou pix, quando o tutor pagou. |
@@ -762,12 +764,13 @@ Uma parcela do pagamento — uma cobrança no Stripe (`PaymentIntent`), com o re
 | `paid_at` | `timestamptz` |  | sim | Quando o Stripe confirmou. |
 | `reminder_sent_at` | `timestamptz` |  | sim | Quando o lembrete de vencimento foi enviado. |
 | `overdue_since` | `timestamptz` |  | sim | Desde quando está em atraso (venceu depois do check-in). |
+| `overdue_reminded_at` | `timestamptz` |  | sim | Quando o tutor recebeu o último lembrete da parcela em atraso (um a cada 7 dias). |
 | `refund_status` | `varchar(20)` |  | não | none, pending, succeeded ou failed. |
 | `refunded_cents` | `bigint` |  | não | Quanto foi (ou está sendo) devolvido ao tutor (0 se nada). |
 | `stripe_refund_id` | `varchar(255)` |  | sim | Reembolso (re_...). |
 | `refunded_at` | `timestamptz` |  | sim | Quando o reembolso foi pedido. |
 | `payout_status` | `varchar(20)` |  | não | held (guardado), transferred (repassado), cancelled (não haverá repasse) ou reversed (estornado por contestação). |
-| `host_payout_cents` | `bigint` |  | não | 90% do retido. Vai para o anfitrião (gravado no repasse). |
+| `host_payout_cents` | `bigint` |  | não | 90% do retido (acréscimo por atraso incluído). Vai para o anfitrião (gravado no repasse). |
 | `platform_fee_cents` | `bigint` |  | não | 10% do retido. Fica com o PetHost (paga a taxa do Stripe). |
 | `stripe_transfer_id` | `varchar(255)` |  | sim | Transferência ao anfitrião (tr_...). |
 | `transferred_at` | `timestamptz` |  | sim | Quando o repasse foi feito. |
@@ -780,7 +783,7 @@ Uma parcela do pagamento — uma cobrança no Stripe (`PaymentIntent`), com o re
 | `disputed_at` | `timestamptz` |  | sim | Quando a contestação chegou. |
 | `dispute_closed_at` | `timestamptz` |  | sim | Quando foi decidida. |
 
-> Regra (por parcela): platform_fee_cents + host_payout_cents = amount_cents − refunded_cents. CHECKs: `number` 1–6, `amount_cents > 0`, status e meios na lista, `refunded_cents` entre 0 e `amount_cents`, `host_payout_cents + platform_fee_cents ≤ amount_cents`, `reversed_cents ≤ host_payout_cents`. Índices: `uq_payment_installments_payment_id_number`, `uq_payment_installments_stripe_payment_intent_id` (parcial) e `ix_payment_installments_status`.
+> Regra (por parcela): platform_fee_cents + host_payout_cents = amount_cents + late_fee_cents − refunded_cents. CHECKs: `number` 1–6, `amount_cents > 0`, `late_fee_cents ≥ 0`, status e meios na lista, `refunded_cents` entre 0 e `amount_cents + late_fee_cents`, `host_payout_cents + platform_fee_cents ≤ amount_cents + late_fee_cents`, `reversed_cents ≤ host_payout_cents`. Índices: `uq_payment_installments_payment_id_number`, `uq_payment_installments_stripe_payment_intent_id` (parcial) e `ix_payment_installments_status`.
 
 ### `stripe_events` · Eventos do Stripe
 

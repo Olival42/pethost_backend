@@ -109,7 +109,7 @@ public sealed class ChoosePaymentPlanCommandHandler(
         effects.Add(PaymentEffectKind.PlanChosen, 1, payment.AmountCents);
         await publisher.PublishAsync(payment, effects, cancellationToken).ConfigureAwait(false);
 
-        return Result<PaymentResponse>.Success(PaymentResponseMapper.ToResponse(payment, booking, PaymentViewer.Owner));
+        return Result<PaymentResponse>.Success(PaymentResponseMapper.ToResponse(payment, booking, PaymentViewer.Owner, now));
     }
 
     /// <summary>Reserva aceita, dentro do prazo da 1ª parcela.</summary>

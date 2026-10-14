@@ -36,7 +36,8 @@ public sealed class SyncBookingPaymentCommandHandler(
     IPaymentBookings bookings,
     IPaymentParties parties,
     PaymentReconciler reconciler,
-    PaymentCommitter committer) : ICommandHandler<SyncBookingPaymentCommand, PaymentResponse>
+    PaymentCommitter committer,
+    TimeProvider timeProvider) : ICommandHandler<SyncBookingPaymentCommand, PaymentResponse>
 {
     public async Task<Result<PaymentResponse>> HandleAsync(SyncBookingPaymentCommand command, CancellationToken cancellationToken)
     {
@@ -73,6 +74,6 @@ public sealed class SyncBookingPaymentCommandHandler(
         // A reserva pode ter mudado na reconciliação (confirmada pelo pagamento).
         var current = await bookings.GetAsync(booking.Id, cancellationToken).ConfigureAwait(false) ?? booking;
 
-        return Result<PaymentResponse>.Success(PaymentResponseMapper.ToResponse(payment, current, viewer));
+        return Result<PaymentResponse>.Success(PaymentResponseMapper.ToResponse(payment, current, viewer, timeProvider.GetUtcNow()));
     }
 }

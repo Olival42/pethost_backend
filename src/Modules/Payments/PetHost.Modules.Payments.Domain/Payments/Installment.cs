@@ -37,8 +37,17 @@ public sealed class Installment
     /// <summary>1 a 6, na ordem de vencimento.</summary>
     public int Number { get; private set; }
 
-    /// <summary>Valor da parcela, em centavos.</summary>
+    /// <summary>Valor da parcela, em centavos (sem acréscimo por atraso).</summary>
     public long AmountCents { get; private set; }
+
+    /// <summary>
+    /// Multa e juros por atraso que entraram na cobrança, em centavos: o que a cobrança aberta pede
+    /// a mais e, depois de paga, o que o tutor pagou a mais. Zero para parcela paga em dia.
+    /// </summary>
+    public long LateFeeCents { get; private set; }
+
+    /// <summary>O que o tutor paga (ou pagou) pela parcela: o valor dela mais o acréscimo por atraso.</summary>
+    public long ChargedCents => AmountCents + LateFeeCents;
 
     /// <summary>
     /// Vencimento. A 1ª vence no prazo de pagamento da reserva (24h depois do aceite); as outras, no
@@ -77,6 +86,9 @@ public sealed class Installment
     /// <summary>Desde quando está em atraso (venceu depois do check-in e passou da tolerância).</summary>
     public DateTimeOffset? OverdueSince { get; private set; }
 
+    /// <summary>Quando o tutor recebeu o último lembrete de parcela em atraso (um a cada 7 dias).</summary>
+    public DateTimeOffset? OverdueRemindedAt { get; private set; }
+
     public RefundStatus RefundStatus { get; private set; }
 
     /// <summary>Quanto foi (ou está sendo) devolvido ao tutor, em centavos.</summary>
@@ -88,7 +100,7 @@ public sealed class Installment
 
     public PayoutStatus PayoutStatus { get; private set; }
 
-    /// <summary>A parte do anfitrião: 90% do que ficou retido. Gravada no repasse.</summary>
+    /// <summary>A parte do anfitrião: 90% do que ficou retido (acréscimo por atraso incluído). Gravada no repasse.</summary>
     public long HostPayoutCents { get; private set; }
 
     /// <summary>A parte do PetHost: 10% do que ficou retido (é dela que sai a taxa do Stripe).</summary>
@@ -160,6 +172,11 @@ public sealed class Installment
 
     internal void MarkReminded(DateTimeOffset now) => ReminderSentAt = now;
 
+    internal void MarkOverdueReminded(DateTimeOffset now) => OverdueRemindedAt = now;
+
+    /// <summary>A cobrança pede <paramref name="chargeCents"/>: o que passa do valor da parcela é acréscimo.</summary>
+    internal void SetCharge(long chargeCents) => LateFeeCents = Math.Max(0, chargeCents - AmountCents);
+
     internal void CancelPayout() => PayoutStatus = PayoutStatus.Cancelled;
 
     internal void RecordRefund(string refundId, long amountCents, RefundStatus status, DateTimeOffset now)
@@ -204,6 +221,10 @@ public sealed class Installment
 
         Method = snapshot.Method ?? Method;
         StripeChargeId = snapshot.ChargeId ?? StripeChargeId;
+
+        // O valor pago não muda depois de pago; antes disso, vale o que a cobrança pede agora.
+        if (snapshot.AmountCents is { } charged && !wasPaid)
+            SetCharge(charged);
 
         switch (snapshot.State)
         {

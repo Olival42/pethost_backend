@@ -202,6 +202,10 @@ namespace PetHost.Modules.Payments.Infrastructure.Persistence.Migrations
                                 .HasColumnType("boolean")
                                 .HasColumnName("intent_open");
 
+                            b1.Property<long>("LateFeeCents")
+                                .HasColumnType("bigint")
+                                .HasColumnName("late_fee_cents");
+
                             b1.Property<string>("Method")
                                 .HasMaxLength(10)
                                 .HasColumnType("character varying(10)")
@@ -210,6 +214,10 @@ namespace PetHost.Modules.Payments.Infrastructure.Persistence.Migrations
                             b1.Property<int>("Number")
                                 .HasColumnType("integer")
                                 .HasColumnName("number");
+
+                            b1.Property<DateTimeOffset?>("OverdueRemindedAt")
+                                .HasColumnType("timestamptz")
+                                .HasColumnName("overdue_reminded_at");
 
                             b1.Property<DateTimeOffset?>("OverdueSince")
                                 .HasColumnType("timestamptz")
@@ -329,6 +337,8 @@ namespace PetHost.Modules.Payments.Infrastructure.Persistence.Migrations
 
                                     t.HasCheckConstraint("ck_payment_installments_dispute_status", "dispute_status IN ('none', 'open', 'won', 'lost')");
 
+                                    t.HasCheckConstraint("ck_payment_installments_late_fee_cents", "late_fee_cents >= 0");
+
                                     t.HasCheckConstraint("ck_payment_installments_method", "method IS NULL OR method IN ('card', 'pix')");
 
                                     t.HasCheckConstraint("ck_payment_installments_number", "number BETWEEN 1 AND 6");
@@ -337,11 +347,11 @@ namespace PetHost.Modules.Payments.Infrastructure.Persistence.Migrations
 
                                     t.HasCheckConstraint("ck_payment_installments_refund_status", "refund_status IN ('none', 'pending', 'succeeded', 'failed')");
 
-                                    t.HasCheckConstraint("ck_payment_installments_refunded_cents", "refunded_cents BETWEEN 0 AND amount_cents");
+                                    t.HasCheckConstraint("ck_payment_installments_refunded_cents", "refunded_cents BETWEEN 0 AND amount_cents + late_fee_cents");
 
                                     t.HasCheckConstraint("ck_payment_installments_reversed_cents", "reversed_cents BETWEEN 0 AND host_payout_cents");
 
-                                    t.HasCheckConstraint("ck_payment_installments_split", "host_payout_cents >= 0 AND platform_fee_cents >= 0 AND host_payout_cents + platform_fee_cents <= amount_cents");
+                                    t.HasCheckConstraint("ck_payment_installments_split", "host_payout_cents >= 0 AND platform_fee_cents >= 0 AND host_payout_cents + platform_fee_cents <= amount_cents + late_fee_cents");
 
                                     t.HasCheckConstraint("ck_payment_installments_status", "status IN ('pending', 'processing', 'paid', 'overdue', 'cancelled')");
                                 });

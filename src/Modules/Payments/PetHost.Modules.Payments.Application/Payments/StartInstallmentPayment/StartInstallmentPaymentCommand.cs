@@ -37,6 +37,7 @@ public sealed class StartInstallmentPaymentCommandValidator : AbstractValidator<
 /// venceu); cancelada ou inexistente, outra é criada. O QR code do Pix vence no prazo da parcela,
 /// para não ser pago depois dele. Parcela que o Stripe já está confirmando ou já confirmou: o
 /// pagamento é relido e volta <c>422 PAYMENT_INSTALLMENT_PROCESSING</c> / <c>..._ALREADY_PAID</c>.
+/// Parcela em atraso: a cobrança pede o valor com multa e juros do dia (<see cref="Payment.AmountDue"/>).
 /// </summary>
 public sealed class StartInstallmentPaymentCommandHandler(
     IPaymentRepository paymentRepository,
@@ -78,12 +79,14 @@ public sealed class StartInstallmentPaymentCommandHandler(
 
         var installment = payable.Value!;
         var pixExpiresAt = payment.PixExpiresAt(number, booking.IsBeforeCheckIn, now);
+        var lateFee = payment.LateFeeDue(number, now);
+        var amountDue = installment.AmountCents + lateFee.TotalCents;
 
         StripeCheckout? checkout = null;
 
         if (installment is { IntentOpen: true, StripePaymentIntentId: { } openIntent })
         {
-            var prepared = await stripe.PrepareIntentAsync(openIntent, pixExpiresAt, cancellationToken).ConfigureAwait(false);
+            var prepared = await stripe.PrepareIntentAsync(openIntent, amountDue, pixExpiresAt, cancellationToken).ConfigureAwait(false);
             if (prepared.IsFailure)
                 return Result<PaymentSessionResponse>.FromFailure(prepared);
 
@@ -91,6 +94,7 @@ public sealed class StartInstallmentPaymentCommandHandler(
             {
                 case ChargeState.AwaitingPayment:
                     checkout = prepared.Value;
+                    payment.RecordCharge(number, checkout.AmountCents, now);
                     break;
 
                 case ChargeState.Processing or ChargeState.Succeeded:
@@ -109,8 +113,9 @@ public sealed class StartInstallmentPaymentCommandHandler(
                         number,
                         payment.InstallmentCount,
                         installment.PaymentAttempts + 1,
-                        installment.AmountCents,
-                        pixExpiresAt),
+                        amountDue,
+                        pixExpiresAt,
+                        lateFee.TotalCents),
                     cancellationToken)
                 .ConfigureAwait(false);
 
@@ -119,22 +124,24 @@ public sealed class StartInstallmentPaymentCommandHandler(
 
             checkout = created.Value!;
             payment.AttachIntent(number, checkout.PaymentIntentId, now);
-
-            var saved = await unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-            if (saved.IsFailure)
-                return Result<PaymentSessionResponse>.FromFailure(saved);
+            payment.RecordCharge(number, checkout.AmountCents, now);
         }
+
+        var saved = await unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        if (saved.IsFailure)
+            return Result<PaymentSessionResponse>.FromFailure(saved);
 
         return Result<PaymentSessionResponse>.Success(new PaymentSessionResponse(
             payment.BookingId,
             number,
             payment.InstallmentCount,
-            PaymentResponseMapper.Reais(installment.AmountCents),
+            PaymentResponseMapper.Reais(checkout.AmountCents),
             checkout.PaymentIntentId,
             checkout.ClientSecret,
             stripe.PublishableKey,
             pixExpiresAt.ToUnixTimeSeconds(),
-            PaymentMethods));
+            PaymentMethods,
+            PaymentResponseMapper.Reais(installment.LateFeeCents)));
     }
 
     /// <summary>

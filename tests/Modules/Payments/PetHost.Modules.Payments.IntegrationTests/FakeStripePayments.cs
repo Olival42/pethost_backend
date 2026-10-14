@@ -85,6 +85,27 @@ public sealed class FakeStripePayments : IStripePayments
             return _intents[paymentIntentId].State;
     }
 
+    /// <summary>Quanto a cobrança pede agora (valor da parcela mais multa e juros).</summary>
+    public long AmountOf(string paymentIntentId)
+    {
+        lock (_lock)
+            return _intents[paymentIntentId].AmountCents;
+    }
+
+    /// <summary>O tutor desistiu do Pix (o QR code venceu): a cobrança volta a esperar o meio de pagamento.</summary>
+    public void ExpirePix(string paymentIntentId)
+    {
+        lock (_lock)
+            _intents[paymentIntentId].QrCodeShown = false;
+    }
+
+    /// <summary>O tutor abriu o Pix: o QR code fica valendo com o valor de agora.</summary>
+    public void ShowPix(string paymentIntentId)
+    {
+        lock (_lock)
+            _intents[paymentIntentId].QrCodeShown = true;
+    }
+
     public Task<Result<StripeCheckout>> CreateIntentAsync(IntentDraft draft, CancellationToken cancellationToken)
     {
         lock (_lock)
@@ -93,14 +114,21 @@ public sealed class FakeStripePayments : IStripePayments
             _intents[id] = new Intent(draft.AmountCents);
             CreatedIntents.Add(id);
 
-            return Task.FromResult(Result<StripeCheckout>.Success(new StripeCheckout(id, $"{id}_secret_fake", ChargeState.AwaitingPayment)));
+            return Task.FromResult(Result<StripeCheckout>.Success(new StripeCheckout(id, $"{id}_secret_fake", ChargeState.AwaitingPayment, draft.AmountCents)));
         }
     }
 
-    public Task<Result<StripeCheckout>> PrepareIntentAsync(string paymentIntentId, DateTimeOffset pixExpiresAt, CancellationToken cancellationToken)
+    public Task<Result<StripeCheckout>> PrepareIntentAsync(string paymentIntentId, long amountCents, DateTimeOffset pixExpiresAt, CancellationToken cancellationToken)
     {
         lock (_lock)
-            return Task.FromResult(Result<StripeCheckout>.Success(new StripeCheckout(paymentIntentId, $"{paymentIntentId}_secret_fake", _intents[paymentIntentId].State)));
+        {
+            // Como o Stripe: o valor só muda enquanto a cobrança espera o meio de pagamento (sem QR code valendo).
+            var intent = _intents[paymentIntentId];
+            if (intent.State == ChargeState.AwaitingPayment && !intent.QrCodeShown)
+                intent.AmountCents = amountCents;
+
+            return Task.FromResult(Result<StripeCheckout>.Success(new StripeCheckout(paymentIntentId, $"{paymentIntentId}_secret_fake", intent.State, intent.AmountCents)));
+        }
     }
 
     public Task<Result> CancelIntentAsync(string paymentIntentId, CancellationToken cancellationToken)
@@ -121,7 +149,7 @@ public sealed class FakeStripePayments : IStripePayments
         lock (_lock)
         {
             var intent = _intents[paymentIntentId];
-            return Task.FromResult(Result<ChargeSnapshot>.Success(new ChargeSnapshot(intent.State, intent.Method, intent.ChargeId, null, intent.Refund, intent.Dispute)));
+            return Task.FromResult(Result<ChargeSnapshot>.Success(new ChargeSnapshot(intent.State, intent.Method, intent.ChargeId, null, intent.Refund, intent.Dispute, intent.AmountCents)));
         }
     }
 
@@ -164,7 +192,8 @@ public sealed class FakeStripePayments : IStripePayments
 
     private sealed class Intent(long amountCents)
     {
-        public long AmountCents { get; } = amountCents;
+        public long AmountCents { get; set; } = amountCents;
+        public bool QrCodeShown { get; set; }
         public ChargeState State { get; set; } = ChargeState.AwaitingPayment;
         public PaymentMethod? Method { get; set; }
         public string? ChargeId { get; set; }

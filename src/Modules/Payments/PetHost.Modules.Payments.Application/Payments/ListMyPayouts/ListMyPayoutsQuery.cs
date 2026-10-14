@@ -30,7 +30,9 @@ public sealed record HostEarningsResponse(
 /// <summary>O repasse de uma parcela.</summary>
 /// <param name="Status">Situação da parcela (<c>paid</c>, <c>pending</c>, <c>overdue</c>...).</param>
 /// <param name="PayoutStatus"><c>held</c>, <c>transferred</c>, <c>cancelled</c> ou <c>reversed</c>.</param>
-/// <param name="HostAmount">Quanto o anfitrião recebe (ou recebeu) da parcela: 90% do que ficou com o PetHost.</param>
+/// <param name="Amount">Valor da parcela, sem acréscimo.</param>
+/// <param name="HostAmount">Quanto o anfitrião recebe (ou recebeu) da parcela: 90% do que ficou com o PetHost, multa e juros por atraso incluídos.</param>
+/// <param name="LateFee">Multa e juros que o tutor pagou a mais na parcela (zero em dia).</param>
 public sealed record HostPayoutItemResponse(
     int Number,
     decimal Amount,
@@ -38,7 +40,8 @@ public sealed record HostPayoutItemResponse(
     string PayoutStatus,
     decimal HostAmount,
     DateTimeOffset? PaidAt,
-    DateTimeOffset? TransferredAt);
+    DateTimeOffset? TransferredAt,
+    decimal LateFee);
 
 /// <summary>
 /// Paginada (§13), do pagamento mais recente para o mais antigo; só reservas com alguma parcela
@@ -89,7 +92,8 @@ public sealed class ListMyPayoutsQueryHandler(
                 PayoutStatusValues.ToWire(i.PayoutStatus),
                 PaymentResponseMapper.Reais(HostAmount(i)),
                 i.PaidAt,
-                i.TransferredAt))]);
+                i.TransferredAt,
+                PaymentResponseMapper.Reais(i.IsPaid ? i.LateFeeCents : 0)))]);
     }
 
     /// <summary>Repassado: o que foi transferido menos o estorno. Ainda não: os 90% previstos do que ficar retido.</summary>
@@ -97,6 +101,6 @@ public sealed class ListMyPayoutsQueryHandler(
     {
         PayoutStatus.Transferred or PayoutStatus.Reversed => installment.HostPayoutCents - installment.ReversedCents,
         PayoutStatus.Cancelled => 0,
-        _ => Payment.HostShare(installment.AmountCents - installment.RefundedCents),
+        _ => Payment.HostShare(installment.ChargedCents - installment.RefundedCents),
     };
 }

@@ -82,7 +82,7 @@ internal static class PaymentsTestData
 
         stripe.SetupGet(s => s.PublishableKey).Returns("pk_test_pethost");
         stripe.Setup(s => s.CreateIntentAsync(It.IsAny<IntentDraft>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((IntentDraft d, CancellationToken _) => Result<StripeCheckout>.Success(new StripeCheckout($"pi_new_{d.InstallmentNumber}", $"pi_new_{d.InstallmentNumber}_secret", ChargeState.AwaitingPayment)));
+            .ReturnsAsync((IntentDraft d, CancellationToken _) => Result<StripeCheckout>.Success(new StripeCheckout($"pi_new_{d.InstallmentNumber}", $"pi_new_{d.InstallmentNumber}_secret", ChargeState.AwaitingPayment, d.AmountCents)));
         stripe.Setup(s => s.CancelIntentAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(Result.Success());
         stripe.Setup(s => s.RefundAsync(It.IsAny<RefundDraft>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((RefundDraft d, CancellationToken _) => Result<RefundSnapshot>.Success(new RefundSnapshot($"re_{d.InstallmentNumber}", d.AmountCents, RefundStatus.Succeeded)));

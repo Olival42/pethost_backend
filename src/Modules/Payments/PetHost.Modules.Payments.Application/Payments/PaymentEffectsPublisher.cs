@@ -8,7 +8,7 @@ namespace PetHost.Modules.Payments.Application.Payments;
 /// <summary>
 /// Publica os efeitos de uma operação depois que ela gravou: cada fato vai para a trilha
 /// (<c>payment.*</c>, sem dado pessoal) e vira o aviso de quem precisa saber — o tutor (parcela
-/// paga, lembrete, atraso, reembolso), o anfitrião (repasse, estorno) ou o admin (contestação,
+/// paga, lembrete, atraso e o lembrete semanal dele, reembolso), o anfitrião (repasse, estorno) ou o admin (contestação,
 /// reembolso que falhou, estorno, atraso).
 /// </summary>
 public sealed class PaymentEffectsPublisher(
@@ -37,6 +37,7 @@ public sealed class PaymentEffectsPublisher(
             {
                 case PaymentEffectKind.InstallmentPaid:
                 case PaymentEffectKind.InstallmentReminder:
+                case PaymentEffectKind.InstallmentOverdueReminder:
                 case PaymentEffectKind.RefundCreated:
                     owner ??= await parties.GetOwnerContactAsync(payment.OwnerId, cancellationToken).ConfigureAwait(false);
                     await NotifyAsync(owner, NoticeKind(effect.Kind), payment, effect, dueAt, cancellationToken).ConfigureAwait(false);
@@ -134,6 +135,7 @@ public sealed class PaymentEffectsPublisher(
     {
         PaymentEffectKind.InstallmentPaid => PaymentNoticeKind.InstallmentPaid,
         PaymentEffectKind.InstallmentReminder => PaymentNoticeKind.InstallmentReminder,
+        PaymentEffectKind.InstallmentOverdueReminder => PaymentNoticeKind.InstallmentOverdueReminder,
         PaymentEffectKind.RefundCreated => PaymentNoticeKind.RefundCreated,
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Not a notice to the owner."),
     };

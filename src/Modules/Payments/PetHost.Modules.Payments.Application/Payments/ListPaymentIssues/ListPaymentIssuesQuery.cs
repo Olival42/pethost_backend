@@ -70,6 +70,6 @@ public sealed class ListPaymentIssuesQueryHandler(IPaymentRepository paymentRepo
             yield return Issue("refund_failed", installment.RefundedCents, installment.RefundedAt, installment.StripeRefundId);
 
         if (installment.PayoutStatus == PayoutStatus.Held && installment.PayoutFailureCode is { } code)
-            yield return Issue("payout_failed", Payment.HostShare(installment.AmountCents - installment.RefundedCents), installment.PaidAt, installment.StripeChargeId, code);
+            yield return Issue("payout_failed", Payment.HostShare(installment.ChargedCents - installment.RefundedCents), installment.PaidAt, installment.StripeChargeId, code);
     }
 }

@@ -7,7 +7,7 @@ namespace PetHost.Modules.Payments.Application.Payments.Responses;
 /// <param name="Id">Nulo enquanto o tutor não escolheu as parcelas (<c>status = not_started</c>).</param>
 /// <param name="Status"><c>not_started</c>, <c>pending</c>, <c>active</c>, <c>paid</c> ou <c>cancelled</c>.</param>
 /// <param name="TotalAmount">Valor da reserva.</param>
-/// <param name="PaidAmount">Quanto já foi pago.</param>
+/// <param name="PaidAmount">Quanto já foi pago (multa e juros por atraso incluídos).</param>
 /// <param name="RefundedAmount">Quanto já foi (ou está sendo) devolvido.</param>
 /// <param name="PaymentDeadline">Até quando pagar a 1ª parcela, enquanto a reserva espera o pagamento.</param>
 /// <param name="RefundPercentage">Quanto do que foi pago volta ao tutor (reserva cancelada).</param>
@@ -34,6 +34,7 @@ public sealed record PaymentResponse(
     DateTimeOffset? UpdatedAt);
 
 /// <summary>Uma parcela.</summary>
+/// <param name="Amount">Valor da parcela, sem acréscimo.</param>
 /// <param name="Status"><c>pending</c>, <c>processing</c>, <c>paid</c>, <c>overdue</c> ou <c>cancelled</c>.</param>
 /// <param name="Method"><c>card</c> ou <c>pix</c>, quando o tutor pagou.</param>
 /// <param name="FailureCode">Por que a última tentativa falhou (código do Stripe). Não aparece para o anfitrião.</param>
@@ -42,6 +43,11 @@ public sealed record PaymentResponse(
 /// <param name="HostPayoutAmount">O que o anfitrião recebeu da parcela (90% do retido), depois do repasse.</param>
 /// <param name="DisputeStatus"><c>none</c>, <c>open</c>, <c>won</c> ou <c>lost</c>.</param>
 /// <param name="Stripe">Os ids no Stripe, para conferir no Dashboard — só para o admin.</param>
+/// <param name="LateFee">
+/// Multa e juros por atraso: em aberto, quanto seria pagando agora; paga, quanto foi pago a mais.
+/// Nulo quando não há acréscimo.
+/// </param>
+/// <param name="AmountDue">Quanto pagar agora (valor + <paramref name="LateFee"/>), enquanto a parcela está em aberto.</param>
 public sealed record InstallmentResponse(
     int Number,
     decimal Amount,
@@ -57,7 +63,9 @@ public sealed record InstallmentResponse(
     decimal? HostPayoutAmount,
     DateTimeOffset? TransferredAt,
     string DisputeStatus,
-    InstallmentStripeIds? Stripe);
+    InstallmentStripeIds? Stripe,
+    decimal? LateFee,
+    decimal? AmountDue);
 
 /// <summary>Os objetos da parcela no Stripe.</summary>
 public sealed record InstallmentStripeIds(
@@ -77,6 +85,6 @@ public sealed record InstallmentOptionResponse(int Count, decimal FirstAmount, d
 
 /// <summary>O repasse ao anfitrião, somando as parcelas.</summary>
 /// <param name="Transferred">Já está na conta do anfitrião (menos o que foi estornado).</param>
-/// <param name="Held">Pago pelo tutor e guardado: vai para o anfitrião no check-out (90%).</param>
+/// <param name="Held">Pago pelo tutor (com acréscimo por atraso) e guardado: vai para o anfitrião no check-out (90%).</param>
 /// <param name="Reversed">Estornado por contestação perdida.</param>
 public sealed record PayoutSummaryResponse(decimal Transferred, decimal Held, decimal Reversed);

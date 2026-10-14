@@ -26,9 +26,11 @@ public interface IStripePayments
 
     /// <summary>
     /// Reaproveita a cobrança já criada: relê e, se ela está esperando o tutor escolher o meio de
-    /// pagamento (o Pix anterior venceu, o cartão foi recusado), renova o prazo do Pix.
+    /// pagamento (o Pix anterior venceu, o cartão foi recusado), atualiza o valor para
+    /// <paramref name="amountCents"/> (o acréscimo por atraso cresce a cada dia) e renova o prazo do
+    /// Pix. Com um QR code do Pix ainda valendo, nada muda: o valor dele continua o mesmo.
     /// </summary>
-    Task<Result<StripeCheckout>> PrepareIntentAsync(string paymentIntentId, DateTimeOffset pixExpiresAt, CancellationToken cancellationToken);
+    Task<Result<StripeCheckout>> PrepareIntentAsync(string paymentIntentId, long amountCents, DateTimeOffset pixExpiresAt, CancellationToken cancellationToken);
 
     /// <summary>Cancela a cobrança em aberto. Já paga ou em processamento: recusado.</summary>
     Task<Result> CancelIntentAsync(string paymentIntentId, CancellationToken cancellationToken);
@@ -58,6 +60,8 @@ public interface IStripePayments
 /// <summary>A cobrança de uma parcela a criar.</summary>
 /// <param name="InstallmentId">A parcela: base da chave de idempotência.</param>
 /// <param name="Attempt">Quantas cobranças a parcela já teve, contando esta (cobrança cancelada não volta).</param>
+/// <param name="AmountCents">Quanto cobrar: o valor da parcela mais o acréscimo por atraso.</param>
+/// <param name="LateFeeCents">Quanto de <paramref name="AmountCents"/> é multa e juros (vai nos metadados).</param>
 public sealed record IntentDraft(
     Guid InstallmentId,
     Guid PaymentId,
@@ -66,11 +70,13 @@ public sealed record IntentDraft(
     int InstallmentCount,
     int Attempt,
     long AmountCents,
-    DateTimeOffset PixExpiresAt);
+    DateTimeOffset PixExpiresAt,
+    long LateFeeCents = 0);
 
 /// <summary>O que o app precisa para abrir o Payment Element.</summary>
 /// <param name="ClientSecret">Segredo da cobrança, entregue só ao tutor dono dela.</param>
-public sealed record StripeCheckout(string PaymentIntentId, string ClientSecret, ChargeState State);
+/// <param name="AmountCents">Quanto a cobrança pede, em centavos.</param>
+public sealed record StripeCheckout(string PaymentIntentId, string ClientSecret, ChargeState State, long AmountCents);
 
 /// <summary>Um reembolso a pedir.</summary>
 public sealed record RefundDraft(Guid InstallmentId, Guid PaymentId, int InstallmentNumber, string PaymentIntentId, long AmountCents);

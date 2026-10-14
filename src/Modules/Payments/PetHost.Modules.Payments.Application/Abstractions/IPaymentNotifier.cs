@@ -14,7 +14,10 @@ public interface IPaymentNotifier
 }
 
 /// <summary>Um aviso a um dos lados.</summary>
-/// <param name="AmountCents">O valor de que o aviso trata (a parcela, o reembolso, o repasse).</param>
+/// <param name="AmountCents">
+/// O valor de que o aviso trata (a parcela, o reembolso, o repasse). Atraso: quanto pagar agora,
+/// com multa e juros. Pagamento: quanto foi pago, com o acréscimo, se houve.
+/// </param>
 /// <param name="DueAt">Vencimento da parcela (lembrete e atraso).</param>
 public sealed record PaymentNotice(
     PaymentNoticeKind Kind,
@@ -37,6 +40,9 @@ public enum PaymentNoticeKind
 
     /// <summary>Ao tutor: a parcela está em atraso (estadia já feita); pague para pedir outras.</summary>
     InstallmentOverdue,
+
+    /// <summary>Ao tutor: a parcela continua em atraso (a cada 7 dias), com o valor atualizado.</summary>
+    InstallmentOverdueReminder,
 
     /// <summary>Ao tutor: devolvemos este valor.</summary>
     RefundCreated,

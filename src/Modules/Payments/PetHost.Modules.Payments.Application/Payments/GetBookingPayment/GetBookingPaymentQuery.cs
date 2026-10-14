@@ -24,7 +24,8 @@ public sealed record GetBookingPaymentQuery(Guid UserId, string Role, Guid Booki
 public sealed class GetBookingPaymentQueryHandler(
     IPaymentRepository paymentRepository,
     IPaymentBookings bookings,
-    IPaymentParties parties) : IQueryHandler<GetBookingPaymentQuery, PaymentResponse>
+    IPaymentParties parties,
+    TimeProvider timeProvider) : IQueryHandler<GetBookingPaymentQuery, PaymentResponse>
 {
     public async Task<Result<PaymentResponse>> HandleAsync(GetBookingPaymentQuery query, CancellationToken cancellationToken)
     {
@@ -41,6 +42,6 @@ public sealed class GetBookingPaymentQueryHandler(
         if (payment is null && booking.Stage != BookingStage.AwaitingPayment)
             return Result<PaymentResponse>.Failure(PaymentsErrors.NotFound(booking.Id));
 
-        return Result<PaymentResponse>.Success(PaymentResponseMapper.ToResponse(payment, booking, viewer));
+        return Result<PaymentResponse>.Success(PaymentResponseMapper.ToResponse(payment, booking, viewer, timeProvider.GetUtcNow()));
     }
 }

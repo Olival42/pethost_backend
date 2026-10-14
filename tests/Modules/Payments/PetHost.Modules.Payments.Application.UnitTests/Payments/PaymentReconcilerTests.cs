@@ -130,8 +130,29 @@ public sealed class PaymentReconcilerTests
 
         // Assert
         payment.HasOverdueInstallment.Should().BeTrue();
-        _effects.Items.Should().ContainSingle(e => e.Kind == PaymentEffectKind.InstallmentOverdue && e.InstallmentNumber == 2);
+        _effects.Items.Should().ContainSingle(e => e.Kind == PaymentEffectKind.InstallmentOverdue && e.InstallmentNumber == 2)
+            .Which.AmountCents.Should().Be(10_207, "the notice shows the amount with the 2% fine and 2 days of interest");
         _bookings.Verify(b => b.CancelUnpaidAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ReconcileAsync_Should_RemindWithTheUpdatedAmount_When_InstallmentIsStillOverdueAWeekLater()
+    {
+        // Arrange
+        var payment = new PaymentBuilder().BuildPaid(1);
+        payment.RecordTransfer(1, "tr_1", 9_000, 1_000, Now);
+        var overdueAt = payment.FindInstallment(2)!.DueAt + Payment.OverdueGrace;
+        payment.CheckOverdue(BookingStage.Completed, overdueAt);
+        _now = overdueAt.AddDays(7);
+        _bookings = PaymentsTestData.Bookings(PaymentsTestData.Booking(BookingStage.Completed));
+
+        // Act
+        await Sut().ReconcileAsync(payment, _effects, CancellationToken.None);
+
+        // Assert
+        _effects.Items.Should().ContainSingle(e => e.Kind == PaymentEffectKind.InstallmentOverdueReminder && e.InstallmentNumber == 2)
+            .Which.AmountCents.Should().Be(10_230, "2% fine + 9 days of interest");
+        payment.FindInstallment(2)!.OverdueRemindedAt.Should().Be(_now);
     }
 
     [Fact]
@@ -404,5 +425,19 @@ public sealed class PaymentReconcilerTests
         // Assert
         maintenance.Select(i => i.Number).Should().Equal(1, 2);
         everything.Select(i => i.Number).Should().Equal(1, 2);
+    }
+
+    [Fact]
+    public void NeedingRefresh_Should_RereadAnOpenCharge_When_TheWebhookMayHaveBeenLost()
+    {
+        // Arrange — o tutor abriu o checkout (QR code do Pix gerado) e talvez tenha pago.
+        var payment = new PaymentBuilder().Build();
+        payment.AttachIntent(1, PaymentBuilder.IntentId(1), Now);
+
+        // Act
+        var maintenance = PaymentReconciler.NeedingRefresh(payment, everything: false);
+
+        // Assert
+        maintenance.Select(i => i.Number).Should().Equal(1);
     }
 }

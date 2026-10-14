@@ -91,11 +91,11 @@ src/Modules/Payments/
 
 | Método | Rota | Quem | O quê |
 |---|---|---|---|
-| `GET` | `/api/v1/bookings/{bookingId}/payment` | owner, host, admin | O pagamento: parcelas e situação de cada uma. Antes do plano: `status = not_started`, `paymentDeadline` e `options` (1x a 6x). O anfitrião vê `payout`; o admin, também `stripe` (ids para o Dashboard). |
+| `GET` | `/api/v1/bookings/{bookingId}/payment` | owner, host, admin | O pagamento: parcelas e situação de cada uma (`amount` sem acréscimo; em aberto, `amountDue` = quanto pagar agora; `lateFee` quando há multa e juros). Antes do plano: `status = not_started`, `paymentDeadline` e `options` (1x a 6x). O anfitrião vê `payout`; o admin, também `stripe` (ids para o Dashboard). |
 | `PUT` | `/api/v1/bookings/{bookingId}/payment` | owner | Escolhe (ou troca, antes de pagar) o número de parcelas: `{ "installmentCount": 3 }`. |
-| `POST` | `/api/v1/bookings/{bookingId}/payment/installments/{n}/payment-session` | owner | Abre o checkout da parcela `n`: devolve `clientSecret`, `publishableKey`, `paymentIntentId`, `amount`, `pixExpiresAt` (Unix) e `paymentMethods` (`card`, `pix`). |
+| `POST` | `/api/v1/bookings/{bookingId}/payment/installments/{n}/payment-session` | owner | Abre o checkout da parcela `n`: devolve `clientSecret`, `publishableKey`, `paymentIntentId`, `amount` (quanto pagar agora, com multa e juros se atrasada), `lateFee` (o acréscimo incluído em `amount`), `pixExpiresAt` (Unix) e `paymentMethods` (`card`, `pix`). |
 | `POST` | `/api/v1/bookings/{bookingId}/payment/synchronization` | owner, admin | Relê agora no Stripe e reconcilia (o app chama ao voltar do Payment Element; funciona sem webhook). |
-| `GET` | `/api/v1/payments/payouts/me?page=&pageSize=` | host | "Ganhos": por reserva paga, repassado, guardado e estornado, e o repasse de cada parcela. Paginado. |
+| `GET` | `/api/v1/payments/payouts/me?page=&pageSize=` | host | "Ganhos": por reserva paga, repassado, guardado e estornado, e o repasse de cada parcela (com o `lateFee` pago pelo tutor). Paginado. |
 | `GET` | `/api/v1/payments/issues` | admin | Pendências: `installment_overdue`, `dispute_open`, `dispute_lost`, `refund_failed`, `payout_failed`, `payout_reversal_failed`, com o objeto do Stripe. Lista administrativa, sem paginação. |
 | `POST` | `/api/v1/stripe/webhooks` | Stripe (assinatura) | Endpoint único (Shared). O Payments trata os eventos de cobrança, reembolso e contestação (seção 7). |
 
@@ -113,7 +113,7 @@ Reserva de outra pessoa: `404 PAYMENT_BOOKING_NOT_FOUND` (§8). As rotas que cri
 | As outras | Vencem **a cada 30 dias**, no fim do dia (Brasília), contando do dia em que o plano foi escolhido — **inclusive depois da estadia** (decisão do produto: dá para parcelar mesmo reservando perto da chegada). |
 | Ordem | Pagas em ordem; **adiantar a próxima pode**. Pular: `422 PAYMENT_INSTALLMENT_OUT_OF_ORDER`. |
 | Trocar o plano | Só enquanto nada foi pago nem está sendo pago (`422 PAYMENT_PLAN_LOCKED`). As cobranças abertas das parcelas antigas são canceladas no Stripe; as novas parcelas têm ids novos. |
-| Juros | Nenhum: o PetHost não cobra juros pelo parcelamento. As taxas do Stripe de cada cobrança saem dos 10% do PetHost. |
+| Juros do parcelamento | Nenhum: parcelar não custa nada a mais. As taxas do Stripe de cada cobrança saem dos 10% do PetHost. Só a parcela **paga com atraso** tem multa e juros (seção 10). |
 
 ## 6. Checkout transparente
 
@@ -121,7 +121,7 @@ Reserva de outra pessoa: `404 PAYMENT_BOOKING_NOT_FOUND` (§8). As rotas que cri
 2. Para cada parcela: `POST .../installments/{n}/payment-session` → o app monta o Payment Element com `publishableKey` e `clientSecret` (`stripe.elements({ clientSecret })`) e chama `stripe.confirmPayment(...)`. No **Pix**, o QR code aparece na página e vale até `pixExpiresAt`; no **cartão**, o 3DS acontece dentro do Element.
 3. Depois de pagar, o app pode chamar `POST .../payment/synchronization` para mostrar o resultado na hora; a fonte da verdade continua sendo o webhook.
 
-A cobrança aberta da parcela é **reaproveitada** (chamar de novo devolve o mesmo `clientSecret`); se o Pix anterior venceu, o prazo do próximo QR code é renovado; cancelada, outra é criada (a tentativa entra na chave de idempotência). **O QR code nunca vale além do prazo da parcela**: na 1ª, o prazo da reserva; nas outras, antes do check-in, o fim da tolerância — senão o tutor pagaria uma reserva já cancelada. Validade padrão de 24h (`PixLifetime`). Se o Stripe já recebeu (webhook atrasado), a chamada relê, reconcilia e responde `422 PAYMENT_INSTALLMENT_ALREADY_PAID` / `..._PROCESSING`.
+A cobrança aberta da parcela é **reaproveitada** (chamar de novo devolve o mesmo `clientSecret`); se o Pix anterior venceu (ou o cartão foi recusado), o valor é atualizado para o do dia (multa e juros crescem com o atraso) e o prazo do próximo QR code é renovado — com um QR code ainda valendo, o valor dele fica como está (no máximo 24h de juros a menos); cancelada, outra é criada (a tentativa entra na chave de idempotência). **O QR code nunca vale além do prazo da parcela**: na 1ª, o prazo da reserva; nas outras, antes do check-in, o fim da tolerância — senão o tutor pagaria uma reserva já cancelada. Validade padrão de 24h (`PixLifetime`). Se o Stripe já recebeu (webhook atrasado), a chamada relê, reconcilia e responde `422 PAYMENT_INSTALLMENT_ALREADY_PAID` / `..._PROCESSING`.
 
 ## 7. Confirmação pelo webhook
 
@@ -135,13 +135,13 @@ Eventos tratados (`PaymentWebhookHandler`): `payment_intent.succeeded`, `.proces
 ## 8. Repasse ao anfitrião
 
 - **Quando:** no **check-out** (`completed`), cada parcela paga é repassada; parcela paga **depois** do check-out é repassada assim que é paga.
-- **Quanto:** **90%** do que ficou retido na parcela (valor − reembolso), arredondado para baixo; o centavo que sobra e os 10% ficam com o PetHost (`platform_fee_cents`), e é deles que sai a taxa do Stripe. Regra do dicionário: `platform_fee_cents + host_payout_cents = amount_cents − refunded_cents`.
+- **Quanto:** **90%** do que ficou retido na parcela (o que o tutor pagou — valor + multa e juros por atraso — menos o reembolso), arredondado para baixo; o centavo que sobra e os 10% ficam com o PetHost (`platform_fee_cents`), e é deles que sai a taxa do Stripe. Regra do dicionário: `platform_fee_cents + host_payout_cents = amount_cents + late_fee_cents − refunded_cents`.
 - **Como:** `Transfer` para a conta conectada do anfitrião (`hosts.stripe_account_id`, pelo `IHostDirectory`), com `source_transaction` = a cobrança da parcela e `transfer_group` = a reserva. Com `source_transaction`, o repasse usa o dinheiro daquela cobrança mesmo antes de ele ficar disponível no saldo (Pix e cartão liquidam em dias diferentes).
 - **Falhou** (sem conta conectada, conta bloqueada): o repasse fica `held` com o motivo (`payout_failure_code`, ex.: `NO_CONNECTED_ACCOUNT`) e a manutenção tenta de novo; aparece em `GET /payments/issues` (`payout_failed`).
 
 ## 9. Cancelamento e reembolso
 
-O percentual vem da reserva (`refundPercentage`, regra do Bookings) e vale **sobre o que já foi pago**. Parcelas ainda não pagas são **canceladas** (e as cobranças abertas delas, canceladas no Stripe).
+O percentual vem da reserva (`refundPercentage`, regra do Bookings) e vale **sobre o que já foi pago** (acréscimo por atraso incluído, se houve). Parcelas ainda não pagas são **canceladas** (e as cobranças abertas delas, canceladas no Stripe).
 
 | Quem / como | Reserva | Reembolso de cada parcela paga | O que fica retido |
 |---|---|---|---|
@@ -162,7 +162,17 @@ Vale para as parcelas da 2ª em diante; a 1ª vencida é a **expiração da rese
 | **Antes do check-in** (reserva aceita ou confirmada) | A plataforma **cancela a reserva** (`cancelledBy = platform`, 100%) e devolve tudo o que foi pago. E-mail aos dois lados. |
 | **Depois do check-in** (em andamento ou concluída) | A reserva continua; a parcela fica **`overdue`** (ainda pode ser paga), o tutor e o admin são avisados e o **tutor não pede estadia nova** (`422 BOOKING_OWNER_PAYMENT_OVERDUE`) até pagar. O anfitrião recebe só o que foi pago — o risco de calote fica com ele (decisão do produto). |
 
-**Lembrete:** 3 dias antes de cada vencimento (da 2ª parcela em diante), um e-mail ao tutor, uma vez só.
+**Multa e juros** (`Payment.LateFeeFor`): parcela paga depois da tolerância paga **multa de 2%** (o máximo do CDC) e **juros de 1% ao mês**, simples, por dia de calendário (Brasília) desde o dia do vencimento (mês de 30 dias), arredondando o meio para cima. Dentro das 24h de tolerância, nada a mais. A 1ª parcela nunca tem acréscimo (vencida, a reserva expira).
+
+| Exemplo (parcela de R$ 100,00, vencida em 10/11) | Multa | Juros | Total |
+|---|---|---|---|
+| Paga em 11/11 (tolerância) | — | — | R$ 100,00 |
+| Paga em 12/11 (2 dias) | R$ 2,00 | R$ 0,07 | R$ 102,07 |
+| Paga em 10/12 (30 dias) | R$ 2,00 | R$ 1,00 | R$ 103,00 |
+
+O acréscimo entra na **cobrança** do Stripe (o checkout pede o `amountDue`) e fica gravado na parcela (`late_fee_cents`, conferido com o valor que o Stripe recebeu). Ele segue a parcela: o repasse é 90% do que o tutor pagou e o reembolso conta sobre o que foi pago. Na prática só acontece **depois do check-in** — antes, a parcela vencida cancela a reserva. Não há negativação (seção 19).
+
+**Lembretes:** 3 dias antes de cada vencimento (da 2ª parcela em diante), um e-mail ao tutor, uma vez só. Parcela em atraso: o aviso de atraso já mostra o valor com multa e juros, e o tutor recebe **um lembrete a cada 7 dias** (`OverdueReminderInterval`) com o valor atualizado, até pagar.
 
 ## 11. Contestação (chargeback)
 
@@ -179,9 +189,9 @@ As evidências da contestação são enviadas pelo admin no **Dashboard do Strip
 
 ## 12. Reconciliação e manutenção
 
-Webhook, aviso do Bookings (cancelou, expirou, concluiu), releitura pedida pelo app e manutenção periódica passam pelo **mesmo caminho** (`PaymentReconciler`): (1) 1ª parcela paga confirma a reserva; (2) parcela vencida cancela a reserva ou entra em atraso; (3) lembretes; (4) pedidos ao Stripe que o agregado decide (`Reconcile`) — cancelar cobranças, reembolsar, repassar, estornar — em rodadas até não sobrar nada. Pedido que falha no Stripe fica para a próxima vez; o que deu certo é gravado. Efeitos (trilha e e-mails) só saem **depois** de gravar.
+Webhook, aviso do Bookings (cancelou, expirou, concluiu), releitura pedida pelo app e manutenção periódica passam pelo **mesmo caminho** (`PaymentReconciler`): (1) 1ª parcela paga confirma a reserva; (2) parcela vencida cancela a reserva ou entra em atraso; (3) lembretes (do vencimento e o semanal do atraso); (4) pedidos ao Stripe que o agregado decide (`Reconcile`) — cancelar cobranças, reembolsar, repassar, estornar — em rodadas até não sobrar nada. Pedido que falha no Stripe fica para a próxima vez; o que deu certo é gravado. Efeitos (trilha e e-mails) só saem **depois** de gravar.
 
-**Manutenção** (`PaymentsMaintenanceService`, a cada `Payments:MaintenanceIntervalMinutes`, padrão 15): revisita até 100 pagamentos que ainda têm o que fazer (`settled_at` nulo), um por vez — relê o que pode ter mudado sem webhook (cobrança em processamento, reembolso a caminho, contestação aberta) e reconcilia. Um pagamento chega ao fim (`settled_at`) quando nada mais será cobrado, devolvido ou repassado. Os testes desligam a tarefa e chamam o comando.
+**Manutenção** (`PaymentsMaintenanceService`, a cada `Payments:MaintenanceIntervalMinutes`, padrão 15): revisita até 100 pagamentos que ainda têm o que fazer (`settled_at` nulo), um por vez — relê o que pode ter mudado sem webhook (**cobrança aberta** — o tutor pode ter pago e o webhook se perdido —, cobrança em processamento, reembolso a caminho, contestação aberta) e reconcilia. Assim, mesmo sem webhook nenhum, um pagamento feito é confirmado em até um intervalo. Um pagamento chega ao fim (`settled_at`) quando nada mais será cobrado, devolvido ou repassado. Os testes desligam a tarefa e chamam o comando.
 
 O aviso do Bookings é **best-effort**: se falhar (Stripe fora, conflito), vai para o log e a manutenção completa depois — o cancelamento ou o check-out nunca são desfeitos por causa do pagamento.
 
@@ -191,7 +201,8 @@ O aviso do Bookings é **best-effort**: se falhar (Stripe fora, conflito), vai p
 |---|---|
 | Parcela paga | Tutor ("pagamento recebido") |
 | Lembrete (3 dias antes) | Tutor |
-| Parcela em atraso | Tutor + alerta ao admin |
+| Parcela em atraso | Tutor (valor com multa e juros) + alerta ao admin |
+| Parcela ainda em atraso (a cada 7 dias) | Tutor (valor atualizado) |
 | Reembolso pedido | Tutor (valor) |
 | Repasse feito | Anfitrião (valor) |
 | Repasse estornado | Anfitrião + alerta ao admin |
@@ -203,10 +214,10 @@ A confirmação da reserva ("pagamento confirmado, reserva garantida", com ender
 
 ## 14. Banco
 
-Schema `payment`, migration `CreatePaymentsTables`. Colunas no [dicionário](dicionario-de-dados.md#payments--pagamentos).
+Schema `payment`, migrations `CreatePaymentsTables` e `AddLateFeesToPaymentInstallments` (`late_fee_cents`, `overdue_reminded_at`). Colunas no [dicionário](dicionario-de-dados.md#payments--pagamentos).
 
 - `payment.payments`: um por reserva (`uq_payments_booking_id`). Valor em centavos, `currency = 'brl'`, `installment_count` 1–6, `plan_revision`, `status`, `refund_percentage`, `cancelled_at`, `settled_at`. Concorrência otimista pelo `xmin` (toda mudança numa parcela também atualiza o pagamento). Índices: `ix_payments_owner_id`, `ix_payments_host_id_created_at` (ganhos), parcial `ix_payments_updated_at_unsettled` (`WHERE settled_at IS NULL`, fila da manutenção).
-- `payment.payment_installments`: PK `id` (UUID v7, base das chaves de idempotência), FK física para `payments` (`ON DELETE CASCADE`), `uq_payment_installments_payment_id_number`, único parcial `uq_payment_installments_stripe_payment_intent_id` (o webhook acha a parcela pela cobrança), `ix_payment_installments_status` (tutor em atraso). CHECKs: número 1–6, status e meios na lista, `refunded_cents` entre 0 e o valor, `host_payout_cents + platform_fee_cents ≤ amount_cents`, `reversed_cents ≤ host_payout_cents`.
+- `payment.payment_installments`: PK `id` (UUID v7, base das chaves de idempotência), FK física para `payments` (`ON DELETE CASCADE`), `uq_payment_installments_payment_id_number`, único parcial `uq_payment_installments_stripe_payment_intent_id` (o webhook acha a parcela pela cobrança), `ix_payment_installments_status` (tutor em atraso). CHECKs: número 1–6, status e meios na lista, `late_fee_cents ≥ 0`, `refunded_cents` entre 0 e o valor pago (`amount_cents + late_fee_cents`), `host_payout_cents + platform_fee_cents ≤ amount_cents + late_fee_cents`, `reversed_cents ≤ host_payout_cents`.
 - `payment.stripe_events`: `uq_stripe_events_stripe_event_id`.
 
 `booking_id`, `owner_id` e `host_id` são FKs lógicas (§5). Conflito de gravação (`xmin`) e dois planos criados ao mesmo tempo (`uq_payments_booking_id`) viram `409 PAYMENT_CONFLICT`.
@@ -243,11 +254,18 @@ No sentido contrário, o Payments **implementa** `IPaymentDirectory` (`HasOverdu
 4. **Pix:** no modo de teste, a página de instruções do QR code (`next_action.pix_display_qr_code.hosted_instructions_url`) permite simular o pagamento; confira o passo a passo atual na documentação do Stripe.
 5. Sem a CLI, `POST /bookings/{id}/payment/synchronization` relê e confirma do mesmo jeito.
 
+**Pagou e o status não mudou?** O Stripe confirma, mas o evento não chegou à API certa. Confira:
+
+- `payment.stripe_events` vazio = nenhum evento de pagamento foi tratado pela API.
+- O destino do webhook (Dashboard ou `stripe listen`) aponta para a API **com o módulo Payments**. Com o ngrok do compose, o destino é o container `api`: depois de mudar o código, rode `docker compose up -d --build api`. Uma imagem antiga responde `200` sem tratar o evento, e o Stripe dá a entrega como feita.
+- O destino escuta os eventos de **"sua conta"** (`payment_intent.*`, `charge.*`), e o `whsec_...` dele é o `STRIPE_WEBHOOK_SECRET`. Segredo errado responde `400`, e o Stripe fica tentando de novo.
+- Enquanto isso, `POST .../payment/synchronization` (o app deve chamar ao voltar do checkout) ou a manutenção (até 15 min) relê a cobrança e confirma.
+
 ## 18. Testes
 
-- **Domínio** (`Payments.Domain.UnitTests`, 72): opções e divisão do valor, mínimo de R$ 50, vencimentos mensais em Brasília, troca de plano (nova revisão, ids novos, travada depois de pagar), quem pode ser pago (ordem, prazo, já paga, processando, fechado), validade do Pix (prazo da 1ª, tolerância antes do check-in, 24h depois, mínimo de 1 minuto), releitura idempotente (pago, falha, cancelada, contestação aberta/fechada, reembolso que falha), reconciliação em cada ramo (repasse 90/10 no check-out e da parcela paga depois, reembolso 100%/50% sobre o que foi pago com repasse do retido, expirada com pagamento tardio, cobrança aberta cancelada, contestação aberta/ganha/perdida antes e depois do repasse com estorno, reembolso que falhou), atraso antes e depois do check-in, lembretes, arredondamentos e valores no banco.
-- **Application** (`Payments.Application.UnitTests`, 81): o reconciliador (confirma a reserva, reembolsa a expirada, cancela por parcela vencida, marca atraso, lembra, repassa para a conta conectada, sem conta, Stripe recusando ou fora do ar, cancelamento recusado porque o tutor pagou no último segundo, estorno e falha de estorno avisada uma vez, reserva sumida), cada handler com caminho feliz e cada falha (plano — inclusive reserva ainda não aceita —, checkout com cobrança nova/reaproveitada/cancelada/já paga, leitura por tutor/anfitrião/admin, webhook por `pi_`/`dp_`/objeto alheio/Stripe fora/conflito, releitura, aviso do Bookings, manutenção, ganhos, pendências) e o publicador (trilha e quem recebe cada aviso).
-- **Integração** (`Payments.IntegrationTests`, 16, Postgres + Redis + RustFS em container, Stripe em memória, webhook real assinado): o caminho inteiro (opções → 2x → checkout → Pix pago → webhook → confirmada → evento repetido ignorado → check-in/check-out → repasse 90% para a conta conectada → 2ª parcela paga depois e repassada na hora → ganhos do anfitrião → e-mails), validação e limite de R$ 50, plano em reserva não aceita, troca de plano cancelando a cobrança antiga, ordem das parcelas, acesso (404 para estranho, 403 para o anfitrião escolher), releitura sem webhook, cancelamento pelo anfitrião (100%) e pelo tutor no dia (50% + repasse do retido), expiração cancelando o QR code aberto, parcela vencida antes do check-in (cancelada pela plataforma) e depois (atraso, tutor bloqueado, pendência do admin, liberado ao pagar), contestação perdida depois do repasse (estorno, e-mail ao anfitrião, alerta ao admin), assinatura inválida e cobrança alheia.
+- **Domínio** (`Payments.Domain.UnitTests`, 83): opções e divisão do valor, mínimo de R$ 50, vencimentos mensais em Brasília, troca de plano (nova revisão, ids novos, travada depois de pagar), quem pode ser pago (ordem, prazo, já paga, processando, fechado), validade do Pix (prazo da 1ª, tolerância antes do check-in, 24h depois, mínimo de 1 minuto), releitura idempotente (pago, falha, cancelada, contestação aberta/fechada, reembolso que falha), reconciliação em cada ramo (repasse 90/10 no check-out e da parcela paga depois, reembolso 100%/50% sobre o que foi pago com repasse do retido, expirada com pagamento tardio, cobrança aberta cancelada, contestação aberta/ganha/perdida antes e depois do repasse com estorno, reembolso que falhou), atraso antes e depois do check-in, multa e juros (tolerância, 2 e 30 dias, 1ª e paga sem acréscimo, valor da cobrança, valor pago fixo, repasse 90/10 e reembolso sobre o pago), lembretes (do vencimento e o semanal do atraso), arredondamentos e valores no banco.
+- **Application** (`Payments.Application.UnitTests`, 86): o reconciliador (confirma a reserva, reembolsa a expirada, cancela por parcela vencida, marca atraso com o valor acrescido, lembra — inclusive o lembrete semanal do atraso —, repassa para a conta conectada, sem conta, Stripe recusando ou fora do ar, cancelamento recusado porque o tutor pagou no último segundo, estorno e falha de estorno avisada uma vez, reserva sumida), cada handler com caminho feliz e cada falha (plano — inclusive reserva ainda não aceita —, checkout com cobrança nova/reaproveitada/cancelada/já paga e com multa e juros (cobrança nova e cobrança aberta atualizada para o valor do dia), leitura por tutor/anfitrião/admin, webhook por `pi_`/`dp_`/objeto alheio/Stripe fora/conflito, releitura, aviso do Bookings, manutenção, ganhos, pendências) e o publicador (trilha e quem recebe cada aviso).
+- **Integração** (`Payments.IntegrationTests`, 18, Postgres + Redis + RustFS em container, Stripe em memória, webhook real assinado): o caminho inteiro (opções → 2x → checkout → Pix pago → webhook → confirmada → evento repetido ignorado → check-in/check-out → repasse 90% para a conta conectada → 2ª parcela paga depois e repassada na hora → ganhos do anfitrião → e-mails), validação e limite de R$ 50, plano em reserva não aceita, troca de plano cancelando a cobrança antiga, ordem das parcelas, acesso (404 para estranho, 403 para o anfitrião escolher), releitura sem webhook, manutenção confirmando pagamento cujo webhook nunca chegou, cancelamento pelo anfitrião (100%) e pelo tutor no dia (50% + repasse do retido), expiração cancelando o QR code aberto, parcela vencida antes do check-in (cancelada pela plataforma) e depois (atraso, tutor bloqueado, pendência do admin, liberado ao pagar), atraso com multa e juros (valor devido na leitura e no checkout, e-mail com o valor, repasse de 90% do que foi pago), contestação perdida depois do repasse (estorno, e-mail ao anfitrião, alerta ao admin), assinatura inválida e cobrança alheia.
 - **Arquitetura** (`PaymentsModuleBoundaryTests`): o Payments não referencia outro módulo nem é referenciado; Domain e Application sem EF, ASP.NET nem `Stripe.net`; Presentation sem Domain.
 
 ## 19. Decisões e pendências
@@ -259,6 +277,7 @@ No sentido contrário, o Payments **implementa** `IPaymentDirectory` (`HasOverdu
 | Tutor paga cada parcela (sem cobrança automática do cartão salvo) | Decisão do produto: mais simples e igual para Pix e cartão; sem falha de cobrança off-session nem 3DS fora da tela. Lembrete 3 dias antes. |
 | Parcela vencida: tolerância de 24h; antes do check-in cancela com 100%; depois, atraso + bloqueio | Decisão do produto. Antes do check-in a vaga pode voltar para outro tutor; depois, a estadia já aconteceu. |
 | Risco de calote das parcelas pós-estadia fica com o anfitrião | Decisão do produto: ele recebe só o que o tutor pagou, quando pagou. |
+| Atraso: multa de 2% + juros de 1% ao mês por dia, divididos 90/10; lembrete semanal; sem negativação | Padrão brasileiro (o CDC limita a multa a 2%). O acréscimo segue a parcela (o anfitrião, que corre o risco, recebe 90%; a taxa do Stripe sobre ele sai dos 10%). Negativar (Serasa/SPC) exige contrato com birô, CNPJ e aviso prévio por escrito ao devedor (CDC, art. 43, §2º) — fora do MVP; o bloqueio de novas reservas já é a consequência dentro da plataforma. |
 | Reembolso percentual sobre o que já foi pago | Com parcelas, "50% do total" poderia ser mais do que o tutor pagou. Sobre o que foi pago é simples e nunca cobra mais. |
 | O retido no cancelamento tardio é repassado na hora | A estadia não vai acontecer; não há check-out para esperar. |
 | Contestação perdida depois do repasse estorna o anfitrião | Decisão do produto. As perdas são da plataforma no Stripe (`losses_collector = application`); sem estorno o PetHost pagaria a conta. |
@@ -270,5 +289,5 @@ No sentido contrário, o Payments **implementa** `IPaymentDirectory` (`HasOverdu
 
 1. **Evidência de contestação pela API**: hoje o admin envia no Dashboard do Stripe.
 2. **Cobrança automática** das parcelas no cartão salvo (`setup_future_usage`), se o produto quiser no futuro.
-3. **Cobrança do atraso**: parcela em atraso pós-estadia não tem multa nem juros, e não há fluxo de cobrança além do bloqueio e dos avisos.
+3. **Negativação** do tutor em atraso (Serasa/SPC/Boa Vista): evolução futura, com integração a um birô e o aviso prévio exigido pelo CDC. Hoje o atraso tem multa, juros, lembrete semanal e bloqueio de novas reservas.
 4. **Suspensão pelo admin** com reserva paga em aberto continua sem cancelamento automático (pendência do Bookings).

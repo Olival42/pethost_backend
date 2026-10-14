@@ -348,7 +348,7 @@ O tutor busca anfitriões por localização, datas, porte do pet e faixa de pre�
 
 ### 11.5 Pagamento online {#pagamento-online}
 
-Depois que o anfitrião aceita, o tutor paga dentro do aplicativo, com Pix ou cartão, à vista ou em até 6 parcelas. O valor fica retido pela plataforma até o fim da estadia e só então é repassado ao anfitrião, já com a taxa do PetHost descontada; parcelas pagas depois da estadia são repassadas quando são pagas. Cada conta vê o histórico de pagamentos, e as regras de cancelamento e reembolso aparecem antes da confirmação. Detalhes técnicos em [`modulo-payments.md`](modulo-payments.md).
+Depois que o anfitrião aceita, o tutor paga dentro do aplicativo, com Pix ou cartão, à vista ou em até 6 parcelas. O valor fica retido pela plataforma até o fim da estadia e só então é repassado ao anfitrião, já com a taxa do PetHost descontada; parcelas pagas depois da estadia são repassadas quando são pagas. Parcela paga com atraso tem multa de 2% e juros de 1% ao mês, e o tutor em atraso recebe lembretes semanais e não faz novas reservas até pagar. Cada conta vê o histórico de pagamentos, e as regras de cancelamento e reembolso aparecem antes da confirmação. Detalhes técnicos em [`modulo-payments.md`](modulo-payments.md).
 
 ### 11.6 Chat em tempo real {#chat-em-tempo-real}
 
