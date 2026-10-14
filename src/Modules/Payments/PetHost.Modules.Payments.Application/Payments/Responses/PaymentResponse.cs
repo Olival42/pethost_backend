@@ -81,7 +81,18 @@ public sealed record InstallmentStripeIds(
 /// <param name="Count">Número de parcelas (1 = à vista).</param>
 /// <param name="FirstAmount">Valor da 1ª parcela (leva os centavos que sobram).</param>
 /// <param name="OtherAmount">Valor de cada uma das outras.</param>
-public sealed record InstallmentOptionResponse(int Count, decimal FirstAmount, decimal OtherAmount);
+/// <param name="Installments">Cada parcela com o valor e o vencimento, se o tutor escolher esta forma agora.</param>
+public sealed record InstallmentOptionResponse(
+    int Count,
+    decimal FirstAmount,
+    decimal OtherAmount,
+    IReadOnlyList<PlannedInstallmentResponse> Installments);
+
+/// <summary>Uma parcela de uma forma de parcelar, antes de o tutor escolher.</summary>
+/// <param name="Number">1 a 6, na ordem de vencimento.</param>
+/// <param name="Amount">Valor da parcela.</param>
+/// <param name="DueAt">Vencimento: a 1ª no prazo de pagamento; as outras a cada 30 dias, no fim do dia (Brasília).</param>
+public sealed record PlannedInstallmentResponse(int Number, decimal Amount, DateTimeOffset DueAt);
 
 /// <summary>O repasse ao anfitrião, somando as parcelas.</summary>
 /// <param name="Transferred">Já está na conta do anfitrião (menos o que foi estornado).</param>

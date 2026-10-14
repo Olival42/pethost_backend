@@ -17,9 +17,14 @@ public static class PaymentResponseMapper
         var awaiting = booking.Stage == BookingStage.AwaitingPayment;
         var canChoose = awaiting && viewer != PaymentViewer.Host && (payment?.CanChangePlan ?? true);
 
-        IReadOnlyList<InstallmentOptionResponse>? options = canChoose
-            ? [.. Payment.OptionsFor(payment?.AmountCents ?? booking.AmountCents)
-                .Select(o => new InstallmentOptionResponse(o.Count, Reais(o.FirstAmountCents), Reais(o.OtherAmountCents)))]
+        var amountCents = payment?.AmountCents ?? booking.AmountCents;
+        IReadOnlyList<InstallmentOptionResponse>? options = canChoose && booking.PaymentDeadline is { } deadline
+            ? [.. Payment.OptionsFor(amountCents).Select(o => new InstallmentOptionResponse(
+                o.Count,
+                Reais(o.FirstAmountCents),
+                Reais(o.OtherAmountCents),
+                [.. Payment.ScheduleFor(amountCents, o.Count, deadline, now)
+                    .Select(p => new PlannedInstallmentResponse(p.Number, Reais(p.AmountCents), p.DueAt))]))]
             : null;
 
         if (payment is null)

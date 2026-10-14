@@ -53,6 +53,43 @@ public sealed class PaymentPlanTests
     }
 
     [Fact]
+    public void ScheduleFor_Should_ListEachInstallmentWithItsDueDate_When_CountIsAllowed()
+    {
+        // Act
+        var schedule = Payment.ScheduleFor(30_001, 3, PaymentBuilder.DefaultDeadline, Now);
+
+        // Assert
+        schedule.Should().Equal(
+            new PlannedInstallment(1, 10_001, PaymentBuilder.DefaultDeadline),
+            new PlannedInstallment(2, 10_000, new DateTimeOffset(2026, 11, 11, 3, 0, 0, TimeSpan.Zero)),
+            new PlannedInstallment(3, 10_000, new DateTimeOffset(2026, 12, 11, 3, 0, 0, TimeSpan.Zero)));
+    }
+
+    [Fact]
+    public void ScheduleFor_Should_MatchTheInstallmentsCreated_When_TheTutorChoosesThatCount()
+    {
+        // Arrange
+        var payment = new PaymentBuilder().WithAmount(30_000).WithInstallments(6).Build();
+
+        // Act
+        var schedule = Payment.ScheduleFor(30_000, 6, PaymentBuilder.DefaultDeadline, Now);
+
+        // Assert
+        schedule.Select(p => (p.Number, p.AmountCents, p.DueAt)).Should()
+            .Equal(payment.Installments.Select(i => (i.Number, i.AmountCents, i.DueAt)));
+    }
+
+    [Fact]
+    public void ScheduleFor_Should_Throw_When_CountIsNotAllowedForTheAmount()
+    {
+        // Act
+        var act = () => Payment.ScheduleFor(9_999, 2, PaymentBuilder.DefaultDeadline, Now);
+
+        // Assert
+        act.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
     public void Create_Should_SplitTheAmountAndScheduleMonthlyDueDates_When_CountIsAllowed()
     {
         // Act

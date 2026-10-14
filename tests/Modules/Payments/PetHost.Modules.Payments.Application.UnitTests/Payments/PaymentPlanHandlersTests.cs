@@ -475,6 +475,11 @@ public sealed class GetBookingPaymentQueryHandlerTests
         response.TotalAmount.Should().Be(300m);
         response.PaymentDeadline.Should().Be(PaymentBuilder.DefaultDeadline);
         response.Options!.Select(o => o.Count).Should().Equal(1, 2, 3, 4, 5, 6);
+        response.Options.Should().OnlyContain(o => o.Installments.Count == o.Count);
+        response.Options.Single(o => o.Count == 3).Installments.Should().Equal(
+            new PlannedInstallmentResponse(1, 100m, PaymentBuilder.DefaultDeadline),
+            new PlannedInstallmentResponse(2, 100m, new DateTimeOffset(2026, 11, 11, 3, 0, 0, TimeSpan.Zero)),
+            new PlannedInstallmentResponse(3, 100m, new DateTimeOffset(2026, 12, 11, 3, 0, 0, TimeSpan.Zero)));
     }
 
     [Fact]

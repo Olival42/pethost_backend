@@ -91,7 +91,7 @@ src/Modules/Payments/
 
 | Método | Rota | Quem | O quê |
 |---|---|---|---|
-| `GET` | `/api/v1/bookings/{bookingId}/payment` | owner, host, admin | O pagamento: parcelas e situação de cada uma (`amount` sem acréscimo; em aberto, `amountDue` = quanto pagar agora; `lateFee` quando há multa e juros). Antes do plano: `status = not_started`, `paymentDeadline` e `options` (1x a 6x). O anfitrião vê `payout`; o admin, também `stripe` (ids para o Dashboard). |
+| `GET` | `/api/v1/bookings/{bookingId}/payment` | owner, host, admin | O pagamento: parcelas e situação de cada uma (`dueAt` = vencimento; `amount` sem acréscimo; em aberto, `amountDue` = quanto pagar agora; `lateFee` quando há multa e juros). Antes do plano: `status = not_started`, `paymentDeadline` e `options` (1x a 6x, cada uma com `installments`: número, valor e `dueAt` de cada parcela se escolhida agora — a 1ª no `paymentDeadline`, as outras a cada 30 dias, no fim do dia em Brasília). O anfitrião vê `payout`; o admin, também `stripe` (ids para o Dashboard). |
 | `PUT` | `/api/v1/bookings/{bookingId}/payment` | owner | Escolhe (ou troca, antes de pagar) o número de parcelas: `{ "installmentCount": 3 }`. |
 | `POST` | `/api/v1/bookings/{bookingId}/payment/installments/{n}/payment-session` | owner | Abre o checkout da parcela `n`: devolve `clientSecret`, `publishableKey`, `paymentIntentId`, `amount` (quanto pagar agora, com multa e juros se atrasada), `lateFee` (o acréscimo incluído em `amount`), `pixExpiresAt` (Unix) e `paymentMethods` (`card`, `pix`). |
 | `POST` | `/api/v1/bookings/{bookingId}/payment/synchronization` | owner, admin | Relê agora no Stripe e reconcilia (o app chama ao voltar do Payment Element; funciona sem webhook). |

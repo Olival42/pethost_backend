@@ -165,6 +165,28 @@ public sealed class Payment : Entity<PaymentId>
     }
 
     /// <summary>
+    /// As parcelas (valor e vencimento) de um plano em <paramref name="installmentCount"/> vezes, como
+    /// ficariam se o tutor o escolhesse agora: a 1ª vence em <paramref name="paymentDeadline"/>; as
+    /// outras, no fim do dia (Brasília), a cada <see cref="InstallmentIntervalDays"/> dias a partir de hoje.
+    /// </summary>
+    public static IReadOnlyList<PlannedInstallment> ScheduleFor(
+        long amountCents, int installmentCount, DateTimeOffset paymentDeadline, DateTimeOffset now)
+    {
+        if (amountCents <= 0)
+            throw new ArgumentOutOfRangeException(nameof(amountCents), amountCents, "The amount must be positive.");
+
+        if (installmentCount < 1 || installmentCount > MaxInstallmentsFor(amountCents))
+            throw new ArgumentOutOfRangeException(nameof(installmentCount), installmentCount, "Installment count not allowed for this amount.");
+
+        var today = PaymentClock.Today(now);
+
+        return [.. Split(amountCents, installmentCount).Select((amount, index) => new PlannedInstallment(
+            index + 1,
+            amount,
+            index == 0 ? paymentDeadline.ToUniversalTime() : PaymentClock.EndOf(today.AddDays(InstallmentIntervalDays * index)).ToUniversalTime()))];
+    }
+
+    /// <summary>
     /// O tutor escolhe em quantas parcelas paga a reserva aceita. A 1ª vence no prazo de pagamento
     /// da reserva; as outras, a cada 30 dias a partir de hoje. Mais parcelas do que o valor permite:
     /// <c>PAYMENT_INSTALLMENT_COUNT_NOT_ALLOWED</c>.
@@ -580,14 +602,9 @@ public sealed class Payment : Entity<PaymentId>
         if (installmentCount < 1 || installmentCount > max)
             return Result.Failure(PaymentsErrors.InstallmentCountNotAllowed(max));
 
-        var amounts = Split(AmountCents, installmentCount);
-        var today = PaymentClock.Today(now);
-
         _installments.Clear();
-        _installments.AddRange(amounts.Select((amount, index) => new Installment(
-            index + 1,
-            amount,
-            index == 0 ? paymentDeadline : PaymentClock.EndOf(today.AddDays(InstallmentIntervalDays * index)))));
+        _installments.AddRange(ScheduleFor(AmountCents, installmentCount, paymentDeadline, now)
+            .Select(p => new Installment(p.Number, p.AmountCents, p.DueAt)));
 
         InstallmentCount = installmentCount;
         PlanRevision++;
