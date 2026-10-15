@@ -7,7 +7,8 @@ namespace PetHost.Modules.Listings.Application.Listings.SearchListings;
 /// <summary>
 /// Cantinhos ativos que atendem a todos os filtros enviados (eles se somam). A busca é por raio
 /// quando vem <paramref name="RadiusKm"/> ou coordenada, ou quando não vem estado, cidade nem
-/// bairro ("perto de casa"); aí a origem é a coordenada ou, sem ela, o endereço da conta.
+/// bairro ("perto de casa"); aí a origem é a coordenada ou, sem ela, o endereço de quem busca
+/// (o da empresa, para o anfitrião empresa; senão, o da conta).
 /// </summary>
 /// <param name="UserId">Vem do access token.</param>
 /// <param name="Latitude">Origem opcional (ex.: GPS do celular). Vem junto com <paramref name="Longitude"/>.</param>
@@ -24,6 +25,10 @@ namespace PetHost.Modules.Listings.Application.Listings.SearchListings;
 /// todos os dias do período e têm vaga em todas as noites.
 /// </param>
 /// <param name="Pets">Quantos pets vão (padrão 1): a vaga precisa caber todos.</param>
+/// <param name="Role">
+/// Papel do token. Anfitrião empresa (<c>host</c>) busca a partir do endereço da empresa; os outros,
+/// do endereço da conta.
+/// </param>
 public sealed record SearchListingsQuery(
     Guid UserId,
     decimal? Latitude = null,
@@ -47,7 +52,8 @@ public sealed record SearchListingsQuery(
     int PageSize = 20,
     string? CheckIn = null,
     string? CheckOut = null,
-    int? Pets = null) : IQuery<PagedResult<ListingSummaryResponse>>
+    int? Pets = null,
+    string? Role = null) : IQuery<PagedResult<ListingSummaryResponse>>
 {
     /// <summary>Raio da busca por raio quando o cliente não manda: 10 km.</summary>
     public const int DefaultRadiusKm = 10;

@@ -46,15 +46,15 @@ public sealed class GetListingByIdQueryHandler(
 
         return Result<ListingResponse>.Success(response with
         {
-            Badges = await BadgesAsync(listing, query.UserId, cancellationToken).ConfigureAwait(false),
+            Badges = await BadgesAsync(listing, query, cancellationToken).ConfigureAwait(false),
         });
     }
 
-    private async Task<IReadOnlyList<string>> BadgesAsync(Listing listing, Guid userId, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<string>> BadgesAsync(Listing listing, GetListingByIdQuery query, CancellationToken cancellationToken)
     {
         var records = await listingBookings.GetTrackRecordsAsync([listing.HostId], cancellationToken).ConfigureAwait(false);
         var record = records.GetValueOrDefault(listing.HostId) ?? HostTrackRecord.None;
-        var viewerAddress = await accountAddresses.GetAsync(userId, cancellationToken).ConfigureAwait(false);
+        var viewerAddress = await accountAddresses.GetAsync(query.UserId, query.Role, cancellationToken).ConfigureAwait(false);
 
         return ListingBadges.For(listing, viewerAddress, record.CompletedStays, record.AverageResponseTime);
     }

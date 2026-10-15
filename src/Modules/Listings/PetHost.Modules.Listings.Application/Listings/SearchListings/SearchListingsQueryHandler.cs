@@ -68,7 +68,7 @@ public sealed class SearchListingsQueryHandler(
         filters = WithStay(filters, stay, query.Pets);
 
         // Endereço de quem busca: origem da busca por raio e base do selo "Vizinho".
-        var viewerAddress = await accountAddresses.GetAsync(query.UserId, cancellationToken).ConfigureAwait(false);
+        var viewerAddress = await accountAddresses.GetAsync(query.UserId, query.Role, cancellationToken).ConfigureAwait(false);
 
         SearchArea? area = null;
         if (IsRadiusSearch(query, filters))

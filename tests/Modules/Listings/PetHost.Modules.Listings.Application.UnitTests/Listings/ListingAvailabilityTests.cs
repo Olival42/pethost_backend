@@ -34,7 +34,7 @@ public sealed class ListingAvailabilityTests
 
         _repository.Setup(r => r.GetByIdAsync(_listing.Id, It.IsAny<CancellationToken>())).ReturnsAsync(_listing);
 
-        _addresses.Setup(a => a.GetAsync(ListingsTestData.OwnerUserId, It.IsAny<CancellationToken>()))
+        _addresses.Setup(a => a.GetAsync(ListingsTestData.OwnerUserId, It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ListingBuilder().BuildAddressData());
     }
 
@@ -141,5 +141,6 @@ public sealed class ListingAvailabilityTests
 
         // Assert: sem histórico de reservas, só o que vem do cantinho e do endereço.
         result.Value!.Badges.Should().Equal(ListingBadges.Neighbor, ListingBadges.Yard);
+        _addresses.Verify(a => a.GetAsync(ListingsTestData.OwnerUserId, Roles.Owner, It.IsAny<CancellationToken>()), Times.Once);
     }
 }

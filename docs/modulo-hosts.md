@@ -261,6 +261,7 @@ O detalhe (`GET /host-applications/{id}`) traz tudo o que a pessoa enviou, o `us
 - **Toda decisão do admin leva motivo** (`reason`, até 500): vai para `review_notes` e para a trilha.
 - **Trilha:** `host_application.started`, `.updated`, `.document_uploaded`, `.submitted`, `.cancelled`, `.approved`, `.rejected`, `.viewed` (admin abriu), `.listed`, `.document_viewed` (admin abriu uma foto), `.expired`, `.documents_purged`. CPF só mascarado.
 - **Pets da casa** (módulo Pets) só depois da aprovação: o Pets acha o anfitrião pelo `IHostDirectory`, que só enxerga `hosts`.
+- **Endereço da empresa para a busca de cantinhos:** `IHostDirectory.GetCompanyAddressByUserIdAsync` devolve o endereço da empresa (anfitrião PJ; `null` para pessoa física ou conta sem perfil). O Listings usa quando a empresa busca logada como anfitrião ([`modulo-listings.md`](modulo-listings.md), origem da busca e selo Vizinho).
 
 ### 4.1 CPF entre tutor e anfitrião (restrição 9)
 

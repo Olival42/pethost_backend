@@ -289,6 +289,22 @@ public sealed class ListingEndpointsTests(ListingsApiFixture fixture) : IAsyncLi
     }
 
     [Fact]
+    public async Task Search_Should_StartFromTheCompanyAddress_When_ACompanyHostSearchesWithoutCoordinates()
+    {
+        // A conta do Marcos fica na Zona 7, perto da Cida; a empresa fica em Londrina.
+        var cida = await RegisterIndividualHostAsync();
+        await CreateListingAsync(cida.Token, Cantinho(neighborhood: "Zona 5"));
+        var company = await RegisterCompanyHostAsync(companyNeighborhood: "Centro de Londrina");
+        await CreateListingAsync(company.Token, Cantinho(neighborhood: "Centro de Londrina", homeType: null));
+
+        var asCompany = await SearchAsync(company.Token, "radiusKm=5");
+        var asIndividualHost = await SearchAsync(cida.Token, "radiusKm=5");
+
+        Neighborhoods(asCompany).Should().Equal("Centro de Londrina");
+        Neighborhoods(asIndividualHost).Should().Equal(["Zona 5"], "pessoa física continua no endereço da conta");
+    }
+
+    [Fact]
     public async Task Search_Should_HideInactiveListingsAndSuspendedHosts()
     {
         var cida = await RegisterIndividualHostAsync();
@@ -535,7 +551,8 @@ public sealed class ListingEndpointsTests(ListingsApiFixture fixture) : IAsyncLi
         return new RegisteredHost(token, await SaveHostAsync(host, payoutsEnabled));
     }
 
-    private async Task<RegisteredHost> RegisterCompanyHostAsync()
+    /// <summary>A Pet Feliz (empresa). A conta do Marcos fica na Zona 7; a empresa, em <paramref name="companyNeighborhood"/>.</summary>
+    private async Task<RegisteredHost> RegisterCompanyHostAsync(string companyNeighborhood = "Centro")
     {
         var (token, userId) = await RegisterHostAccountAsync("hotel@petfeliz.com", "Marcos Lima");
         var host = Host.CreateCompany(
@@ -544,7 +561,7 @@ public sealed class ListingEndpointsTests(ListingsApiFixture fixture) : IAsyncLi
             Cnpj.Create("11222333000181").Value!,
             "Pet Feliz Hospedagem LTDA",
             "Pet Feliz",
-            CompanyAddress.Create("87013000", "Av. Brasil", "1500", null, "Centro", "Maringá", "PR").Value!,
+            CompanyAddress.Create("87013000", "Av. Brasil", "1500", null, companyNeighborhood, "Maringá", "PR").Value!,
             Guid.CreateVersion7(),
             Guid.CreateVersion7(),
             DateTimeOffset.UtcNow).Value!;

@@ -119,7 +119,9 @@ public sealed class ListingsController(
     /// </para>
     /// Só aparecem cantinhos ativos de anfitrião ativo. Cada item traz bairro, cidade e distância —
     /// nunca o endereço nem a coordenada. Paginado: <c>page</c> a partir de 1, <c>pageSize</c> até
-    /// 100. Busca por raio com conta sem endereço: 422 <c>LISTING_SEARCH_ADDRESS_REQUIRED</c>.
+    /// 100. Sem coordenada, a origem é o endereço de quem busca: o da empresa para o anfitrião
+    /// empresa, senão o da conta (também é a base do selo <c>neighbor</c>). Busca por raio sem
+    /// endereço: 422 <c>LISTING_SEARCH_ADDRESS_REQUIRED</c>.
     /// </remarks>
     [HttpGet]
     [Authorize]
@@ -158,7 +160,8 @@ public sealed class ListingsController(
                 request.PageSize,
                 request.CheckIn,
                 request.CheckOut,
-                request.Pets),
+                request.Pets,
+                CurrentRole()),
             cancellationToken);
 
         return result.ToActionResult();
