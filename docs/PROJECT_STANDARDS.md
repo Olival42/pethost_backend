@@ -797,9 +797,45 @@ Integração: `WebApplicationFactory<Program>` + `PostgreSqlContainer` (`postgre
 
 Pipeline falha abaixo do mínimo. `[ExcludeFromCodeCoverage]` exige justificativa em comentário — permitido só em `Migrations/` e `DependencyInjection.cs`.
 
+**Todo `dotnet test` já mede a cobertura** (`TestingPlatformCommandLineArguments` no `Directory.Build.props`): um `artifacts/coverage/<Projeto>.cobertura.xml` por projeto de teste, sobrescrito a cada execução. O filtro está em `coverage.settings.xml` na raiz: mede só os assemblies `PetHost.*` da aplicação — fora os projetos de teste, o `PetHost.TestKit`, as `Migrations/` e o que tiver `[ExcludeFromCodeCoverage]`.
+
+> **O `dotnet test` sozinho não gera o HTML nem mostra os percentuais** — só os XMLs. O `dotnet test` não tem um gancho que rode depois de todos os projetos terminarem, então o relatório fica no script.
+
+| Comando | Roda os testes? | Gera |
+|---------|-----------------|------|
+| `dotnet test` | sim | só os `artifacts/coverage/*.cobertura.xml` (um por projeto) |
+| `./scripts/coverage.ps1` / `./scripts/coverage.sh` | sim | os XMLs **+** o HTML em `artifacts/coverage/report/index.html` **+** o resumo no terminal |
+| `dotnet reportgenerator ...` (abaixo) | não | só o HTML e o resumo, a partir dos XMLs que já estão lá (ex.: depois de um `dotnet test`, ou se o `report/` foi apagado) |
+
+Para ver o número, o script roda os testes e junta tudo com o **ReportGenerator** (ferramenta local, em `dotnet-tools.json`; o script faz o `dotnet tool restore`):
+
 ```bash
-dotnet test --collect:"XPlat Code Coverage" --results-directory ./artifacts/coverage
+./scripts/coverage.sh              # Linux/macOS/Git Bash  (--sem-docker: só unidade e arquitetura)
+./scripts/coverage.ps1             # PowerShell            (-SemDocker: idem)
 ```
+
+Mostra no terminal o resumo (linha, branch, método) e uma linha por assembly; o detalhe por classe e por linha fica em `artifacts/coverage/report/index.html`. Sem Docker, `Infrastructure` e `Presentation` aparecem quase zeradas: elas são cobertas pela integração (tabela acima). Só o relatório, sem rodar os testes de novo (precisa dos XMLs em `artifacts/coverage`; se a pasta inteira sumiu, rode o script):
+
+```bash
+dotnet reportgenerator "-reports:artifacts/coverage/*.cobertura.xml" "-targetdir:artifacts/coverage/report" "-reporttypes:Html;TextSummary" "-filefilters:-*.g.cs"
+```
+
+Última medição (solução inteira, com integração): **92,9 % de linha e 81,5 % de branch**.
+
+### Rodando os testes
+
+O `global.json` liga o **Microsoft Testing Platform** (`"test": { "runner": "Microsoft.Testing.Platform" }`) e cada projeto de teste é um executável do xUnit v3. Precisa do SDK do .NET 10; os testes de integração precisam do Docker rodando (Testcontainers sobe Postgres, Redis e RustFS).
+
+| Para | Comando |
+|------|---------|
+| Tudo (unidade, arquitetura e integração) | `dotnet test` |
+| Só o que não precisa de Docker | `dotnet test --filter-not-namespace "*.IntegrationTests*" --ignore-exit-code 8` |
+| Um projeto | `dotnet test --project tests/Modules/Listings/PetHost.Modules.Listings.Application.UnitTests` |
+| Um teste ou grupo | `dotnet test --project <projeto> --filter-method "*Search*"` (também `--filter-class`, `--filter-namespace`) |
+| Sem compilar de novo | acrescente `--no-build` |
+| Direto pelo executável | `tests/<...>/bin/Debug/net10.0/<Projeto>.exe` |
+
+> **"Zero testes executados" (código de saída 5)?** É opção do runner antigo (VSTest) que o `dotnet test` repassa ao executável do teste, e ele recusa: `-nologo`, `--collect:"XPlat Code Coverage"`, `--logger`, `--settings`. Use os equivalentes acima (`--filter-*`; a cobertura já vem ligada). O código **8** é "nenhum teste rodou" num projeto — esperado nos projetos de integração quando o filtro tira todos eles; por isso o `--ignore-exit-code 8`.
 
 ---
 
