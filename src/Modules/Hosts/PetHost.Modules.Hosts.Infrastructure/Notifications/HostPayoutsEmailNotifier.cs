@@ -17,6 +17,7 @@ internal sealed class HostPayoutsEmailNotifier(IEmailOutbox outbox, IOptions<Hos
     private const string ReminderSubject = "PetHost — falta pouco para você receber hóspedes";
     private const string RejectedSubject = "PetHost — não foi possível aprovar sua conta de recebimento";
     private const string AdminRejectedSubject = "PetHost — o Stripe recusou a conta de um anfitrião";
+    private const string AdminBlockedSubject = "PetHost — repasses bloqueados de um anfitrião com reservas em aberto";
 
     public Task NotifyPayoutsEnabledAsync(HostPayoutsNotice notice, CancellationToken cancellationToken)
     {
@@ -92,6 +93,28 @@ internal sealed class HostPayoutsEmailNotifier(IEmailOutbox outbox, IOptions<Hos
                 $"O Stripe recusou a conta de recebimento do anfitrião {rejection.HostName} (id {rejection.HostId}).",
                 $"Motivo informado pelo Stripe: {rejection.Reason ?? "não informado"}.",
                 "Confira o anfitrião no painel (GET /api/v1/hosts?stripeStatus=rejected) e decida se ele deve ser suspenso.",
+            ],
+            cancellationToken);
+    }
+
+    public Task NotifyAdminPayoutsBlockedAsync(HostPayoutsBlocked blocked, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(blocked);
+
+        var adminEmail = options.Value.AdminAlertEmail;
+        if (string.IsNullOrWhiteSpace(adminEmail))
+            return Task.CompletedTask;
+
+        return SendAsync(
+            adminEmail.Trim(),
+            "Admin PetHost",
+            AdminBlockedSubject,
+            [
+                $"O Stripe bloqueou os repasses do anfitrião {blocked.HostName} (id {blocked.HostId}), que tem {blocked.OpenBookingIds.Count} reserva(s) em aberto.",
+                $"Motivo informado pelo Stripe: {blocked.Reason ?? "não informado"}.",
+                "Os repasses dessas reservas ficam retidos (não são enviados ao Stripe) até a conta voltar a receber; os cantinhos saíram da busca e novos aceites são recusados.",
+                $"Reservas: {string.Join(", ", blocked.OpenBookingIds)}.",
+                "Para reembolsar o tutor de uma reserva que ainda não começou, cancele como admin (POST /api/v1/bookings/{id}/cancellation, com motivo): o tutor recebe 100%. Estadia em andamento: encerre com POST /api/v1/bookings/{id}/check-out. Se o anfitrião não deve continuar, suspenda (as reservas que não começaram são canceladas sozinhas).",
             ],
             cancellationToken);
     }

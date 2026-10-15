@@ -188,6 +188,60 @@ public sealed class PaymentLateFeeTests
     }
 
     [Fact]
+    public void TakeOverdueEscalations_Should_EscalateOnceAndStopTheReminders_When_FourWeeksHavePassed()
+    {
+        // Arrange — lembretes nos dias 7, 14 e 21.
+        var payment = new PaymentBuilder().BuildPaid(1);
+        var overdueAt = GraceEnd(payment);
+        payment.CheckOverdue(BookingStage.Completed, overdueAt);
+        foreach (var day in new[] { 7, 14, 21 })
+            payment.TakeOverdueReminders(overdueAt.AddDays(day)).Should().ContainSingle();
+
+        // Act / Assert
+        payment.TakeOverdueEscalations(overdueAt.AddDays(27)).Should().BeEmpty("ainda não fez 4 semanas");
+
+        var day28 = overdueAt.Add(Payment.OverdueEscalationAfter);
+        payment.TakeOverdueEscalations(day28).Select(i => i.Number).Should().Equal(2);
+        payment.FindInstallment(2)!.OverdueEscalatedAt.Should().Be(day28);
+
+        payment.TakeOverdueEscalations(day28.AddDays(7)).Should().BeEmpty("o admin é avisado uma vez só");
+        payment.TakeOverdueReminders(day28).Should().BeEmpty("depois de 4 semanas o tutor não é mais lembrado");
+        payment.TakeOverdueReminders(day28.AddDays(7)).Should().BeEmpty();
+        payment.FindInstallment(2)!.Status.Should().Be(InstallmentStatus.Overdue, "a parcela continua em atraso e pode ser paga");
+    }
+
+    [Fact]
+    public void TakeOverdueReminders_Should_NotRemind_When_TheEscalationWasDueButNotTakenYet()
+    {
+        // Arrange — a manutenção ficou parada: a próxima passada já é depois das 4 semanas.
+        var payment = new PaymentBuilder().BuildPaid(1);
+        var overdueAt = GraceEnd(payment);
+        payment.CheckOverdue(BookingStage.Completed, overdueAt);
+
+        // Act
+        var reminders = payment.TakeOverdueReminders(overdueAt.AddDays(40));
+
+        // Assert
+        reminders.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void TakeOverdueEscalations_Should_DoNothing_When_TheInstallmentWasPaid()
+    {
+        // Arrange
+        var payment = new PaymentBuilder().BuildPaid(1);
+        var overdueAt = GraceEnd(payment);
+        payment.CheckOverdue(BookingStage.Completed, overdueAt);
+        PaymentBuilder.Pay(payment, 2, overdueAt.AddDays(20));
+
+        // Act
+        var escalated = payment.TakeOverdueEscalations(overdueAt.AddDays(30));
+
+        // Assert
+        escalated.Should().BeEmpty();
+    }
+
+    [Fact]
     public void TakeOverdueReminders_Should_Stop_When_TheOverdueInstallmentIsPaid()
     {
         // Arrange

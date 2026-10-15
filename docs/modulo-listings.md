@@ -17,6 +17,7 @@ O **cantinho** é o espaço que o anfitrião oferece — o "quarto" da metáfora
   - [5. Busca, filtros e geocodificação](#5-busca-filtros-e-geocodificação)
     - [5.1 Selos](#51-selos)
   - [6. Fotos (até 5, em ordem)](#6-fotos-até-5-em-ordem)
+    - [6.1 Agenda (datas bloqueadas)](#61-agenda-datas-bloqueadas)
   - [7. Banco](#7-banco)
   - [8. Comunicação com outros módulos](#8-comunicação-com-outros-módulos)
   - [9. Testes](#9-testes)
@@ -62,12 +63,15 @@ src/Modules/Listings/
 | `GET` | `/api/v1/listings/me` | host | Todos os cantinhos do anfitrião logado (ativos e inativos), `{ host, listings }`, sem paginação. |
 | `GET` | `/api/v1/listings/{listingId}` | qualquer logado | Um cantinho. Dono: tudo, inclusive inativo. Outros: visão pública, só se ativo. |
 | `PATCH` | `/api/v1/listings/{listingId}` | host dono | Altera (só o que vier). Endereço novo recalcula a coordenada. |
-| `POST` | `/api/v1/listings/{listingId}/deactivation` | host dono | Inativa. Idempotente. |
+| `POST` | `/api/v1/listings/{listingId}/deactivation` | host dono | Inativa. Idempotente. Com reserva em aberto: `422 LISTING_HAS_OPEN_BOOKING`. |
 | `DELETE` | `/api/v1/listings/{listingId}/deactivation` | host dono | Reativa. Idempotente. |
 | `POST` | `/api/v1/listings/{listingId}/photos` | host dono | Adiciona foto (multipart, parte `file`), no fim da fila. |
 | `PUT` | `/api/v1/listings/{listingId}/photos/order` | host dono | Reordena: `{ "photoIds": [...] }` com todas as fotos. |
 | `PATCH` | `/api/v1/listings/{listingId}/photos/{photoId}` | host dono | Substitui a imagem (mesmo id e posição). |
 | `DELETE` | `/api/v1/listings/{listingId}/photos/{photoId}` | host dono | Tira a foto; as de trás sobem uma posição. |
+| `GET` | `/api/v1/listings/{listingId}/availability-blocks` | qualquer logado | A agenda: os períodos fechados que ainda não acabaram. Dono e admin veem o `reason`; os outros, só as datas (cantinho ativo e disponível). |
+| `POST` | `/api/v1/listings/{listingId}/availability-blocks` | host dono | Fecha datas: `{ "startDate", "endDate", "reason"? }`. `201`. |
+| `DELETE` | `/api/v1/listings/{listingId}/availability-blocks/{blockId}` | host dono | Reabre as datas de um bloqueio. Devolve a agenda como ficou. |
 
 "Por id" serve aos dois casos pedidos: o anfitrião logado vê o **seu** cantinho completo (inclusive inativo) e qualquer outra conta vê o cantinho ativo na visão pública. Cantinho de outro anfitrião nas rotas de alteração responde `404 LISTING_NOT_FOUND` (§8: recurso de outra conta é 404).
 
@@ -123,7 +127,7 @@ Validadas no domínio (`ListingDetails`, `ListingAddress`), com **todos os erros
 | `availableWeekdays` | ao menos um dia, valores conhecidos |
 | `address.*` | CEP com 8 dígitos (aceita máscara), rua (120), número (10, "S/N" aceito), complemento opcional (60), bairro (80), cidade (80), UF válida |
 
-Inativar é idempotente e não apaga nada (escopo, restrição 9). Cantinho inativo pode ser editado e ter fotos trocadas pelo dono. Mudança de estado vai para a trilha: `listing.created`, `listing.updated` (campos pelo nome, ou `photos.added/replaced/removed/reordered`), `listing.deactivated`, `listing.reactivated`.
+Inativar é idempotente e não apaga nada (escopo, restrição 9). **Cantinho com reserva em aberto** (`requested`, `accepted`, `confirmed` ou `in_progress`) **não é inativado**: `422 LISTING_HAS_OPEN_BOOKING` e nada muda — o anfitrião responde aos pedidos, cancela as reservas que não começaram ou faz o check-out antes (mesmo critério do perfil do anfitrião, [`modulo-hosts.md`](modulo-hosts.md) seção 4.2). Inativo, o cantinho sumiria da busca e não aceitaria mais pedidos, e a reserva ficaria sem cantinho. A consulta é pelo contrato `IBookingDirectory.HasOpenBookingForListingAsync`. Cantinho inativo pode ser editado e ter fotos trocadas pelo dono. Mudança de estado vai para a trilha: `listing.created`, `listing.updated` (campos pelo nome, ou `photos.added/replaced/removed/reordered`), `listing.deactivated`, `listing.reactivated`.
 
 ## 5. Busca, filtros e geocodificação
 
@@ -144,7 +148,7 @@ Inativar é idempotente e não apaga nada (escopo, restrição 9). Cantinho inat
 
 Listas aceitam o parâmetro repetido (`species=dog&species=cat`) ou separado por vírgula (`species=dog,cat`). Todos os erros voltam juntos num só `400`.
 
-| `checkIn`, `checkOut` | Datas da estadia (`yyyy-MM-dd`, **juntas**). Mesmas regras do pedido de reserva: chegada de hoje (Brasília) até 365 dias à frente, saída depois, até 30 noites. O cantinho precisa **receber em todos os dias** do período (inclusive o da saída) e ter **vaga em todas as noites**: a maior ocupação de uma noite (estadias confirmadas e em andamento) mais os pets da busca não passa da capacidade. | Só uma das datas (`400` na que falta), formato, passado, longe demais, saída antes da chegada, mais de 30 noites. |
+| `checkIn`, `checkOut` | Datas da estadia (`yyyy-MM-dd`, **juntas**). Mesmas regras do pedido de reserva: chegada de hoje (Brasília) até 365 dias à frente, saída depois, até 30 noites. O cantinho precisa **receber em todos os dias** do período (inclusive o da saída), **nenhum desses dias fechado na agenda** (seção 6.1) e ter **vaga em todas as noites**: a maior ocupação de uma noite (estadias aceitas, confirmadas e em andamento) mais os pets da busca não passa da capacidade. | Só uma das datas (`400` na que falta), formato, passado, longe demais, saída antes da chegada, mais de 30 noites. |
 | `pets` | Quantos pets vão (padrão 1): a capacidade precisa caber todos; com datas, a vaga também. | Fora de 1 a 200. |
 
 **Raio ou só lugar?**
@@ -207,12 +211,36 @@ Mesmo fluxo das fotos de pet ([`armazenamento-de-imagens.md`](armazenamento-de-i
 
 Erros: 6ª foto `422 LISTING_PHOTO_LIMIT_REACHED`; mesma imagem duas vezes `409 LISTING_PHOTO_ALREADY_EXISTS`; foto de outro cantinho `404 LISTING_PHOTO_NOT_FOUND`.
 
+### 6.1 Agenda (datas bloqueadas)
+
+Por padrão tudo está disponível (escopo: "O anfitrião bloqueia datas"). O anfitrião fecha períodos — viagem, reforma, feriado — e **nenhum pedido de reserva passa por esses dias**: como nos dias da semana, todos os dias da estadia, da chegada à saída (inclusive), precisam estar livres. O Bookings recusa com `422 BOOKING_DATES_BLOCKED` (com a data) e a busca com `checkIn`/`checkOut` não mostra o cantinho. Agregado `AvailabilityBlock`, tabela `listing.availability_blocks`.
+
+```json
+{ "startDate": "2026-12-20", "endDate": "2026-12-26", "reason": "Viagem de fim de ano" }
+```
+
+| Regra | Erro |
+|---|---|
+| `startDate` e `endDate` obrigatórias, `yyyy-MM-dd`. | `400` nos campos |
+| Início **a partir de hoje** (Brasília); fim **não antes** do início (um dia só vale: início = fim); os dois até **365 dias** à frente. | `400` em `startDate`/`endDate` (todos juntos) |
+| `reason` opcional, até **120** caracteres; só o dono e o admin veem. Não vai para a trilha. | `400` em `reason` |
+| Só o anfitrião dono, ativo e sem suspensão (cantinho inativo também pode). | `403 LISTING_HOST_DEACTIVATED` · `404 LISTING_NOT_FOUND` |
+| Não sobrepõe outro bloqueio do cantinho (junte ou apague o antigo). | `422 LISTING_AVAILABILITY_BLOCK_OVERLAP` (com as datas do outro) |
+| Até **50** bloqueios que ainda não acabaram por cantinho. | `422 LISTING_AVAILABILITY_BLOCK_LIMIT_REACHED` |
+
+**Reabrir** (`DELETE .../availability-blocks/{blockId}`): o bloqueio sai da tabela e a resposta é a agenda como ficou; bloqueio de outro cantinho, `404 LISTING_AVAILABILITY_BLOCK_NOT_FOUND`. **Ler** (`GET`): só os bloqueios que terminam hoje ou depois, do mais próximo para o mais distante, sem paginação (são poucos). Cada item: `id`, `listingId`, `startDate`, `endDate`, `days`, `reason` (dono e admin), `createdAt`.
+
+**Reservas já existentes não mudam:** pedidos, aceites e reservas confirmadas nas datas continuam — o anfitrião recusa ou cancela, se for o caso (cancelar a confirmada devolve 100% ao tutor). O aceite não confere a agenda: quem fechou a data foi o próprio anfitrião que está aceitando.
+
+Trilha: `listing.dates_blocked` e `listing.dates_unblocked` (alvo `listing`, com `blockId`, `startDate` e `endDate` — sem o motivo).
+
 ## 7. Banco
 
-Schema `listing`, migration `CreateListingsTables`.
+Schema `listing`, migrations `CreateListingsTables`, `AddUnaccentExtension` e `AddAvailabilityBlocks`.
 
 - `listing.listings`: colunas do [dicionário](dicionario-de-dados.md#listings--cantinhos). `host_id` **não é único** (empresa tem filiais); índice `ix_listings_host_id`. Conjuntos em bits: `accepted_species` (`int`, 12 bits) e `available_weekdays` (`smallint`, 7 bits, `1 << DayOfWeek`). CHECKs: tipo da casa, capacidade (1–200), diária (10–10000), bits (> 0 e dentro do conjunto), latitude e longitude.
 - `listing.listing_photos`: FK física com `ON DELETE CASCADE`, posição 1–5 (CHECK), posição única **deferrable**, hash único por cantinho.
+- `listing.availability_blocks`: FK física para `listings` com `ON DELETE CASCADE`, CHECK `ck_availability_blocks_period` (`end_date >= start_date`), índice `ix_availability_blocks_listing_id_start_date_end_date` (pedido de reserva, agenda e busca por datas — `NOT EXISTS` do bloqueio que cruza o período).
 
 O limite da pessoa física fica na aplicação (o banco não sabe o tipo do anfitrião, que mora em outro schema). Dois cadastros simultâneos da mesma PF poderiam passar — aceito no MVP.
 
@@ -226,16 +254,16 @@ Nenhuma referência a outro módulo (§5, verificado em `ListingsModuleBoundaryT
 | `IAccountAddresses` | `AccountAddresses` | `IUserDirectory` (endereço da conta, origem da busca) |
 | `IGeocoder` | `CachedGeocoder` (Redis) → `NominatimGeocoder` | HTTP externo + `IConnectionMultiplexer` do `Shared` |
 
-Para datas, vaga e selos o Listings lê as reservas pela porta `IListingBookings` (adaptador `Infrastructure/Bookings/ListingBookings.cs`) sobre o contrato `IBookingDirectory`, implementado pelo Bookings.
+Para datas, vaga, selos e a trava da inativação (reserva em aberto) o Listings lê as reservas pela porta `IListingBookings` (adaptador `Infrastructure/Bookings/ListingBookings.cs`) sobre o contrato `IBookingDirectory`, implementado pelo Bookings.
 
-No sentido contrário, o Listings **implementa** o contrato `IListingDirectory` (`Shared.Contracts/Listings`, adaptador `Infrastructure/Directory/ListingDirectory.cs`): o módulo Bookings lê por ele as condições do cantinho para reservar (capacidade, diária, espécies, portes e dias da semana) e, à parte, o endereço exato (`GetAddressesAsync`) — que o Bookings só mostra ao tutor de reserva confirmada.
+No sentido contrário, o Listings **implementa** o contrato `IListingDirectory` (`Shared.Contracts/Listings`, adaptador `Infrastructure/Directory/ListingDirectory.cs`): o módulo Bookings lê por ele as condições do cantinho para reservar (capacidade, diária, espécies, portes e dias da semana), os **períodos fechados na agenda** (`GetBlockedPeriodsAsync` → `BlockedPeriod`, os que terminam a partir de uma data) e, à parte, o endereço exato (`GetAddressesAsync`) — que o Bookings só mostra ao tutor de reserva confirmada.
 
 O `IHostDirectory` ganhou `HostReference.IsSuspended` (com `IsCompany` e `IsAvailable`), `HostReference.PayoutsEnabled` (com `IsListable` = disponível + repasses liberados) e `GetUnavailableIdsAsync()` (inativo, suspenso **ou sem repasses liberados**). `ListingHostSummary` (o `host` da resposta) ganhou `payoutsEnabled`.
 
 ## 9. Testes
 
-- **Domínio** (`Listings.Domain.UnitTests`): `ListingDetails` (cada regra, PF × PJ, diária, porte), `ListingAddress`, `GeoPoint` (faixas, haversine Maringá–Londrina), valores dos enums, `Listing` (limite PF/PJ, alterações, ativo/inativo, fotos e reordenação).
-- **Application** (`Listings.Application.UnitTests`): cada handler, caminho feliz e cada falha (limite sem consultar o mapa, endereço não achado, mapa fora, posse, visão pública × dono, busca por coordenada e por endereço da conta, busca só por lugar sem mapa, lugar + raio, todos os filtros somados, filtros inválidos).
+- **Domínio** (`Listings.Domain.UnitTests`): `ListingDetails` (cada regra, PF × PJ, diária, porte), `ListingAddress`, `GeoPoint` (faixas, haversine Maringá–Londrina), valores dos enums, `Listing` (limite PF/PJ, alterações, ativo/inativo, fotos e reordenação), `AvailabilityBlock` (datas inclusivas, um dia só, todos os erros de campo juntos, até 365 dias, "hoje" em Brasília, sobreposição nas pontas e englobando, dia seguinte livre, limite de 50).
+- **Application** (`Listings.Application.UnitTests`): cada handler, caminho feliz e cada falha (inativar com reserva em aberto recusa sem gravar nem ir para a trilha; já inativo não consulta as reservas; limite sem consultar o mapa, endereço não achado, mapa fora, posse, visão pública × dono, busca por coordenada e por endereço da conta, busca só por lugar sem mapa, lugar + raio, todos os filtros somados, filtros inválidos, datas da busca seguindo para o filtro da agenda; agenda: bloquear com trilha sem o motivo, sobreposição sem gravar, 404 de outro anfitrião, 403 de suspenso, validador com todos os campos (inclusive o início conferido quando o fim é ilegível), reabrir devolvendo o resto, bloqueio de outro cantinho, motivo só para dono e admin, 404 de cantinho inativo para os outros).
 - **Integração** (`Listings.IntegrationTests`, Postgres + Redis + RustFS em container): cache do geocodificador no Redis (uma consulta por endereço, TTL de "achou" e "não achou", falha não guardada, valor ilegível ignorado, endereço fora da chave); cadastro PF/PJ, 400 com todos os campos, 403/404/422/503, visão pública, inativar/reativar, PATCH com nova coordenada, busca por raio (5/10/50 km, ordem, ocultar inativo e suspenso, endereço da conta), cadastro recusado (422) antes de o Stripe liberar os repasses, cantinho escondido da busca e do detalhe quando o Stripe bloqueia depois (o dono continua vendo), busca só por estado/cidade/bairro (sem distância, sem diferença de acento e maiúsculas), todos os filtros somados ao raio, tipo da casa e quem mora nela, curinga do `ILIKE` tratado como texto, 400 com todos os filtros inválidos, fotos com reordenação e compactação no banco.
 
 ## 10. Decisões e pendências
@@ -247,8 +275,12 @@ O `IHostDirectory` ganhou `HostReference.IsSuspended` (com `IsCompany` e `IsAvai
 | Tipo da casa opcional para PJ | Filial é espaço comercial, não casa nem apartamento. |
 | Diária em `decimal` (reais) | Pedido do produto e §11 (dinheiro `numeric`). A conversão para centavos fica no módulo de pagamentos (Stripe). |
 | `is_active` em vez de `status` (draft/active/paused) | O cadastro é num passo só (não há rascunho) e o pedido era inativar/reativar, como nos pets. |
+| Não inativa com reserva em aberto (`422`) | Pedido seu. Barrar em vez de cancelar sozinho: o anfitrião decide o que fazer com cada reserva (recusar, cancelar com o reembolso de sempre, fazer o check-out). Mesmo critério do perfil e do pet. |
 | Tipos aceitos em bits (`accepted_species`) em vez da tabela `listing_species` | Conjunto pequeno e fixo, lido sempre junto com o cantinho; o filtro da busca é `(accepted_species & x) = x`. |
 | Dias da semana em bits (`available_weekdays`) | Requisito novo; mesma lógica. A agenda (datas bloqueadas) fica por cima. |
+| Agenda como períodos (`availability_blocks`), não uma linha por dia | O anfitrião pensa em "de 20 a 26"; a conferência é uma sobreposição de intervalos. Um agregado próprio (fora do `Listing`) para não carregar a agenda em toda leitura do cantinho. |
+| Bloquear não mexe nas reservas que já existem | O bloqueio vale para os pedidos novos; cancelar uma reserva é decisão explícita do anfitrião (com o reembolso de sempre). |
+| Sobreposição recusada em vez de juntar sozinho | Mais simples de entender e de desfazer: cada bloqueio é o que o anfitrião criou. |
 | Geocodificação no backend (Nominatim) | Pedido do produto: a coordenada sai do endereço, nunca do cliente. Gratuito, sem chave. |
 | Coordenada e rua escondidas na visão pública | Escopo, regra 7, e "Bairro, não coordenada". |
 | Busca sem raio só com estado/cidade/bairro | Quem procura em outra cidade (viagem) não quer o raio de casa; sem nenhum lugar, o padrão continua "perto de casa" (10 km). |

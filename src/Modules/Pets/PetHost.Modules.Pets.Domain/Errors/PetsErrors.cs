@@ -39,6 +39,9 @@ public static class PetsErrors
     public static readonly Error PhotoUrlTooLong =
         Error.Validation("photoUrl", $"Photo URL must be at most {PetPhoto.UrlMaxLength} characters.");
 
+    public static readonly Error PhotoOrderInvalid =
+        Error.Validation("photoIds", "Send every photo of the pet exactly once, in the new order.");
+
     public static readonly Error BreedTooLong =
         Error.Validation("breed", $"Breed must be at most {PetProfile.BreedMaxLength} characters.");
 

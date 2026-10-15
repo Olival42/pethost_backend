@@ -156,6 +156,27 @@ public sealed class PaymentReconcilerTests
     }
 
     [Fact]
+    public async Task ReconcileAsync_Should_EscalateInsteadOfReminding_When_TheInstallmentIsOverdueForFourWeeks()
+    {
+        // Arrange
+        var payment = new PaymentBuilder().BuildPaid(1);
+        payment.RecordTransfer(1, "tr_1", 9_000, 1_000, Now);
+        var overdueAt = payment.FindInstallment(2)!.DueAt + Payment.OverdueGrace;
+        payment.CheckOverdue(BookingStage.Completed, overdueAt);
+        _now = overdueAt + Payment.OverdueEscalationAfter;
+        _bookings = PaymentsTestData.Bookings(PaymentsTestData.Booking(BookingStage.Completed));
+
+        // Act
+        await Sut().ReconcileAsync(payment, _effects, CancellationToken.None);
+
+        // Assert
+        _effects.Items.Should().ContainSingle(e => e.Kind == PaymentEffectKind.InstallmentOverdueEscalated && e.InstallmentNumber == 2)
+            .Which.AmountCents.Should().BeGreaterThan(10_000, "o valor já vem com multa e juros");
+        _effects.Items.Should().NotContain(e => e.Kind == PaymentEffectKind.InstallmentOverdueReminder);
+        payment.FindInstallment(2)!.OverdueEscalatedAt.Should().Be(_now);
+    }
+
+    [Fact]
     public async Task ReconcileAsync_Should_RecordAReminder_When_InstallmentIsDueSoon()
     {
         // Arrange
@@ -186,6 +207,45 @@ public sealed class PaymentReconcilerTests
             It.IsAny<CancellationToken>()), Times.Once);
         payment.FindInstallment(1)!.StripeTransferId.Should().Be("tr_1");
         _effects.Items.Should().ContainSingle(e => e.Kind == PaymentEffectKind.PayoutTransferred && e.AmountCents == 27_000);
+    }
+
+    [Fact]
+    public async Task ReconcileAsync_Should_HoldThePayoutAndAlertOnce_When_StripeBlockedTheHostPayouts()
+    {
+        // Arrange
+        var payment = new PaymentBuilder().WithInstallments(1).BuildPaid(1);
+        _bookings = PaymentsTestData.Bookings(PaymentsTestData.Booking(BookingStage.Completed));
+        _parties = PaymentsTestData.Parties(payoutsBlocked: true);
+
+        // Act — a manutenção passa de novo enquanto a conta continua bloqueada.
+        await Sut().ReconcileAsync(payment, _effects, CancellationToken.None);
+        await Sut().ReconcileAsync(payment, _effects, CancellationToken.None);
+
+        // Assert
+        var installment = payment.FindInstallment(1)!;
+        installment.PayoutStatus.Should().Be(PayoutStatus.Held);
+        installment.PayoutFailureCode.Should().Be(PaymentReconciler.HostPayoutsDisabled);
+        _stripe.Verify(s => s.TransferAsync(It.IsAny<TransferDraft>(), It.IsAny<CancellationToken>()), Times.Never);
+        _effects.Items.Should().ContainSingle(e => e.Kind == PaymentEffectKind.PayoutBlocked && e.AmountCents == 27_000);
+    }
+
+    [Fact]
+    public async Task ReconcileAsync_Should_TransferTheHeldPayout_When_StripeReleasesTheHostAgain()
+    {
+        // Arrange — retido enquanto bloqueado.
+        var payment = new PaymentBuilder().WithInstallments(1).BuildPaid(1);
+        _bookings = PaymentsTestData.Bookings(PaymentsTestData.Booking(BookingStage.Completed));
+        _parties = PaymentsTestData.Parties(payoutsBlocked: true);
+        await Sut().ReconcileAsync(payment, _effects, CancellationToken.None);
+
+        // Act — o Stripe liberou de novo.
+        _parties = PaymentsTestData.Parties();
+        await Sut().ReconcileAsync(payment, _effects, CancellationToken.None);
+
+        // Assert
+        payment.FindInstallment(1)!.PayoutStatus.Should().Be(PayoutStatus.Transferred);
+        payment.FindInstallment(1)!.PayoutFailureCode.Should().BeNull();
+        _effects.Items.Should().ContainSingle(e => e.Kind == PaymentEffectKind.PayoutTransferred);
     }
 
     [Fact]

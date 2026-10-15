@@ -9,6 +9,9 @@ internal sealed class ListingBookings(IBookingDirectory bookingDirectory) : ILis
     public Task<IReadOnlyDictionary<Guid, int>> GetPeakOccupancyAsync(DateOnly checkIn, DateOnly checkOut, CancellationToken cancellationToken) =>
         bookingDirectory.GetPeakOccupancyAsync(checkIn, checkOut, cancellationToken);
 
+    public Task<bool> HasOpenBookingAsync(Guid listingId, CancellationToken cancellationToken) =>
+        bookingDirectory.HasOpenBookingForListingAsync(listingId, cancellationToken);
+
     public async Task<IReadOnlyDictionary<Guid, HostTrackRecord>> GetTrackRecordsAsync(
         IReadOnlyCollection<Guid> hostIds,
         CancellationToken cancellationToken)

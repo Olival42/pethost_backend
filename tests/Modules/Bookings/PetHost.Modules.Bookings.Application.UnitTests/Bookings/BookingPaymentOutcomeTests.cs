@@ -243,6 +243,7 @@ public sealed class BookingPaymentsPortTests
             BookingsTestData.Pets().Object,
             BookingsTestData.Payments(ownerHasOverduePayment: true).Object,
             BookingsTestData.ResponseBuilder(),
+            BookingsTestData.Notifications(),
             new Mock<IAuditTrail>().Object,
             new FakeTimeProvider(BookingBuilder.DefaultNow));
 

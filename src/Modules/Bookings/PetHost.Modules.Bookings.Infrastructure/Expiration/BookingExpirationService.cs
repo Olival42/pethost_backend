@@ -2,14 +2,18 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using PetHost.Modules.Bookings.Application.Bookings.CloseOverdueStays;
 using PetHost.Modules.Bookings.Application.Bookings.ExpireOverdueBookings;
+using PetHost.Modules.Bookings.Application.Bookings.RemindUpcomingStays;
 using PetHost.Shared.Kernel.Messaging;
 
 namespace PetHost.Modules.Bookings.Infrastructure.Expiration;
 
 /// <summary>
 /// Tarefa em segundo plano: a cada <see cref="BookingExpirationOptions.IntervalMinutes"/> roda
-/// <see cref="ExpireOverdueBookingsCommand"/> (pedidos sem resposta em 24h viram <c>expired</c>).
+/// <see cref="ExpireOverdueBookingsCommand"/> (pedidos sem resposta em 24h viram <c>expired</c>) e
+/// <see cref="CloseOverdueStaysCommand"/> (pet que não chegou, lembrete e check-out automático) e
+/// <see cref="RemindUpcomingStaysCommand"/> (lembrete da véspera do check-in).
 /// </summary>
 /// <remarks>
 /// Falha numa rodada vai para o log e não derruba a API: a próxima rodada tenta de novo. A
@@ -47,6 +51,22 @@ internal sealed partial class BookingExpirationService(
 
             if (result.IsSuccess && result.Value!.Expired > 0)
                 LogExpired(logger, result.Value.Expired);
+
+            var stays = await scope.ServiceProvider
+                .GetRequiredService<ICommandHandler<CloseOverdueStaysCommand, CloseOverdueStaysResponse>>()
+                .HandleAsync(new CloseOverdueStaysCommand(), stoppingToken)
+                .ConfigureAwait(false);
+
+            if (stays.IsSuccess && stays.Value!.NoShows + stays.Value.Reminded + stays.Value.AutoCheckedOut > 0)
+                LogStaysClosed(logger, stays.Value.NoShows, stays.Value.Reminded, stays.Value.AutoCheckedOut);
+
+            var upcoming = await scope.ServiceProvider
+                .GetRequiredService<ICommandHandler<RemindUpcomingStaysCommand, int>>()
+                .HandleAsync(new RemindUpcomingStaysCommand(), stoppingToken)
+                .ConfigureAwait(false);
+
+            if (upcoming.IsSuccess && upcoming.Value > 0)
+                LogCheckInsReminded(logger, upcoming.Value);
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
@@ -62,6 +82,12 @@ internal sealed partial class BookingExpirationService(
 
     [LoggerMessage(EventId = 8000, Level = LogLevel.Information, Message = "Booking expiration: {Expired} requests expired without an answer.")]
     private static partial void LogExpired(ILogger logger, int expired);
+
+    [LoggerMessage(EventId = 8002, Level = LogLevel.Information, Message = "Overdue stays: {NoShows} no-shows cancelled, {Reminded} hosts reminded to check out, {AutoCheckedOut} stays checked out by the platform.")]
+    private static partial void LogStaysClosed(ILogger logger, int noShows, int reminded, int autoCheckedOut);
+
+    [LoggerMessage(EventId = 8003, Level = LogLevel.Information, Message = "Upcoming stays: {Reminded} bookings reminded on the eve of check-in.")]
+    private static partial void LogCheckInsReminded(ILogger logger, int reminded);
 
     [LoggerMessage(EventId = 8001, Level = LogLevel.Error, Message = "Booking expiration failed; it will run again on the next tick.")]
     private static partial void LogExpirationFailed(ILogger logger, Exception exception);

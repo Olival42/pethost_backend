@@ -181,7 +181,7 @@ public sealed class ExpireOverdueBookingsCommandHandlerTests
         var first = new BookingBuilder().Build();
         var second = new BookingBuilder().WithPets(BookingBuilder.Thor()).Build();
         _repository
-            .Setup(r => r.ListOverdueAsync(Later - Booking.ResponseWindow, Later - Booking.PaymentWindow, BookingClock.Today(Later), ExpireOverdueBookingsCommand.BatchSize, It.IsAny<CancellationToken>()))
+            .Setup(r => r.ListOverdueAsync(Later - Booking.ResponseWindow, Booking.LastCheckInClosedToAcceptance(Later), Later - Booking.PaymentWindow, BookingClock.Today(Later), ExpireOverdueBookingsCommand.BatchSize, It.IsAny<CancellationToken>()))
             .ReturnsAsync([first, second]);
 
         // Act
@@ -201,7 +201,7 @@ public sealed class ExpireOverdueBookingsCommandHandlerTests
         // Arrange
         var accepted = new BookingBuilder().BuildAccepted();
         _repository
-            .Setup(r => r.ListOverdueAsync(It.IsAny<DateTimeOffset>(), It.IsAny<DateTimeOffset>(), It.IsAny<DateOnly>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .Setup(r => r.ListOverdueAsync(It.IsAny<DateTimeOffset>(), It.IsAny<DateOnly>(), It.IsAny<DateTimeOffset>(), It.IsAny<DateOnly>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync([accepted]);
 
         // Act
@@ -218,7 +218,7 @@ public sealed class ExpireOverdueBookingsCommandHandlerTests
     {
         // Arrange
         _repository
-            .Setup(r => r.ListOverdueAsync(It.IsAny<DateTimeOffset>(), It.IsAny<DateTimeOffset>(), It.IsAny<DateOnly>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .Setup(r => r.ListOverdueAsync(It.IsAny<DateTimeOffset>(), It.IsAny<DateOnly>(), It.IsAny<DateTimeOffset>(), It.IsAny<DateOnly>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync([]);
 
         // Act

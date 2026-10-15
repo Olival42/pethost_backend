@@ -41,6 +41,9 @@ public sealed class PaymentEndpointsTests(PaymentsApiFixture fixture) : IAsyncLi
 
     private static DateOnly Today => BookingClock.Today(DateTimeOffset.UtcNow);
 
+    /// <summary>Primeira chegada que sempre dá para pedir agora (72h ou mais até a meia-noite do dia).</summary>
+    private static DateOnly Arrival => Today.AddDays(4);
+
     public async ValueTask InitializeAsync()
     {
         await fixture.ResetAsync();
@@ -152,7 +155,7 @@ public sealed class PaymentEndpointsTests(PaymentsApiFixture fixture) : IAsyncLi
     public async Task Plan_Should_Return422_When_BookingWasNotAcceptedYet()
     {
         var stay = await ArrangeAsync();
-        var bookingId = await CreateBookingAsync(stay.OwnerToken, stay.ListingId, stay.PipocaId, Today, nights: 2);
+        var bookingId = await CreateBookingAsync(stay.OwnerToken, stay.ListingId, stay.PipocaId, Arrival, nights: 2);
 
         var response = await SendAsync(HttpMethod.Put, PaymentRoute(bookingId), stay.OwnerToken, new { installmentCount = 1 });
 
@@ -507,14 +510,22 @@ public sealed class PaymentEndpointsTests(PaymentsApiFixture fixture) : IAsyncLi
         return new Stay(owner, host, listing, pipoca, thor);
     }
 
-    /// <summary>A Camila pede para a Pipoca e a Dona Cida aceita.</summary>
+    /// <summary>
+    /// A Camila pede para a Pipoca e a Dona Cida aceita. Chegada em menos de 72h (padrão: hoje) não
+    /// dá para pedir: o pedido sai com antecedência e, depois do aceite, a estadia é trazida para a data.
+    /// </summary>
     private async Task<Guid> RequestAndAcceptAsync(Stay stay, int nights, DateOnly? checkIn = null)
     {
-        var bookingId = await CreateBookingAsync(stay.OwnerToken, stay.ListingId, stay.PipocaId, checkIn ?? Today, nights);
+        var wanted = checkIn ?? Today;
+        var requested = wanted < Arrival ? Arrival : wanted;
+        var bookingId = await CreateBookingAsync(stay.OwnerToken, stay.ListingId, stay.PipocaId, requested, nights);
 
         var accepted = await SendAsync(HttpMethod.Post, $"{BookingsRoute}/{bookingId}/acceptance", stay.HostToken);
         accepted.StatusCode.Should().Be(HttpStatusCode.OK);
         Status(await ReadAsync(accepted)).Should().Be("accepted");
+
+        if (requested != wanted)
+            await fixture.ExecuteAsync($"UPDATE booking.bookings SET check_in_date = '{Iso(wanted)}', check_out_date = '{Iso(wanted.AddDays(nights))}' WHERE id = '{bookingId}'");
 
         return bookingId;
     }

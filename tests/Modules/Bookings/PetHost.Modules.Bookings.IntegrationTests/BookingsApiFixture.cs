@@ -58,6 +58,11 @@ public sealed class BookingsApiFixture : IAsyncLifetime
 
     public IServiceProvider Services => Factory.Services;
 
+    /// <summary>Admin criado pelo seeder, para cancelar, encerrar a estadia e suspender.</summary>
+    public const string AdminEmail = "admin@pethost.test";
+
+    public const string AdminPassword = "senha-do-admin-123";
+
     /// <summary>E-mails que a API mandou (o despachante entrega aqui em vez do SMTP).</summary>
     public System.Collections.Concurrent.ConcurrentQueue<EmailMessage> SentEmails { get; } = new();
 
@@ -89,6 +94,10 @@ public sealed class BookingsApiFixture : IAsyncLifetime
             builder.UseSetting("HostVerification:PurgeEnabled", "false");
             builder.UseSetting("BookingExpiration:Enabled", "false");
             builder.UseSetting("Payments:MaintenanceEnabled", "false");
+
+            builder.UseSetting("Seed:Admin:Enabled", "true");
+            builder.UseSetting("Seed:Admin:Email", AdminEmail);
+            builder.UseSetting("Seed:Admin:Password", AdminPassword);
 
             builder.UseSetting("Email:Host", "smtp.invalid");
             builder.UseSetting("Email:FromAddress", "no-reply@pethost.test");
@@ -130,12 +139,15 @@ public sealed class BookingsApiFixture : IAsyncLifetime
         });
     }
 
+    /// <summary>Limpa os schemas e recria o admin do seed.</summary>
     public async Task ResetAsync()
     {
         SentEmails.Clear();
 
         if (_respawner is not null && _connection is not null)
             await _respawner.ResetAsync(_connection);
+
+        await Services.InitializeAuthModuleAsync(applyMigrations: false);
     }
 
     /// <summary>Roda SQL direto no banco (para simular o tempo passando).</summary>

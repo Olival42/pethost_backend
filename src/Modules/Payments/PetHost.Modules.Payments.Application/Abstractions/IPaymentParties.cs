@@ -20,6 +20,12 @@ public interface IPaymentParties
 
     /// <summary>A conta conectada do anfitrião no Stripe (<c>acct_...</c>), destino do repasse. <c>null</c> sem cadastro.</summary>
     Task<string?> GetHostPayoutAccountAsync(Guid hostId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// O Stripe bloqueou (ou recusou) os repasses do anfitrião depois do cadastro? Com a conta
+    /// conectada e os repasses desligados, o repasse fica retido em vez de ir ao Stripe.
+    /// </summary>
+    Task<bool> IsHostPayoutBlockedAsync(Guid hostId, CancellationToken cancellationToken);
 }
 
 /// <summary>Para quem vai um aviso. O e-mail nunca sai numa resposta da API.</summary>

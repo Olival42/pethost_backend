@@ -36,3 +36,7 @@ public sealed record PetRequest(
     decimal? WeightKg,
     string? Microchip,
     string? Allergies);
+
+/// <summary>Corpo de <c>PUT /pets/{petId}/photos/order</c>.</summary>
+/// <param name="PhotoIds">Todas as fotos do pet, cada uma uma vez, na ordem nova. A primeira é a capa.</param>
+public sealed record ReorderPetPhotosRequest(IReadOnlyList<Guid>? PhotoIds);

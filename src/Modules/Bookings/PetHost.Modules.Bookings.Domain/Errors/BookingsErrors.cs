@@ -42,6 +42,11 @@ public static class BookingsErrors
     public static readonly Error CheckInInThePast =
         Error.Validation("checkIn", "Check-in cannot be in the past.");
 
+    public static readonly Error CheckInTooSoon =
+        Error.Validation(
+            "checkIn",
+            $"Check-in must be at least {Booking.MinimumRequestNotice.TotalHours:0} hours ahead: the host answers in up to {Booking.ResponseWindow.TotalHours:0} hours and can only accept up to {Booking.MinimumAcceptNotice.TotalHours:0} hours before the stay.");
+
     public static readonly Error CheckInTooFarAhead =
         Error.Validation("checkIn", $"Check-in can be at most {StayPeriod.MaxDaysAhead} days ahead.");
 
@@ -53,6 +58,10 @@ public static class BookingsErrors
 
     public static readonly Error ReasonTooLong =
         Error.Validation("reason", $"Reason must be at most {Booking.ReasonMaxLength} characters.");
+
+    /// <summary>Toda ação do admin sobre a reserva de outra pessoa leva motivo (§15).</summary>
+    public static readonly Error AdminReasonRequired =
+        Error.Validation("reason", "A reason is required when an admin acts on a booking.");
 
     // --- Validação: listagem ---
 
@@ -135,6 +144,19 @@ public static class BookingsErrors
         new(
             "BOOKING_WEEKDAY_NOT_AVAILABLE",
             string.Create(CultureInfo.InvariantCulture, $"The host does not receive pets on {day.DayOfWeek}s ({day:yyyy-MM-dd}). Every day of the stay must be one of the listing's available weekdays."));
+
+    /// <summary>422: o anfitrião fechou na agenda um dia do período.</summary>
+    public static Error DatesBlocked(DateOnly day) =>
+        new(
+            "BOOKING_DATES_BLOCKED",
+            string.Create(CultureInfo.InvariantCulture, $"The host is not available on {day:yyyy-MM-dd}. Every day of the stay must be open on the listing's calendar."));
+
+    /// <summary>
+    /// 422: o cantinho não pode receber reservas agora (inativo, anfitrião sem repasses liberados
+    /// pelo Stripe) — conferido também no aceite.
+    /// </summary>
+    public static readonly Error ListingNotBookable =
+        new("BOOKING_LISTING_NOT_BOOKABLE", "This listing cannot take bookings right now. Decline the request or wait until it is available again.");
 
     /// <summary>422: em alguma noite do período o cantinho passaria da capacidade.</summary>
     public static Error CapacityExceeded(DateOnly night) =>

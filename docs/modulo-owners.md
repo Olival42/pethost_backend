@@ -200,6 +200,8 @@ Formato da 3.1 (a lista é um array dele). `{ownerId}` é o **id do tutor**, nã
 
 Por dentro, perfil e conta mudam juntos, com compensação: o perfil é gravado primeiro e volta ao estado anterior se a conta não puder mudar. O admin não pode ser suspenso (`403 AUTH_ADMIN_SUSPENSION_FORBIDDEN`).
 
+**Reservas do tutor suspenso.** Depois de gravar a suspensão, as reservas dele que ainda não começaram (`requested`, `accepted`, `confirmed`) são **canceladas pela plataforma** (`cancelledBy = platform`), com e-mail aos dois lados. A paga fica **sem reembolso**: os 100% vão para a outra parte — o que o tutor pagou segue o 90/10 para o anfitrião. A estadia em andamento continua e o anfitrião faz o check-out normalmente. É pela porta `IOwnerBookings.CancelForSuspensionAsync` (contrato `IBookingSuspensions`, [`modulo-bookings.md`](modulo-bookings.md) seção 6.1); se falhar, vai para o log e a suspensão não é desfeita — suspender de novo (idempotente) cancela o que tiver sobrado.
+
 ## 4. Regras
 
 - **CPF:** só dígitos no banco; aceita máscara na entrada; confere os dois dígitos verificadores (módulo 11); recusa todos os dígitos iguais. Nas respostas vem completo; só o `ToString()` mascara (`***.***.247-25`), para não vazar em log (LGPD).
@@ -274,7 +276,7 @@ O Owners também **oferece** um contrato de leitura, para quem guarda o id do tu
 
 Hoje quem usa é o Pets, para ligar o pet ao tutor da conta logada e mostrar o dono.
 
-Para as **reservas**, o Owners consulta o Bookings pela porta `IOwnerBookings` (adaptador `Infrastructure/Bookings/OwnerBookings.cs`) sobre o contrato `IBookingDirectory.HasOpenBookingForOwnerAsync`: é o que barra a inativação com reserva em aberto (seção 3.5).
+Para as **reservas**, o Owners fala com o Bookings pela porta `IOwnerBookings` (adaptador `Infrastructure/Bookings/OwnerBookings.cs`): `IBookingDirectory.HasOpenBookingForOwnerAsync` barra a inativação com reserva em aberto (seção 3.5) e `IBookingSuspensions.CancelForSuspendedOwnerAsync` cancela as reservas do tutor suspenso (seção 3.7).
 
 A trilha de auditoria é outro contrato (`IAuditTrail`, módulo Audit), usado direto pelos handlers do Owners.
 
@@ -300,8 +302,8 @@ O `cus_...` volta para `owners.stripe_customer_id` (`Owner.LinkStripeCustomer`) 
 | Projeto | O que cobre | Resultado |
 |---|---|---|
 | `Owners.Domain.UnitTests` | `Cpf` (válidos, inválidos, máscara no `ToString`), `Owner` (id próprio, referência à conta, troca do CPF antes e depois do primeiro pagamento, inativar/reativar idempotentes, suspender, liberar CPF só de suspenso, suspensão que não sai depois do CPF liberado) | 28 ✅ |
-| `Owners.Application.UnitTests` | Cadastro unificado (sucesso, CPF de outro, e-mail de outro, **compensação**), PATCH (só conta, só CPF, data de nascimento, senha ausente/errada, travado, CPF de outro, valor igual sem senha nem trava, **compensação**), validadores que juntam erros do CPF e da conta, inativar/reativar (com **compensação** nos dois sentidos; inativar com reserva em aberto recusa sem gravar nada; perfil já inativo não consulta as reservas), suspender/tirar/liberar CPF (com **compensação**, motivo e CPF mascarado na trilha), consultas do admin, trocar/tirar a foto (só a URL vai no patch, foto antiga apagada, imagem nova apagada se a conta recusar, nada enviado sem perfil de tutor) | 48 ✅ |
-| `Owners.IntegrationTests` | Os fluxos pela API com Postgres e Redis em container: cadastro de anfitrião em `/users/register` (papel sempre `host`), cadastro unificado de tutor, PATCH parcial, com CPF e com data de nascimento (senha, trava no pagamento, reenvio do mesmo valor), `400` da data pelo `/users/me` para tutor, recusas sem gravar nada, inativar/reativar (sessões caem, login `403`, sessão nova vale), `/me` e rotas de admin. `OwnerAdminTests`: suspensão (sessões caem, login e reativação `403`), tirar a suspensão, disputa de CPF ponta a ponta, `422` das regras, `400` sem motivo, `403` para não admin, e a trilha (quem suspendeu e por quê, login recusado, leitura do admin, CPF mascarado). `OwnerAvatarTests`: foto no bucket e link público, troca apaga a anterior, `400` sem arquivo ou com arquivo que não é imagem, remoção idempotente, `avatarUrl` do PATCH ignorado. Inativar com reserva em aberto (`422 OWNER_HAS_OPEN_BOOKING`) fica no `Bookings.IntegrationTests`, que tem o caminho da reserva | 46 ✅ |
+| `Owners.Application.UnitTests` | Cadastro unificado (sucesso, CPF de outro, e-mail de outro, **compensação**), PATCH (só conta, só CPF, data de nascimento, senha ausente/errada, travado, CPF de outro, valor igual sem senha nem trava, **compensação**), validadores que juntam erros do CPF e da conta, inativar/reativar (com **compensação** nos dois sentidos; inativar com reserva em aberto recusa sem gravar nada; perfil já inativo não consulta as reservas), suspender/tirar/liberar CPF (com **compensação**, motivo e CPF mascarado na trilha; suspender pede o cancelamento das reservas a cada vez e nunca quando a conta não pôde ser suspensa), consultas do admin, trocar/tirar a foto (só a URL vai no patch, foto antiga apagada, imagem nova apagada se a conta recusar, nada enviado sem perfil de tutor) | 49 ✅ |
+| `Owners.IntegrationTests` | Os fluxos pela API com Postgres e Redis em container: cadastro de anfitrião em `/users/register` (papel sempre `host`), cadastro unificado de tutor, PATCH parcial, com CPF e com data de nascimento (senha, trava no pagamento, reenvio do mesmo valor), `400` da data pelo `/users/me` para tutor, recusas sem gravar nada, inativar/reativar (sessões caem, login `403`, sessão nova vale), `/me` e rotas de admin. `OwnerAdminTests`: suspensão (sessões caem, login e reativação `403`), tirar a suspensão, disputa de CPF ponta a ponta, `422` das regras, `400` sem motivo, `403` para não admin, e a trilha (quem suspendeu e por quê, login recusado, leitura do admin, CPF mascarado). `OwnerAvatarTests`: foto no bucket e link público, troca apaga a anterior, `400` sem arquivo ou com arquivo que não é imagem, remoção idempotente, `avatarUrl` do PATCH ignorado. Inativar com reserva em aberto (`422 OWNER_HAS_OPEN_BOOKING`) e a suspensão cancelando a reserva paga sem reembolso ficam no `Bookings.IntegrationTests`, que tem o caminho da reserva | 46 ✅ |
 
 ## 9. Decisões e pendências
 
@@ -322,7 +324,8 @@ O `cus_...` volta para `owners.stripe_customer_id` (`Owner.LinkStripeCustomer`) 
 | Suspensão separada da inativação | Pedido seu: o admin precisa tirar uma conta do ar sem que a pessoa a reative com a senha. |
 | Liberar o CPF só de tutor suspenso, sem volta | Na disputa, o CPF vai para o dono de verdade; a conta indevida não pode voltar ao ar sem CPF. |
 | Toda ação do admin exige motivo | Vai para a trilha: quem fez, por quê, quando. |
-| Não inativa com reserva em aberto (`422`) | Mesmo critério do pet. A conta inativa perde as sessões e não entra nem para cancelar: a reserva ficaria sem ninguém do lado do tutor. A suspensão (admin) não é barrada. |
+| Não inativa com reserva em aberto (`422`) | Mesmo critério do pet. A conta inativa perde as sessões e não entra nem para cancelar: a reserva ficaria sem ninguém do lado do tutor. A suspensão (admin) não é barrada: ela cancela as reservas que ainda não começaram. |
+| Suspensão do tutor cancela as reservas sem reembolso | Os 100% ficam com a outra parte: o anfitrião não teve culpa e segurou a vaga. A estadia em andamento continua (o pet está com o anfitrião). |
 
 | # | Pendência | Impacto |
 |---|---|---|

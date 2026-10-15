@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using PetHost.Modules.Listings.Application.Abstractions;
 using PetHost.Modules.Listings.Application.Listings.AddListingPhoto;
+using PetHost.Modules.Listings.Application.Listings.AvailabilityBlocks;
 using PetHost.Modules.Listings.Application.Listings.CreateListing;
 using PetHost.Modules.Listings.Application.Listings.DeactivateListing;
 using PetHost.Modules.Listings.Application.Listings.GetListingById;
@@ -57,6 +58,7 @@ public static class DependencyInjection
             .UseSnakeCaseNamingConvention());
 
         services.AddScoped<IListingRepository, ListingRepository>();
+        services.AddScoped<IAvailabilityBlockRepository, AvailabilityBlockRepository>();
         services.AddScoped<IListingsUnitOfWork, ListingsUnitOfWork>();
         services.AddScoped<IListingHosts, ListingHosts>();
         services.AddScoped<IAccountAddresses, AccountAddresses>();
@@ -75,10 +77,13 @@ public static class DependencyInjection
         services.AddValidatedCommandHandler<ReplaceListingPhotoCommandHandler, ReplaceListingPhotoCommand, ListingResponse>();
         services.AddValidatedCommandHandler<RemoveListingPhotoCommandHandler, RemoveListingPhotoCommand, ListingResponse>();
         services.AddValidatedCommandHandler<ReorderListingPhotosCommandHandler, ReorderListingPhotosCommand, ListingResponse>();
+        services.AddValidatedCommandHandler<BlockListingDatesCommandHandler, BlockListingDatesCommand, AvailabilityBlockResponse>();
+        services.AddValidatedCommandHandler<UnblockListingDatesCommandHandler, UnblockListingDatesCommand, IReadOnlyList<AvailabilityBlockResponse>>();
 
         services.AddScoped<IQueryHandler<GetListingByIdQuery, ListingResponse>, GetListingByIdQueryHandler>();
         services.AddScoped<IQueryHandler<ListMyListingsQuery, MyListingsResponse>, ListMyListingsQueryHandler>();
         services.AddScoped<IQueryHandler<SearchListingsQuery, PagedResult<ListingSummaryResponse>>, SearchListingsQueryHandler>();
+        services.AddScoped<IQueryHandler<ListAvailabilityBlocksQuery, IReadOnlyList<AvailabilityBlockResponse>>, ListAvailabilityBlocksQueryHandler>();
 
         return services;
     }

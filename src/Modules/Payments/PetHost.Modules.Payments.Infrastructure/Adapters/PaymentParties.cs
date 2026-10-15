@@ -42,6 +42,13 @@ internal sealed class PaymentParties(
         return hosts.Count == 0 ? null : hosts[0].StripeAccountId;
     }
 
+    public async Task<bool> IsHostPayoutBlockedAsync(Guid hostId, CancellationToken cancellationToken)
+    {
+        var hosts = await hostDirectory.GetByIdsAsync([hostId], cancellationToken).ConfigureAwait(false);
+
+        return hosts.Count > 0 && hosts[0] is { StripeAccountId: not null, PayoutsEnabled: false };
+    }
+
     private async Task<PartyContact?> ContactAsync(Guid userId, CancellationToken cancellationToken)
     {
         var accounts = await userDirectory.GetByIdsAsync([userId], cancellationToken).ConfigureAwait(false);

@@ -4,6 +4,7 @@ using PetHost.Modules.Bookings.Application.Bookings.Responses;
 using PetHost.Modules.Bookings.Domain.Bookings;
 using PetHost.Modules.Bookings.Domain.Errors;
 using PetHost.Shared.Contracts.Audit;
+using PetHost.Shared.Contracts.Authorization;
 using PetHost.Shared.Kernel.Messaging;
 using PetHost.Shared.Kernel.Results;
 
@@ -27,14 +28,19 @@ public sealed class CancelBookingCommandValidator : AbstractValidator<CancelBook
 
         RuleFor(x => x.Reason)
             .MaximumLength(Booking.ReasonMaxLength).WithMessage(BookingsErrors.ReasonTooLong.Message);
+
+        RuleFor(x => x.Reason)
+            .Must(reason => !string.IsNullOrWhiteSpace(reason)).WithMessage(BookingsErrors.AdminReasonRequired.Message)
+            .When(x => x.Role == Roles.Admin);
     }
 }
 
 /// <summary>
-/// Só o tutor que pediu ou o anfitrião do cantinho. O reembolso (<c>refundPercentage</c>) sai da
-/// regra do domínio (<see cref="Booking.Cancel"/>): 100% se o anfitrião cancela ou se o tutor
-/// cancela com 48h de antecedência; 50% depois disso; nenhum se nada foi pago. Avisa o pagamento
-/// (que devolve o dinheiro e cancela as parcelas em aberto) e os dois lados por e-mail.
+/// Só o tutor que pediu, o anfitrião do cantinho ou o admin (qualquer reserva, como a plataforma,
+/// com motivo). O reembolso (<c>refundPercentage</c>) sai da regra do domínio
+/// (<see cref="Booking.Cancel"/>): 100% se o anfitrião ou o admin cancela ou se o tutor cancela com
+/// 48h de antecedência; 50% depois disso; nenhum se nada foi pago. Avisa o pagamento (que devolve
+/// o dinheiro e cancela as parcelas em aberto) e os dois lados por e-mail.
 /// </summary>
 public sealed class CancelBookingCommandHandler(
     IBookingRepository bookingRepository,
@@ -65,10 +71,13 @@ public sealed class CancelBookingCommandHandler(
         if (saved.IsFailure)
             return Result<BookingResponse>.FromFailure(saved);
 
-        await BookingTrail.RecordCancelledAsync(auditTrail, booking, cancellationToken).ConfigureAwait(false);
+        // O motivo do admin vai para a trilha (§15); o de tutor e anfitrião, texto livre, não.
+        var adminReason = side == BookingParty.Platform ? booking.CancellationReason : null;
+
+        await BookingTrail.RecordCancelledAsync(auditTrail, booking, cancellationToken, adminReason).ConfigureAwait(false);
         await bookingPayments.BookingChangedAsync(booking.Id.Value, cancellationToken).ConfigureAwait(false);
 
-        var response = await responseBuilder.BuildAsync(booking, side, cancellationToken).ConfigureAwait(false);
+        var response = await responseBuilder.BuildAsync(booking, side == BookingParty.Platform ? null : side, cancellationToken).ConfigureAwait(false);
         await notifications.CancelledAsync(booking, response, cancellationToken).ConfigureAwait(false);
 
         return Result<BookingResponse>.Success(response);

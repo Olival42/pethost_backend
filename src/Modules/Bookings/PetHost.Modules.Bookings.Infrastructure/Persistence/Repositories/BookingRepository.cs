@@ -92,14 +92,57 @@ internal sealed class BookingRepository(BookingsDbContext dbContext) : IBookingR
 
     public async Task<IReadOnlyList<Booking>> ListOverdueAsync(
         DateTimeOffset requestedBefore,
+        DateOnly requestedCheckInUntil,
         DateTimeOffset acceptedBefore,
         DateOnly today,
         int limit,
         CancellationToken cancellationToken) =>
         await dbContext.Bookings
-            .Where(b => (b.Status == BookingStatus.Requested && (b.RequestedAt < requestedBefore || b.Period.CheckIn < today))
+            .Where(b => (b.Status == BookingStatus.Requested && (b.RequestedAt < requestedBefore || b.Period.CheckIn <= requestedCheckInUntil))
                 || (b.Status == BookingStatus.Accepted && (b.RespondedAt < acceptedBefore || b.Period.CheckIn < today)))
             .OrderBy(b => b.RequestedAt)
+            .Take(limit)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+    public async Task<IReadOnlyList<BookingId>> ListCancellableIdsAsync(BookingParty party, Guid partyId, CancellationToken cancellationToken)
+    {
+        var bookings = dbContext.Bookings
+            .AsNoTracking()
+            .Where(b => b.Status == BookingStatus.Requested || b.Status == BookingStatus.Accepted || b.Status == BookingStatus.Confirmed);
+
+        bookings = party switch
+        {
+            BookingParty.Owner => bookings.Where(b => b.OwnerId == partyId),
+            BookingParty.Host => bookings.Where(b => b.HostId == partyId),
+            _ => throw new ArgumentOutOfRangeException(nameof(party), party, "Only the owner or the host has bookings."),
+        };
+
+        return await bookings
+            .OrderBy(b => b.Period.CheckIn)
+            .Select(b => b.Id)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    public async Task<IReadOnlyList<Booking>> ListOverdueStaysAsync(DateOnly today, int limit, CancellationToken cancellationToken)
+    {
+        var autoCheckOutBefore = today.AddDays(-Booking.AutoCheckOutAfterDays);
+
+        return await dbContext.Bookings
+            .Where(b => b.Period.CheckOut <= today
+                && (b.Status == BookingStatus.Confirmed
+                    || (b.Status == BookingStatus.InProgress && (b.CheckOutRemindedAt == null || b.Period.CheckOut <= autoCheckOutBefore))))
+            .OrderBy(b => b.Period.CheckOut)
+            .Take(limit)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    public async Task<IReadOnlyList<Booking>> ListCheckInsToRemindAsync(DateOnly checkIn, int limit, CancellationToken cancellationToken) =>
+        await dbContext.Bookings
+            .Where(b => b.Status == BookingStatus.Confirmed && b.Period.CheckIn == checkIn && b.CheckInRemindedAt == null)
+            .OrderBy(b => b.ConfirmedAt)
             .Take(limit)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);

@@ -124,6 +124,7 @@ internal sealed class PaymentConfiguration : IEntityTypeConfiguration<Payment>
             installments.Property(i => i.ReminderSentAt).HasColumnName("reminder_sent_at").HasColumnType("timestamptz");
             installments.Property(i => i.OverdueSince).HasColumnName("overdue_since").HasColumnType("timestamptz");
             installments.Property(i => i.OverdueRemindedAt).HasColumnName("overdue_reminded_at").HasColumnType("timestamptz");
+            installments.Property(i => i.OverdueEscalatedAt).HasColumnName("overdue_escalated_at").HasColumnType("timestamptz");
 
             installments.Property(i => i.RefundStatus)
                 .HasColumnName("refund_status")

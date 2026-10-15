@@ -25,20 +25,6 @@ public sealed class BookingPaymentTests
     }
 
     [Fact]
-    public void PaymentDeadline_Should_StopAtTheEndOfTheCheckInDay_When_StayStartsToday()
-    {
-        // Arrange — pedido às 09h (Brasília) para hoje; aceito às 10h.
-        var today = BookingClock.Today(Now);
-        var booking = new BookingBuilder().WithPeriod(today, today.AddDays(2)).BuildAccepted();
-
-        // Act
-        var deadline = booking.PaymentDeadline;
-
-        // Assert
-        deadline.Should().Be(BookingClock.StartOf(today.AddDays(1)));
-    }
-
-    [Fact]
     public void PaymentDeadline_Should_BeNull_When_NotAccepted()
     {
         // Arrange

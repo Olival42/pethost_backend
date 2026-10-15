@@ -15,7 +15,8 @@ namespace PetHost.Modules.Bookings.Application.Bookings.CreateBooking;
 /// <remarks>
 /// A capacidade é conferida aqui só para não deixar o tutor pedir o impossível: o pedido não
 /// ocupa vaga. Quem decide é o aceite, que confere de novo com o cantinho travado. Tutor com
-/// parcela em atraso não pede: <c>422 BOOKING_OWNER_PAYMENT_OVERDUE</c>.
+/// parcela em atraso não pede: <c>422 BOOKING_OWNER_PAYMENT_OVERDUE</c>. Gravado o pedido, o
+/// anfitrião recebe um e-mail com o prazo para responder.
 /// </remarks>
 public sealed class CreateBookingCommandHandler(
     IBookingRepository bookingRepository,
@@ -25,6 +26,7 @@ public sealed class CreateBookingCommandHandler(
     IBookingPets bookingPets,
     IBookingPayments bookingPayments,
     BookingResponseBuilder responseBuilder,
+    BookingNotifications notifications,
     IAuditTrail auditTrail,
     TimeProvider timeProvider) : ICommandHandler<CreateBookingCommand, BookingResponse>
 {
@@ -82,7 +84,11 @@ public sealed class CreateBookingCommandHandler(
 
         await BookingTrail.RecordAsync(auditTrail, AuditActions.BookingRequested, booking.Value!, cancellationToken).ConfigureAwait(false);
 
-        return Result<BookingResponse>.Success(
-            await responseBuilder.BuildAsync(booking.Value!, BookingParty.Owner, cancellationToken).ConfigureAwait(false));
+        var response = await responseBuilder.BuildAsync(booking.Value!, BookingParty.Owner, cancellationToken).ConfigureAwait(false);
+
+        // O anfitrião tem 24h para responder: avisa por e-mail, sem contato do tutor (só depois do pagamento).
+        await notifications.RequestedAsync(booking.Value!, response, cancellationToken).ConfigureAwait(false);
+
+        return Result<BookingResponse>.Success(response);
     }
 }

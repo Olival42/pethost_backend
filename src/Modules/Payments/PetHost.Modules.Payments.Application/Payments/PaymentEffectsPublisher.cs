@@ -68,6 +68,14 @@ public sealed class PaymentEffectsPublisher(
                     await AlertAsync("payout_reversal_failed", payment, effect, cancellationToken).ConfigureAwait(false);
                     break;
 
+                case PaymentEffectKind.InstallmentOverdueEscalated:
+                    await AlertAsync("installment_overdue_escalated", payment, effect, cancellationToken).ConfigureAwait(false);
+                    break;
+
+                case PaymentEffectKind.PayoutBlocked:
+                    await AlertAsync("payout_blocked", payment, effect, cancellationToken).ConfigureAwait(false);
+                    break;
+
                 case PaymentEffectKind.DisputeOpened:
                     await AlertAsync("dispute_opened", payment, effect, cancellationToken).ConfigureAwait(false);
                     break;

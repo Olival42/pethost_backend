@@ -38,7 +38,7 @@ public sealed class ExpireOverdueBookingsCommandHandler(
         var now = timeProvider.GetUtcNow();
 
         var overdue = await bookingRepository
-            .ListOverdueAsync(now - Booking.ResponseWindow, now - Booking.PaymentWindow, BookingClock.Today(now), ExpireOverdueBookingsCommand.BatchSize, cancellationToken)
+            .ListOverdueAsync(now - Booking.ResponseWindow, Booking.LastCheckInClosedToAcceptance(now), now - Booking.PaymentWindow, BookingClock.Today(now), ExpireOverdueBookingsCommand.BatchSize, cancellationToken)
             .ConfigureAwait(false);
 
         // Aceite que expira pode ter uma cobrança aberta no Stripe (QR code do Pix): o pagamento cancela.

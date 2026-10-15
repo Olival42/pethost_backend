@@ -27,6 +27,19 @@ public interface IBookingDirectory
     Task<bool> HasOpenBookingForHostAsync(Guid hostId, CancellationToken cancellationToken);
 
     /// <summary>
+    /// O cantinho <paramref name="listingId"/> (<c>listing.listings.id</c>) tem alguma reserva em aberto
+    /// (solicitada, aceita, confirmada ou em andamento)? Cantinho assim não pode ser inativado.
+    /// </summary>
+    Task<bool> HasOpenBookingForListingAsync(Guid listingId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Ids das reservas em aberto (solicitada, aceita, confirmada ou em andamento) dos cantinhos do
+    /// anfitrião <paramref name="hostId"/>, da chegada mais próxima para a mais distante. É o que o
+    /// admin precisa conferir quando o Stripe bloqueia os repasses do anfitrião.
+    /// </summary>
+    Task<IReadOnlyList<Guid>> ListOpenBookingIdsForHostAsync(Guid hostId, CancellationToken cancellationToken);
+
+    /// <summary>
     /// O pet foi pedido para um cantinho do anfitrião <paramref name="hostId"/> numa reserva
     /// ainda válida ou já concluída (solicitada, aceita, confirmada, em andamento ou concluída)?
     /// É o que deixa o anfitrião ler a ficha completa do pet. Recusada, expirada ou cancelada não conta.

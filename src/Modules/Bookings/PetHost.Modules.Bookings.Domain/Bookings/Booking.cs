@@ -36,6 +36,24 @@ public sealed class Booking : Entity<BookingId>
     /// <summary>Reembolso do tutor que cancela em cima da hora (os outros 50% seguem o 90/10 normal).</summary>
     public const int LateCancellationRefundPercentage = 50;
 
+    /// <summary>Sem reembolso: o que o tutor pagou segue o 90/10 para o anfitrião (tutor suspenso).</summary>
+    public const int NoRefundPercentage = 0;
+
+    /// <summary>Motivo gravado quando a plataforma fecha a reserva paga em que o pet não chegou.</summary>
+    public const string NoShowReason = "O pet não chegou: o check-in não foi feito até o dia de saída.";
+
+    /// <summary>Reembolso da reserva paga em que o pet não chegou (o mesmo do cancelamento em cima da hora).</summary>
+    public const int NoShowRefundPercentage = LateCancellationRefundPercentage;
+
+    /// <summary>Dias depois do dia de saída em que a plataforma faz o check-out que o anfitrião esqueceu.</summary>
+    public const int AutoCheckOutAfterDays = 3;
+
+    /// <summary>Motivo gravado quando a plataforma cancela porque o anfitrião foi suspenso.</summary>
+    public const string HostSuspendedReason = "O anfitrião não está mais disponível no PetHost.";
+
+    /// <summary>Motivo gravado quando a plataforma cancela porque o tutor foi suspenso.</summary>
+    public const string OwnerSuspendedReason = "O tutor não está mais disponível no PetHost.";
+
     /// <summary>Prazo do anfitrião para aceitar ou recusar o pedido.</summary>
     public static readonly TimeSpan ResponseWindow = TimeSpan.FromHours(24);
 
@@ -44,6 +62,18 @@ public sealed class Booking : Entity<BookingId>
 
     /// <summary>Antecedência mínima para o tutor cancelar com 100% de volta.</summary>
     public static readonly TimeSpan FullRefundNotice = TimeSpan.FromHours(48);
+
+    /// <summary>
+    /// Até quanto antes da chegada (meia-noite do dia, horário de Brasília) o anfitrião pode
+    /// aceitar. Aceite mais em cima tiraria do tutor as 48h do reembolso integral.
+    /// </summary>
+    public static readonly TimeSpan MinimumAcceptNotice = TimeSpan.FromHours(48);
+
+    /// <summary>
+    /// Antecedência mínima da chegada para pedir: as <see cref="MinimumAcceptNotice"/> mais as
+    /// <see cref="ResponseWindow"/> do anfitrião — todo pedido aceito a tempo ainda pode ser aceito.
+    /// </summary>
+    public static readonly TimeSpan MinimumRequestNotice = ResponseWindow + MinimumAcceptNotice;
 
     private readonly List<BookingPet> _pets = [];
 
@@ -110,6 +140,12 @@ public sealed class Booking : Entity<BookingId>
     /// <summary>Quando o anfitrião marcou "voltou pra casa".</summary>
     public DateTimeOffset? CheckedOutAt { get; private set; }
 
+    /// <summary>Quando tutor e anfitrião foram lembrados da estadia (na véspera do check-in, uma vez só).</summary>
+    public DateTimeOffset? CheckInRemindedAt { get; private set; }
+
+    /// <summary>Quando o anfitrião foi lembrado de fazer o check-out (uma vez só, no dia de saída ou depois).</summary>
+    public DateTimeOffset? CheckOutRemindedAt { get; private set; }
+
     /// <summary>Quando expirou sem resposta.</summary>
     public DateTimeOffset? ExpiredAt { get; private set; }
 
@@ -134,8 +170,28 @@ public sealed class Booking : Entity<BookingId>
     public DateTimeOffset CreatedAt { get; private set; }
     public DateTimeOffset UpdatedAt { get; private set; }
 
-    /// <summary>Até quando o anfitrião pode responder ao pedido.</summary>
-    public DateTimeOffset ResponseDeadline => RequestedAt + ResponseWindow;
+    /// <summary>
+    /// Até quando o anfitrião pode responder ao pedido: 24h depois do pedido, sem passar de 48h
+    /// antes da chegada (<see cref="LatestAcceptance"/>). Em UTC, como as outras datas.
+    /// </summary>
+    public DateTimeOffset ResponseDeadline => Min(RequestedAt + ResponseWindow, LatestAcceptance(Period.CheckIn)).ToUniversalTime();
+
+    /// <summary>Último instante em que um pedido com chegada em <paramref name="checkIn"/> pode ser aceito.</summary>
+    public static DateTimeOffset LatestAcceptance(DateOnly checkIn) => BookingClock.StartOf(checkIn) - MinimumAcceptNotice;
+
+    /// <summary>
+    /// A chegada em <paramref name="checkIn"/> está perto demais para pedir em <paramref name="now"/>
+    /// (menos de <see cref="MinimumRequestNotice"/>)?
+    /// </summary>
+    public static bool IsTooSoonToRequest(DateOnly checkIn, DateTimeOffset now) =>
+        BookingClock.StartOf(checkIn) - now < MinimumRequestNotice;
+
+    /// <summary>
+    /// Último dia de chegada cujos pedidos já não podem ser aceitos em <paramref name="now"/>
+    /// (a rotina de expiração fecha os Solicitados até ele).
+    /// </summary>
+    public static DateOnly LastCheckInClosedToAcceptance(DateTimeOffset now) =>
+        BookingClock.Today(now + MinimumAcceptNotice - TimeSpan.FromTicks(1));
 
     /// <summary>
     /// Até quando o tutor pode pagar a 1ª parcela: 24h depois do aceite, sem passar do fim do dia
@@ -191,6 +247,9 @@ public sealed class Booking : Entity<BookingId>
         if (petIds.Count is 0 or > MaxPets)
             throw new ArgumentException($"A booking has 1 to {MaxPets} pets.", nameof(petIds));
 
+        if (IsTooSoonToRequest(period.CheckIn, now))
+            return Result<Booking>.Failure(BookingsErrors.CheckInTooSoon);
+
         if (!listing.IsBookable)
             return Result<Booking>.Failure(BookingsErrors.ListingNotFound(listing.Id));
 
@@ -205,6 +264,9 @@ public sealed class Booking : Entity<BookingId>
 
         if (listing.FirstUnavailableDay(period) is { } closedDay)
             return Result<Booking>.Failure(BookingsErrors.WeekdayNotAvailable(closedDay));
+
+        if (listing.FirstBlockedDay(period) is { } blockedDay)
+            return Result<Booking>.Failure(BookingsErrors.DatesBlocked(blockedDay));
 
         var fits = occupancy.EnsureFits(period, petIds.Count, listing.Capacity);
         if (fits.IsFailure)
@@ -247,11 +309,10 @@ public sealed class Booking : Entity<BookingId>
 
     /// <summary>
     /// Venceu o prazo de resposta em <paramref name="now"/>? Pedido sem resposta vence em 24h ou
-    /// quando a data de chegada passa, o que vier primeiro.
+    /// 48h antes da chegada, o que vier primeiro (<see cref="ResponseDeadline"/>).
     /// </summary>
     public bool IsResponseOverdue(DateTimeOffset now) =>
-        Status == BookingStatus.Requested
-        && (now > ResponseDeadline || BookingClock.Today(now) > Period.CheckIn);
+        Status == BookingStatus.Requested && now > ResponseDeadline;
 
     /// <summary>
     /// Venceu o prazo de pagamento em <paramref name="now"/>? Reserva aceita sem a 1ª parcela paga
@@ -405,11 +466,42 @@ public sealed class Booking : Entity<BookingId>
         return Result.Success();
     }
 
-    /// <summary>Quanto volta para o tutor se <paramref name="by"/> cancelar uma reserva paga em <paramref name="now"/>.</summary>
+    /// <summary>
+    /// Quanto volta para o tutor se <paramref name="by"/> cancelar uma reserva paga em
+    /// <paramref name="now"/>. Anfitrião e plataforma (o admin) devolvem tudo; o tutor, conforme a antecedência.
+    /// </summary>
     public int RefundFor(BookingParty by, DateTimeOffset now) =>
-        by == BookingParty.Host || now <= BookingClock.StartOf(Period.CheckIn) - FullRefundNotice
+        by != BookingParty.Owner || now <= BookingClock.StartOf(Period.CheckIn) - FullRefundNotice
             ? FullRefundPercentage
             : LateCancellationRefundPercentage;
+
+    /// <summary>
+    /// A plataforma cancela porque o admin suspendeu um dos lados (<paramref name="suspended"/>):
+    /// vale para Solicitada, Aceita e Confirmada. Paga, os 100% ficam com a <b>outra parte</b> —
+    /// anfitrião suspenso devolve tudo ao tutor; tutor suspenso não tem reembolso (o que ele pagou
+    /// segue o 90/10 para o anfitrião). Devolve <c>true</c> se cancelou agora e <c>false</c> se não
+    /// havia o que cancelar (já fechada, ou depois do check-in — a estadia em andamento continua;
+    /// o admin encerra pelo check-out).
+    /// </summary>
+    public bool CancelForSuspension(BookingParty suspended, DateTimeOffset now)
+    {
+        if (suspended == BookingParty.Platform)
+            throw new ArgumentOutOfRangeException(nameof(suspended), suspended, "Only the owner or the host can be suspended.");
+
+        if (Status is not (BookingStatus.Requested or BookingStatus.Accepted or BookingStatus.Confirmed))
+            return false;
+
+        RefundPercentage = Status == BookingStatus.Confirmed
+            ? suspended == BookingParty.Host ? FullRefundPercentage : NoRefundPercentage
+            : null;
+        Status = BookingStatus.Cancelled;
+        CancelledBy = BookingParty.Platform;
+        CancellationReason = suspended == BookingParty.Host ? HostSuspendedReason : OwnerSuspendedReason;
+        CancelledAt = now;
+        UpdatedAt = now;
+
+        return true;
+    }
 
     /// <summary>
     /// O anfitrião marca "chegou": o pet está com ele. Só reserva Confirmada, a partir do dia de
@@ -449,6 +541,68 @@ public sealed class Booking : Entity<BookingId>
         UpdatedAt = now;
 
         return Result.Success();
+    }
+
+    /// <summary>
+    /// A estadia que já devia ter acabado, vista pela rotina da plataforma a partir do dia de saída
+    /// (horário de Brasília):
+    /// <list type="bullet">
+    /// <item><b>Confirmada sem check-in</b>: o pet não chegou e ninguém cancelou. A plataforma
+    /// cancela com <see cref="NoShowRefundPercentage"/>% de reembolso (os outros 50% seguem o 90/10
+    /// para o anfitrião, que segurou a vaga) e motivo <see cref="NoShowReason"/>.</item>
+    /// <item><b>Em andamento</b>: no dia de saída (ou depois), o anfitrião é lembrado uma vez de
+    /// fazer o check-out; <see cref="AutoCheckOutAfterDays"/> dias depois do dia de saída sem
+    /// check-out, a plataforma conclui a estadia (libera o repasse).</item>
+    /// </list>
+    /// Outro status, ou antes do dia de saída: nada muda.
+    /// </summary>
+    public StayClosing CloseOverdueStay(DateTimeOffset now)
+    {
+        var today = BookingClock.Today(now);
+        if (today < Period.CheckOut)
+            return StayClosing.None;
+
+        switch (Status)
+        {
+            case BookingStatus.Confirmed:
+                RefundPercentage = NoShowRefundPercentage;
+                Status = BookingStatus.Cancelled;
+                CancelledBy = BookingParty.Platform;
+                CancellationReason = NoShowReason;
+                CancelledAt = now;
+                UpdatedAt = now;
+                return StayClosing.NoShow;
+
+            case BookingStatus.InProgress when today >= Period.CheckOut.AddDays(AutoCheckOutAfterDays):
+                Status = BookingStatus.Completed;
+                CheckedOutAt = now;
+                UpdatedAt = now;
+                return StayClosing.AutoCheckedOut;
+
+            case BookingStatus.InProgress when CheckOutRemindedAt is null:
+                CheckOutRemindedAt = now;
+                UpdatedAt = now;
+                return StayClosing.CheckOutReminder;
+
+            default:
+                return StayClosing.None;
+        }
+    }
+
+    /// <summary>
+    /// É a véspera do check-in (horário de Brasília) de uma reserva Confirmada que ainda não teve o
+    /// lembrete? Marca e devolve <c>true</c>: os dois lados são lembrados uma vez só. Fora da véspera
+    /// (a tarefa ficou parada, ou a reserva foi confirmada no próprio dia), não lembra.
+    /// </summary>
+    public bool TakeCheckInReminder(DateTimeOffset now)
+    {
+        if (Status != BookingStatus.Confirmed || CheckInRemindedAt is not null || BookingClock.Today(now) != Period.CheckIn.AddDays(-1))
+            return false;
+
+        CheckInRemindedAt = now;
+        UpdatedAt = now;
+
+        return true;
     }
 
     /// <summary>Espaços nas pontas saem; texto vazio vira <c>null</c>.</summary>

@@ -88,7 +88,7 @@ Os nomes seguem o padrão mais comum em projetos atuais. A regra de ouro: **um j
 | Solicitação de cadastro de anfitrião (verificação) | `host_applications` | Documento + selfie conferidos pelo admin. Aprovada → cria `hosts`. |
 | Foto da verificação (frente, verso, selfie) | `host_application_documents` | Chave no bucket **privado**; apagada depois da decisão. |
 | Tipo de pet | `pets.species` | Enum fixo; o que não está na lista é `exotic`, com a descrição em texto. |
-| Agenda bloqueada | `availability_blocks` |  |
+| Agenda bloqueada | `availability_blocks` | Períodos que o anfitrião fechou; nenhum pedido passa por eles. |
 | Pagamento e repasse | `payments`, `payment_installments` | Repasse = payout; taxa da plataforma = platform fee; parcela = installment. |
 | Conversa · Mensagem | `conversations` · `messages` |  |
 | Avaliação | `reviews` | Quem avalia: author. Quem é avaliado: reviewee. |
@@ -604,10 +604,10 @@ Até 3 fotos por pet, gravadas só pelas rotas de upload (`/pets/{petId}/photos`
 | `pet_id` | `uuid` | `FK` | não | Pet → pets.id. FK física (mesmo módulo), `ON DELETE CASCADE`. |
 | `url` | `varchar(500)` |  | não | URL pública da imagem no bucket (pasta `pets/`). |
 | `content_hash` | `char(64)` |  | sim | SHA-256 da imagem, em hexadecimal. Impede a mesma imagem duas vezes no mesmo pet. Nulo só nas fotos de antes da regra. |
-| `position` | `smallint` |  | não | Vaga de 1 a 3; a menor é a capa. Vaga liberada é a primeira a ser ocupada de novo. |
+| `position` | `smallint` |  | não | Vaga de 1 a 3; a menor é a capa. Vaga liberada é a primeira a ser ocupada de novo. O dono reordena (`PUT /pets/{id}/photos/order`): a primeira da lista vira a vaga 1, sem buraco. |
 | `created_at` | `timestamp` |  | não | Quando o registro foi criado (UTC). |
 
-> `ck_pet_photos_position` (`position BETWEEN 1 AND 3`) e índice único `uq_pet_photos_pet_id_position` (`pet_id`, `position`): o limite de 3 fotos vale também no banco. Índice único parcial `uq_pet_photos_pet_id_content_hash` (`pet_id`, `content_hash` `WHERE content_hash IS NOT NULL`): sem imagem repetida no mesmo pet.
+> `ck_pet_photos_position` (`position BETWEEN 1 AND 3`) e constraint única **deferrable** `uq_pet_photos_pet_id_position` (`pet_id`, `position`, conferida no commit, para reordenar trocando vagas numa transação): o limite de 3 fotos vale também no banco. Índice único parcial `uq_pet_photos_pet_id_content_hash` (`pet_id`, `content_hash` `WHERE content_hash IS NOT NULL`): sem imagem repetida no mesmo pet.
 
 ### `listings` · Cantinhos
 
@@ -665,16 +665,18 @@ Fotos do cantinho, em ordem. Até 5 por cantinho, gravadas só pelas rotas de up
 
 ### `availability_blocks` · Bloqueios de agenda
 
-Períodos em que o anfitrião fechou a agenda. Por padrão tudo está disponível.
+Períodos em que o anfitrião fechou a agenda. Por padrão tudo está disponível. Fica no schema `listing` (módulo Listings, [`modulo-listings.md`](modulo-listings.md) seção 6.1). Nenhum pedido de reserva passa por um dia bloqueado (`BOOKING_DATES_BLOCKED`) e a busca por datas não mostra o cantinho; reservas que já existiam não mudam.
 
 | Coluna | Tipo | Chave | Nulo | Descrição |
 |---|---|---|---|---|
 | `id` | `uuid` | `PK` | não | Identificador do bloqueio. |
-| `listing_id` | `uuid` | `FK` | não | Cantinho → listings.id. |
-| `start_date` | `date` |  | não | Primeiro dia bloqueado. |
-| `end_date` | `date` |  | não | Último dia bloqueado (inclusive). |
-| `reason` | `varchar(120)` |  | sim | Motivo opcional, só para o anfitrião. |
-| `created_at` | `timestamp` |  | não | Quando o registro foi criado (UTC). |
+| `listing_id` | `uuid` | `FK` | não | Cantinho → listing.listings.id (FK física, `ON DELETE CASCADE`). |
+| `start_date` | `date` |  | não | Primeiro dia bloqueado (a partir de hoje, horário de Brasília, até 365 dias à frente). |
+| `end_date` | `date` |  | não | Último dia bloqueado (inclusive); igual ao início fecha um dia só. |
+| `reason` | `varchar(120)` |  | sim | Motivo opcional, só para o anfitrião (e o admin). Não vai para a trilha. |
+| `created_at` | `timestamptz` |  | não | Quando o registro foi criado (UTC). |
+
+> `ck_availability_blocks_period` (`end_date >= start_date`); índice `ix_availability_blocks_listing_id_start_date_end_date`. Na aplicação: sem sobreposição entre bloqueios do mesmo cantinho e até 50 que ainda não acabaram. Reabrir as datas apaga a linha (a trilha guarda o período).
 
 
 ### `bookings` · Reservas
@@ -697,13 +699,15 @@ Uma estadia: um tutor, um cantinho, um período e um ou mais pets. Guarda o cicl
 | `responded_at` | `timestamptz` |  | sim | Quando o anfitrião aceitou ou recusou. |
 | `confirmed_at` | `timestamptz` |  | sim | Quando foi confirmada: a 1ª parcela foi paga (aviso do Stripe, pelo módulo de pagamento). |
 | `checked_in_at` | `timestamptz` |  | sim | Quando o anfitrião marcou "chegou". |
-| `checked_out_at` | `timestamptz` |  | sim | Quando marcou "voltou pra casa". Libera repasse e avaliações. |
+| `checked_out_at` | `timestamptz` |  | sim | Quando marcou "voltou pra casa" (o anfitrião, o admin ou a plataforma, 3 dias depois do dia de saída sem check-out). Libera repasse e avaliações. |
+| `check_in_reminded_at` | `timestamptz` |  | sim | Quando tutor e anfitrião foram lembrados da estadia (na véspera do check-in, uma vez só). |
+| `check_out_reminded_at` | `timestamptz` |  | sim | Quando o anfitrião foi lembrado de fazer o check-out (no dia de saída, uma vez só). |
 | `expired_at` | `timestamptz` |  | sim | Quando expirou sem resposta. |
 | `cancelled_at` | `timestamptz` |  | sim | Quando foi cancelada. |
-| `cancelled_by` | `varchar(10)` |  | sim | Quem cancelou: owner, host ou platform (parcela vencida antes do check-in). A conta vai na trilha de auditoria. |
-| `cancellation_reason` | `varchar(500)` |  | sim | Motivo do cancelamento, opcional. |
+| `cancelled_by` | `varchar(10)` |  | sim | Quem cancelou: owner, host ou platform (parcela vencida antes do check-in, admin, ou suspensão de um dos lados pelo admin). A conta vai na trilha de auditoria. |
+| `cancellation_reason` | `varchar(500)` |  | sim | Motivo do cancelamento: opcional para tutor e anfitrião, obrigatório para o admin; na suspensão, um texto fixo ("O anfitrião/tutor não está mais disponível no PetHost."). Nulo no cancelamento por parcela vencida. |
 | `decline_reason` | `varchar(500)` |  | sim | Motivo da recusa, opcional. |
-| `refund_percentage` | `int` |  | sim | Quanto do que foi pago volta para o tutor no cancelamento de reserva paga (100 ou 50). Nulo se nada foi pago. |
+| `refund_percentage` | `int` |  | sim | Quanto do que foi pago volta para o tutor no cancelamento de reserva paga (100, 50, ou 0 quando o tutor foi suspenso — o pago fica com o anfitrião). Nulo se nada foi pago. |
 | `created_at` | `timestamptz` |  | não | Quando o registro foi criado (UTC). |
 | `updated_at` | `timestamptz` |  | não | Última alteração do registro (UTC). |
 
@@ -764,7 +768,8 @@ Uma parcela do pagamento — uma cobrança no Stripe (`PaymentIntent`), com o re
 | `paid_at` | `timestamptz` |  | sim | Quando o Stripe confirmou. |
 | `reminder_sent_at` | `timestamptz` |  | sim | Quando o lembrete de vencimento foi enviado. |
 | `overdue_since` | `timestamptz` |  | sim | Desde quando está em atraso (venceu depois do check-in). |
-| `overdue_reminded_at` | `timestamptz` |  | sim | Quando o tutor recebeu o último lembrete da parcela em atraso (um a cada 7 dias). |
+| `overdue_reminded_at` | `timestamptz` |  | sim | Quando o tutor recebeu o último lembrete da parcela em atraso (um a cada 7 dias, por até 4 semanas). |
+| `overdue_escalated_at` | `timestamptz` |  | sim | Quando a parcela fez 4 semanas em atraso: o admin foi avisado (uma vez) e os lembretes ao tutor pararam. |
 | `refund_status` | `varchar(20)` |  | não | none, pending, succeeded ou failed. |
 | `refunded_cents` | `bigint` |  | não | Quanto foi (ou está sendo) devolvido ao tutor (0 se nada). |
 | `stripe_refund_id` | `varchar(255)` |  | sim | Reembolso (re_...). |
@@ -948,9 +953,9 @@ stateDiagram-v2
     accepted --> expired: 24h sem pagar
     requested --> cancelled
     accepted --> cancelled
-    confirmed --> cancelled: com reembolso (tutor, anfitrião ou plataforma)
+    confirmed --> cancelled: com reembolso (tutor, anfitrião ou plataforma; pet que não chegou: 50%)
     confirmed --> in_progress: chegou
-    in_progress --> completed: voltou pra casa
+    in_progress --> completed: voltou pra casa (ou plataforma, 3 dias depois da saída)
     completed --> [*]
     declined --> [*]
     expired --> [*]

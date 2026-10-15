@@ -5,7 +5,10 @@ using PetHost.Modules.Bookings.Application.Abstractions;
 using PetHost.Modules.Bookings.Application.Bookings;
 using PetHost.Modules.Bookings.Application.Bookings.AcceptBooking;
 using PetHost.Modules.Bookings.Application.Bookings.CancelBooking;
+using PetHost.Modules.Bookings.Application.Bookings.CancelBookingsForSuspension;
 using PetHost.Modules.Bookings.Application.Bookings.CancelUnpaidBooking;
+using PetHost.Modules.Bookings.Application.Bookings.CloseOverdueStays;
+using PetHost.Modules.Bookings.Application.Bookings.RemindUpcomingStays;
 using PetHost.Modules.Bookings.Application.Bookings.CheckInBooking;
 using PetHost.Modules.Bookings.Application.Bookings.CheckOutBooking;
 using PetHost.Modules.Bookings.Application.Bookings.ConfirmBookingPayment;
@@ -21,6 +24,7 @@ using PetHost.Modules.Bookings.Infrastructure.Directory;
 using PetHost.Modules.Bookings.Infrastructure.Expiration;
 using PetHost.Modules.Bookings.Infrastructure.Notifications;
 using PetHost.Modules.Bookings.Infrastructure.Payments;
+using PetHost.Modules.Bookings.Infrastructure.Suspensions;
 using PetHost.Modules.Bookings.Infrastructure.Persistence;
 using PetHost.Modules.Bookings.Infrastructure.Persistence.Repositories;
 using PetHost.Shared.Contracts.Bookings;
@@ -67,6 +71,9 @@ public static class DependencyInjection
         services.AddScoped<IBookingDirectory, BookingDirectory>();
         services.AddScoped<IBookingPaymentOutcomes, BookingPaymentOutcomes>();
 
+        // O Owners e o Hosts avisam a suspensão: as reservas que ainda não começaram são canceladas.
+        services.AddScoped<IBookingSuspensions, BookingSuspensions>();
+
         services.AddValidatedCommandHandler<CreateBookingCommandHandler, CreateBookingCommand, BookingResponse>();
         services.AddValidatedCommandHandler<AcceptBookingCommandHandler, AcceptBookingCommand, BookingResponse>();
         services.AddValidatedCommandHandler<DeclineBookingCommandHandler, DeclineBookingCommand, BookingResponse>();
@@ -74,8 +81,11 @@ public static class DependencyInjection
         services.AddValidatedCommandHandler<CheckInBookingCommandHandler, CheckInBookingCommand, BookingResponse>();
         services.AddValidatedCommandHandler<CheckOutBookingCommandHandler, CheckOutBookingCommand, BookingResponse>();
         services.AddValidatedCommandHandler<ExpireOverdueBookingsCommandHandler, ExpireOverdueBookingsCommand, ExpireOverdueBookingsResponse>();
+        services.AddValidatedCommandHandler<CloseOverdueStaysCommandHandler, CloseOverdueStaysCommand, CloseOverdueStaysResponse>();
+        services.AddValidatedCommandHandler<RemindUpcomingStaysCommandHandler, RemindUpcomingStaysCommand, int>();
         services.AddValidatedCommandHandler<ConfirmBookingPaymentCommandHandler, ConfirmBookingPaymentCommand, bool>();
         services.AddValidatedCommandHandler<CancelUnpaidBookingCommandHandler, CancelUnpaidBookingCommand, bool>();
+        services.AddValidatedCommandHandler<CancelBookingsForSuspensionCommandHandler, CancelBookingsForSuspensionCommand, CancelBookingsForSuspensionResponse>();
 
         services.AddScoped<IQueryHandler<GetBookingByIdQuery, BookingResponse>, GetBookingByIdQueryHandler>();
         services.AddScoped<IQueryHandler<ListMyBookingsQuery, PagedResult<BookingResponse>>, ListMyBookingsQueryHandler>();

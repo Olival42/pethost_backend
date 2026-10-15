@@ -78,4 +78,10 @@ public enum PaymentEffectKind
 
     /// <summary>Uma parcela continua em atraso (lembrete semanal). Valor: quanto pagar, com multa e juros.</summary>
     InstallmentOverdueReminder,
+
+    /// <summary>O repasse ficou retido porque o Stripe bloqueou os repasses do anfitrião (alerta ao admin, uma vez).</summary>
+    PayoutBlocked,
+
+    /// <summary>A parcela está em atraso há 4 semanas: alerta ao admin (uma vez) e fim dos lembretes ao tutor. Valor: quanto pagar agora.</summary>
+    InstallmentOverdueEscalated,
 }

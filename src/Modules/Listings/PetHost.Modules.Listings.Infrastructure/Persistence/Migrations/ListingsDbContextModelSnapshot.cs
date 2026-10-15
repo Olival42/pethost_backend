@@ -25,6 +25,45 @@ namespace PetHost.Modules.Listings.Infrastructure.Persistence.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "unaccent");
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("PetHost.Modules.Listings.Domain.Listings.AvailabilityBlock", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateOnly>("EndDate")
+                        .HasColumnType("date")
+                        .HasColumnName("end_date");
+
+                    b.Property<Guid>("ListingId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("listing_id");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("reason");
+
+                    b.Property<DateOnly>("StartDate")
+                        .HasColumnType("date")
+                        .HasColumnName("start_date");
+
+                    b.HasKey("Id")
+                        .HasName("pk_availability_blocks");
+
+                    b.HasIndex("ListingId", "StartDate", "EndDate")
+                        .HasDatabaseName("ix_availability_blocks_listing_id_start_date_end_date");
+
+                    b.ToTable("availability_blocks", "listing", t =>
+                        {
+                            t.HasCheckConstraint("ck_availability_blocks_period", "end_date >= start_date");
+                        });
+                });
+
             modelBuilder.Entity("PetHost.Modules.Listings.Domain.Listings.Listing", b =>
                 {
                     b.Property<Guid>("Id")
@@ -246,6 +285,16 @@ namespace PetHost.Modules.Listings.Infrastructure.Persistence.Migrations
                         {
                             t.HasCheckConstraint("ck_listing_photos_position", "position BETWEEN 1 AND 5");
                         });
+                });
+
+            modelBuilder.Entity("PetHost.Modules.Listings.Domain.Listings.AvailabilityBlock", b =>
+                {
+                    b.HasOne("PetHost.Modules.Listings.Domain.Listings.Listing", null)
+                        .WithMany()
+                        .HasForeignKey("ListingId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_availability_blocks_listings_listing_id");
                 });
 
             modelBuilder.Entity("PetHost.Modules.Listings.Domain.Listings.ListingPhoto", b =>

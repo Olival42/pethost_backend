@@ -22,6 +22,7 @@ public sealed class HostPayoutSetup(
     IHostAccounts accounts,
     IStripeConnect stripe,
     IHostPayoutsNotifier notifier,
+    IHostBookings hostBookings,
     IAuditTrail auditTrail,
     TimeProvider timeProvider)
 {
@@ -105,9 +106,10 @@ public sealed class HostPayoutSetup(
     /// <summary>
     /// Relê a conta conectada no Stripe e grava o espelho. Quando os repasses são liberados, os
     /// cantinhos entram na busca: fica na trilha e o anfitrião recebe um e-mail. Quando são
-    /// bloqueados, os cantinhos saem da busca (trilha). Quando o Stripe <b>recusa</b> a conta de vez
-    /// (<c>rejected.*</c>), fica na trilha e avisa o anfitrião e o admin, uma vez só. Idempotente:
-    /// pode rodar quantas vezes o webhook chegar.
+    /// bloqueados, os cantinhos saem da busca (trilha) e, se o anfitrião tem reservas em aberto, o
+    /// admin recebe a lista para decidir os reembolsos (os repasses ficam retidos no Payments).
+    /// Quando o Stripe <b>recusa</b> a conta de vez (<c>rejected.*</c>), fica na trilha e avisa o
+    /// anfitrião e o admin, uma vez só. Idempotente: pode rodar quantas vezes o webhook chegar.
     /// </summary>
     public async Task<Result> SyncAsync(Host host, CancellationToken cancellationToken)
     {
@@ -150,7 +152,29 @@ public sealed class HostPayoutSetup(
         if (rejectedNow)
             await NotifyRejectedAsync(host, cancellationToken).ConfigureAwait(false);
 
+        if (change == StripePayoutsChange.Disabled)
+            await NotifyBlockedWithBookingsAsync(host, cancellationToken).ConfigureAwait(false);
+
         return Result.Success();
+    }
+
+    /// <summary>
+    /// Os repasses foram bloqueados (ou a conta recusada) depois de liberados: se o anfitrião tem
+    /// reservas em aberto, o admin recebe a lista. Os repasses ficam retidos no Payments; o admin
+    /// decide se cancela (reembolsando o tutor) ou espera o Stripe liberar de novo.
+    /// </summary>
+    private async Task NotifyBlockedWithBookingsAsync(Host host, CancellationToken cancellationToken)
+    {
+        var open = await hostBookings.ListOpenBookingIdsAsync(host.Id.Value, cancellationToken).ConfigureAwait(false);
+        if (open.Count == 0)
+            return;
+
+        var found = await accounts.GetByIdsAsync([host.UserId], cancellationToken).ConfigureAwait(false);
+        var name = host.TradeName ?? (found.Count > 0 ? found[0].FullName : null) ?? host.Id.Value.ToString();
+
+        await notifier
+            .NotifyAdminPayoutsBlockedAsync(new HostPayoutsBlocked(host.Id.Value, name, host.StripeDisabledReason, open), cancellationToken)
+            .ConfigureAwait(false);
     }
 
     /// <summary>Recusa definitiva do Stripe: trilha, aviso ao anfitrião e alerta ao admin.</summary>

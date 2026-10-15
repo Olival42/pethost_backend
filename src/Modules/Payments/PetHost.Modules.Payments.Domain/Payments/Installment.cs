@@ -89,6 +89,12 @@ public sealed class Installment
     /// <summary>Quando o tutor recebeu o último lembrete de parcela em atraso (um a cada 7 dias).</summary>
     public DateTimeOffset? OverdueRemindedAt { get; private set; }
 
+    /// <summary>
+    /// Quando o atraso passou de <see cref="Payment.OverdueEscalationAfter"/>: o admin foi avisado e os
+    /// lembretes ao tutor pararam. A parcela continua em atraso e pode ser paga.
+    /// </summary>
+    public DateTimeOffset? OverdueEscalatedAt { get; private set; }
+
     public RefundStatus RefundStatus { get; private set; }
 
     /// <summary>Quanto foi (ou está sendo) devolvido ao tutor, em centavos.</summary>
@@ -173,6 +179,8 @@ public sealed class Installment
     internal void MarkReminded(DateTimeOffset now) => ReminderSentAt = now;
 
     internal void MarkOverdueReminded(DateTimeOffset now) => OverdueRemindedAt = now;
+
+    internal void MarkOverdueEscalated(DateTimeOffset now) => OverdueEscalatedAt = now;
 
     /// <summary>A cobrança pede <paramref name="chargeCents"/>: o que passa do valor da parcela é acréscimo.</summary>
     internal void SetCharge(long chargeCents) => LateFeeCents = Math.Max(0, chargeCents - AmountCents);

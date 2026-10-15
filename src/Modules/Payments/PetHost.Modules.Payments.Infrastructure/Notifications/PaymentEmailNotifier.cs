@@ -101,9 +101,20 @@ internal sealed class PaymentEmailNotifier(IEmailOutbox outbox, IOptions<Payment
                 $"Reserva: {alert.BookingId}",
                 $"Pagamento: {alert.PaymentId} — parcela {alert.InstallmentNumber}",
                 $"Valor: {Money(alert.AmountCents)}",
+                .. Hint(alert.Issue),
                 "Veja os detalhes em GET /api/v1/payments/issues e no Dashboard do Stripe.",
             ],
             cancellationToken);
+    }
+
+    /// <summary>O que o admin pode fazer, quando a pendência pede uma decisão dele.</summary>
+    private static IEnumerable<string> Hint(string issue)
+    {
+        if (issue == "installment_overdue_escalated")
+            yield return $"A parcela está em atraso há {Payment.OverdueEscalationAfter.Days} dias. O tutor já recebeu o aviso de atraso e os lembretes semanais, que agora param; ele continua sem poder pedir estadia nova até pagar. O valor acima já tem multa e juros. Decida o próximo passo (contato direto, suspensão da conta) — a parcela ainda pode ser paga pelo app.";
+
+        if (issue == "payout_blocked")
+            yield return "O Stripe bloqueou os repasses do anfitrião: o repasse ficou retido e sai sozinho quando a conta voltar a receber. Para devolver o dinheiro ao tutor de uma reserva que ainda não começou, cancele como admin (POST /api/v1/bookings/{id}/cancellation, com motivo): o reembolso é de 100%.";
     }
 
     private static readonly string LateFeeTerms = string.Create(

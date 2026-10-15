@@ -56,7 +56,7 @@ internal static class PaymentsTestData
         return bookings;
     }
 
-    public static Mock<IPaymentParties> Parties(string? hostAccount = HostAccountId)
+    public static Mock<IPaymentParties> Parties(string? hostAccount = HostAccountId, bool payoutsBlocked = false)
     {
         var parties = new Mock<IPaymentParties>(MockBehavior.Strict);
 
@@ -68,6 +68,7 @@ internal static class PaymentsTestData
         parties.Setup(p => p.GetOwnerContactAsync(BookingBuilder.OwnerId, It.IsAny<CancellationToken>())).ReturnsAsync(OwnerContact);
         parties.Setup(p => p.GetHostContactAsync(BookingBuilder.HostId, It.IsAny<CancellationToken>())).ReturnsAsync(HostContact);
         parties.Setup(p => p.GetHostPayoutAccountAsync(BookingBuilder.HostId, It.IsAny<CancellationToken>())).ReturnsAsync(hostAccount);
+        parties.Setup(p => p.IsHostPayoutBlockedAsync(BookingBuilder.HostId, It.IsAny<CancellationToken>())).ReturnsAsync(payoutsBlocked);
 
         return parties;
     }

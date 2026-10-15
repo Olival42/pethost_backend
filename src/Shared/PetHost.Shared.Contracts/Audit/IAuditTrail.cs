@@ -172,6 +172,12 @@ public static class AuditActions
     public const string ListingDeactivated = "listing.deactivated";
     public const string ListingReactivated = "listing.reactivated";
 
+    /// <summary>O anfitrião fechou datas na agenda do cantinho (período nos detalhes; o motivo não entra).</summary>
+    public const string ListingDatesBlocked = "listing.dates_blocked";
+
+    /// <summary>O anfitrião reabriu datas que tinha fechado na agenda.</summary>
+    public const string ListingDatesUnblocked = "listing.dates_unblocked";
+
     // --- Reserva (Bookings) ---
 
     /// <summary>O tutor pediu a estadia.</summary>

@@ -71,6 +71,12 @@ public sealed class Payment : Entity<PaymentId>
     /// <summary>De quanto em quanto tempo o tutor é lembrado de uma parcela em atraso.</summary>
     public static readonly TimeSpan OverdueReminderInterval = TimeSpan.FromDays(7);
 
+    /// <summary>
+    /// Depois de quanto tempo em atraso o admin é avisado (uma vez) e os lembretes ao tutor param:
+    /// 4 semanas, ou seja, o aviso de atraso e mais 3 lembretes semanais.
+    /// </summary>
+    public static readonly TimeSpan OverdueEscalationAfter = TimeSpan.FromDays(28);
+
     /// <summary>Validade do QR code do Pix gerado ao abrir o pagamento.</summary>
     public static readonly TimeSpan PixLifetime = TimeSpan.FromHours(24);
 
@@ -574,7 +580,9 @@ public sealed class Payment : Entity<PaymentId>
 
     /// <summary>
     /// As parcelas em atraso cujo último aviso (a entrada em atraso ou o lembrete anterior) foi há
-    /// <see cref="OverdueReminderInterval"/> ou mais. Marca o lembrete: chamar de novo não repete.
+    /// <see cref="OverdueReminderInterval"/> ou mais — só enquanto o atraso não passou de
+    /// <see cref="OverdueEscalationAfter"/>: depois disso quem cuida é o admin. Marca o lembrete:
+    /// chamar de novo não repete.
     /// </summary>
     public IReadOnlyList<Installment> TakeOverdueReminders(DateTimeOffset now)
     {
@@ -583,12 +591,39 @@ public sealed class Payment : Entity<PaymentId>
 
         var due = _installments
             .Where(i => i.Status == InstallmentStatus.Overdue
+                && i.OverdueEscalatedAt is null
                 && i.OverdueSince is { } since
+                && now < since + OverdueEscalationAfter
                 && now >= (i.OverdueRemindedAt ?? since) + OverdueReminderInterval)
             .ToList();
 
         foreach (var installment in due)
             installment.MarkOverdueReminded(now);
+
+        if (due.Count > 0)
+            Touch(now);
+
+        return due;
+    }
+
+    /// <summary>
+    /// As parcelas em atraso há <see cref="OverdueEscalationAfter"/> ou mais que ainda não foram
+    /// levadas ao admin. Marca: o admin é avisado uma vez só e os lembretes ao tutor param.
+    /// </summary>
+    public IReadOnlyList<Installment> TakeOverdueEscalations(DateTimeOffset now)
+    {
+        if (Status is not (PaymentStatus.Active or PaymentStatus.Pending))
+            return [];
+
+        var due = _installments
+            .Where(i => i.Status == InstallmentStatus.Overdue
+                && i.OverdueEscalatedAt is null
+                && i.OverdueSince is { } since
+                && now >= since + OverdueEscalationAfter)
+            .ToList();
+
+        foreach (var installment in due)
+            installment.MarkOverdueEscalated(now);
 
         if (due.Count > 0)
             Touch(now);

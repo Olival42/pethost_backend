@@ -14,7 +14,8 @@ namespace PetHost.Modules.Payments.Application.Payments;
 /// <remarks>
 /// Ordem: (1) 1ª parcela paga confirma a reserva aceita; (2) parcela vencida cancela a reserva
 /// (antes do check-in) ou entra em atraso (depois); (3) lembretes (do vencimento e, a cada 7 dias,
-/// da parcela em atraso, com o valor já com multa e juros); (4) os pedidos ao Stripe que o
+/// da parcela em atraso, com o valor já com multa e juros, até 4 semanas de atraso — aí o admin é
+/// avisado e os lembretes param); (4) os pedidos ao Stripe que o
 /// agregado decide (<see cref="Payment.Reconcile"/>) — cancelar cobranças, reembolsar, repassar,
 /// estornar —, em rodadas até não sobrar nada (o repasse do que ficou retido sai depois do reembolso).
 /// Um pedido que falha no Stripe fica para a próxima vez: o resto segue e o que deu certo é gravado.
@@ -103,6 +104,10 @@ public sealed class PaymentReconciler(
         foreach (var installment in payment.TakeReminders(now))
             effects.Add(PaymentEffectKind.InstallmentReminder, installment.Number, installment.AmountCents);
 
+        // Atraso longo: o admin é avisado uma vez e os lembretes ao tutor param (antes do lembrete do dia).
+        foreach (var installment in payment.TakeOverdueEscalations(now))
+            effects.Add(PaymentEffectKind.InstallmentOverdueEscalated, installment.Number, payment.AmountDue(installment.Number, now));
+
         foreach (var installment in payment.TakeOverdueReminders(now))
             effects.Add(PaymentEffectKind.InstallmentOverdueReminder, installment.Number, payment.AmountDue(installment.Number, now));
 
@@ -179,6 +184,17 @@ public sealed class PaymentReconciler(
                     return false;
                 }
 
+                // O Stripe bloqueou os repasses do anfitrião: retém sem pedir nada e avisa o admin uma
+                // vez (ele decide se reembolsa). A manutenção repassa quando a conta voltar a receber.
+                if (await parties.IsHostPayoutBlockedAsync(payment.HostId, cancellationToken).ConfigureAwait(false))
+                {
+                    if (installment.PayoutFailureCode != HostPayoutsDisabled)
+                        effects.Add(PaymentEffectKind.PayoutBlocked, number, action.AmountCents);
+
+                    payment.RecordTransferFailed(number, HostPayoutsDisabled, timeProvider.GetUtcNow());
+                    return false;
+                }
+
                 var transfer = await stripe
                     .TransferAsync(new TransferDraft(installment.Id, payment.Id.Value, payment.BookingId, number, action.StripeObjectId, account, action.AmountCents), cancellationToken)
                     .ConfigureAwait(false);
@@ -222,4 +238,7 @@ public sealed class PaymentReconciler(
 
     /// <summary>Código gravado quando o anfitrião não tem conta conectada para receber.</summary>
     public const string NoConnectedAccount = "NO_CONNECTED_ACCOUNT";
+
+    /// <summary>Código gravado quando o Stripe bloqueou (ou recusou) os repasses do anfitrião.</summary>
+    public const string HostPayoutsDisabled = "HOST_PAYOUTS_DISABLED";
 }

@@ -20,6 +20,8 @@ public sealed class ListingsDbContext(DbContextOptions<ListingsDbContext> option
 
     public DbSet<Listing> Listings => Set<Listing>();
 
+    public DbSet<AvailabilityBlock> AvailabilityBlocks => Set<AvailabilityBlock>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema(Schema);

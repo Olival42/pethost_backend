@@ -215,6 +215,10 @@ namespace PetHost.Modules.Payments.Infrastructure.Persistence.Migrations
                                 .HasColumnType("integer")
                                 .HasColumnName("number");
 
+                            b1.Property<DateTimeOffset?>("OverdueEscalatedAt")
+                                .HasColumnType("timestamptz")
+                                .HasColumnName("overdue_escalated_at");
+
                             b1.Property<DateTimeOffset?>("OverdueRemindedAt")
                                 .HasColumnType("timestamptz")
                                 .HasColumnName("overdue_reminded_at");

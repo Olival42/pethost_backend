@@ -219,6 +219,35 @@ public static class ListingsErrors
     public static readonly Error PhotoOrderInvalid =
         Error.Validation("photoIds", "Send every photo of the listing exactly once, in the new order.");
 
+    // --- Validação: agenda (bloqueios de datas) ---
+
+    public static readonly Error AvailabilityBlockStartRequired =
+        Error.Validation("startDate", "Start date is required.");
+
+    public static readonly Error AvailabilityBlockStartInvalid =
+        Error.Validation("startDate", $"Start date must be a date in the format {StayWindow.DateFormat}.");
+
+    public static readonly Error AvailabilityBlockEndRequired =
+        Error.Validation("endDate", "End date is required.");
+
+    public static readonly Error AvailabilityBlockEndInvalid =
+        Error.Validation("endDate", $"End date must be a date in the format {StayWindow.DateFormat}.");
+
+    public static readonly Error AvailabilityBlockStartInThePast =
+        Error.Validation("startDate", "Start date cannot be in the past.");
+
+    public static readonly Error AvailabilityBlockStartTooFarAhead =
+        Error.Validation("startDate", $"Dates can be blocked at most {AvailabilityBlock.MaxDaysAhead} days ahead.");
+
+    public static readonly Error AvailabilityBlockEndTooFarAhead =
+        Error.Validation("endDate", $"Dates can be blocked at most {AvailabilityBlock.MaxDaysAhead} days ahead.");
+
+    public static readonly Error AvailabilityBlockEndBeforeStart =
+        Error.Validation("endDate", "End date cannot be before the start date.");
+
+    public static readonly Error AvailabilityBlockReasonTooLong =
+        Error.Validation("reason", $"Reason must be at most {AvailabilityBlock.ReasonMaxLength} characters.");
+
     // --- Regras de negócio ---
 
     /// <summary>
@@ -242,6 +271,13 @@ public static class ListingsErrors
     /// </summary>
     public static readonly Error HostPayoutsNotEnabled =
         new("LISTING_HOST_PAYOUTS_NOT_ENABLED", "Finish the payout setup and wait for Stripe to approve it before creating a listing.");
+
+    /// <summary>
+    /// 422: o cantinho tem reserva em aberto (solicitada, aceita, confirmada ou em andamento). Antes de
+    /// inativar, o anfitrião responde aos pedidos, cancela as reservas que não começaram ou faz o check-out.
+    /// </summary>
+    public static readonly Error HasOpenBooking =
+        new("LISTING_HAS_OPEN_BOOKING", "This listing has open bookings. Answer the requests, cancel the bookings that have not started or check out the stay in progress before deactivating it.");
 
     /// <summary>422: pessoa física já tem o seu cantinho. Só empresa tem vários (um por filial).</summary>
     public static readonly Error LimitReached =
@@ -274,4 +310,18 @@ public static class ListingsErrors
     /// <summary>404: o cantinho não tem foto com esse id.</summary>
     public static Error PhotoNotFound(ListingPhotoId id) =>
         new("LISTING_PHOTO_NOT_FOUND", $"Photo '{id.Value}' was not found.");
+
+    /// <summary>422: o cantinho já tem o máximo de bloqueios em aberto.</summary>
+    public static readonly Error AvailabilityBlockLimitReached =
+        new("LISTING_AVAILABILITY_BLOCK_LIMIT_REACHED", $"A listing can have at most {AvailabilityBlock.MaxOpenBlocks} upcoming blocked periods. Remove one or merge them.");
+
+    /// <summary>422: o período sobrepõe outro bloqueio do cantinho (com as datas dele).</summary>
+    public static Error AvailabilityBlockOverlap(DateOnly startDate, DateOnly endDate) =>
+        new(
+            "LISTING_AVAILABILITY_BLOCK_OVERLAP",
+            string.Create(CultureInfo.InvariantCulture, $"These dates overlap the period already blocked from {startDate:yyyy-MM-dd} to {endDate:yyyy-MM-dd}."));
+
+    /// <summary>404: o cantinho não tem bloqueio com esse id.</summary>
+    public static Error AvailabilityBlockNotFound(AvailabilityBlockId id) =>
+        new("LISTING_AVAILABILITY_BLOCK_NOT_FOUND", $"Blocked period '{id.Value}' was not found.");
 }

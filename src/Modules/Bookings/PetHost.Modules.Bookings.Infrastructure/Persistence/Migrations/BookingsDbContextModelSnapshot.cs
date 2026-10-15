@@ -44,6 +44,14 @@ namespace PetHost.Modules.Bookings.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(10)")
                         .HasColumnName("cancelled_by");
 
+                    b.Property<DateTimeOffset?>("CheckInRemindedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("check_in_reminded_at");
+
+                    b.Property<DateTimeOffset?>("CheckOutRemindedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("check_out_reminded_at");
+
                     b.Property<DateTimeOffset?>("CheckedInAt")
                         .HasColumnType("timestamptz")
                         .HasColumnName("checked_in_at");

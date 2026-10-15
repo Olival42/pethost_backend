@@ -31,7 +31,9 @@ public sealed class AcceptBookingCommandValidator : AbstractValidator<AcceptBook
 /// Só o anfitrião do cantinho, ativo. A capacidade é conferida com o cantinho travado: dois
 /// aceites ao mesmo tempo não passam juntos do limite. Prazo vencido: a reserva expira e o
 /// aceite volta <c>422 BOOKING_RESPONSE_EXPIRED</c>. Tutor suspenso ou inativo desde o pedido:
-/// <c>422 BOOKING_OWNER_INACTIVE</c>, sem gravar. Avisa o tutor por e-mail (aceita, com o prazo
+/// <c>422 BOOKING_OWNER_INACTIVE</c>, sem gravar. Cantinho que não pode mais receber reservas
+/// (inativo, ou o Stripe bloqueou os repasses do anfitrião): <c>422 BOOKING_LISTING_NOT_BOOKABLE</c>,
+/// sem gravar — o anfitrião recusa. Avisa o tutor por e-mail (aceita, com o prazo
 /// para pagar); o anfitrião recebe "confirmada" quando o tutor pagar.
 /// </summary>
 public sealed class AcceptBookingCommandHandler(
@@ -70,6 +72,11 @@ public sealed class AcceptBookingCommandHandler(
         var listing = await bookingListings.FindAsync(booking.ListingId, cancellationToken).ConfigureAwait(false);
         if (listing is null)
             return Result<BookingResponse>.Failure(BookingsErrors.ListingNotFound(booking.ListingId));
+
+        // Cantinho inativo ou anfitrião sem repasses liberados pelo Stripe (bloqueado depois do
+        // pedido): aceitar abriria um pagamento que não teria para onde ser repassado.
+        if (booking.Status == BookingStatus.Requested && !listing.IsBookable)
+            return Result<BookingResponse>.Failure(BookingsErrors.ListingNotBookable);
 
         var accepted = await unitOfWork
             .RunLockedOnListingAsync(

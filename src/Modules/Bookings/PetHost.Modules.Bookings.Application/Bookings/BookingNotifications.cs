@@ -9,7 +9,8 @@ namespace PetHost.Modules.Bookings.Application.Bookings;
 /// caixa de saída, sem segurar o request.
 /// </summary>
 /// <remarks>
-/// O aceite avisa só o tutor ("aceita", com o prazo para pagar). Quando a 1ª parcela é paga, os
+/// O pedido avisa só o anfitrião ("pedido novo", com o prazo para responder). O aceite avisa só
+/// o tutor ("aceita", com o prazo para pagar). Quando a 1ª parcela é paga, os
 /// dois recebem "confirmada" — só aí vão o endereço exato e os telefones.
 /// </remarks>
 public sealed class BookingNotifications(
@@ -17,6 +18,15 @@ public sealed class BookingNotifications(
     IBookingListings bookingListings,
     IBookingNotifier notifier)
 {
+    /// <summary>Pedido novo: aviso ao anfitrião, com o prazo para responder.</summary>
+    public async Task RequestedAsync(Booking booking, BookingResponse response, CancellationToken cancellationToken)
+    {
+        var (owner, host) = await PartiesAsync(booking, cancellationToken).ConfigureAwait(false);
+
+        if (host is not null)
+            await notifier.NotifyRequestedAsync(Notice(host, BookingParty.Host, booking, response, owner), cancellationToken).ConfigureAwait(false);
+    }
+
     /// <summary>Aceita: aviso ao tutor, com o prazo para pagar a 1ª parcela.</summary>
     public async Task AcceptedAsync(Booking booking, BookingResponse response, CancellationToken cancellationToken)
     {
@@ -63,6 +73,42 @@ public sealed class BookingNotifications(
 
         if (host is not null)
             await notifier.NotifyCancelledAsync(Notice(host, BookingParty.Host, booking, response, owner), cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Véspera do check-in: lembrete aos dois lados (o tutor com o endereço exato).</summary>
+    public async Task CheckInReminderAsync(Booking booking, BookingResponse response, CancellationToken cancellationToken)
+    {
+        var (owner, host) = await PartiesAsync(booking, cancellationToken).ConfigureAwait(false);
+
+        if (owner is not null)
+        {
+            var address = await OwnerAddressAsync(booking, cancellationToken).ConfigureAwait(false);
+            await notifier.NotifyCheckInReminderAsync(Notice(owner, BookingParty.Owner, booking, response, host) with { Address = address }, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (host is not null)
+            await notifier.NotifyCheckInReminderAsync(Notice(host, BookingParty.Host, booking, response, owner), cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Dia de saída sem check-out: lembrete ao anfitrião.</summary>
+    public async Task CheckOutReminderAsync(Booking booking, BookingResponse response, CancellationToken cancellationToken)
+    {
+        var (owner, host) = await PartiesAsync(booking, cancellationToken).ConfigureAwait(false);
+
+        if (host is not null)
+            await notifier.NotifyCheckOutReminderAsync(Notice(host, BookingParty.Host, booking, response, owner), cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Check-out feito pela plataforma: aviso aos dois lados.</summary>
+    public async Task AutoCheckedOutAsync(Booking booking, BookingResponse response, CancellationToken cancellationToken)
+    {
+        var (owner, host) = await PartiesAsync(booking, cancellationToken).ConfigureAwait(false);
+
+        if (owner is not null)
+            await notifier.NotifyAutoCheckedOutAsync(Notice(owner, BookingParty.Owner, booking, response, host), cancellationToken).ConfigureAwait(false);
+
+        if (host is not null)
+            await notifier.NotifyAutoCheckedOutAsync(Notice(host, BookingParty.Host, booking, response, owner), cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>O endereço exato só vai para o tutor de reserva que libera contato (escopo, regra 7).</summary>

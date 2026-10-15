@@ -389,15 +389,19 @@ public sealed class ListPaymentIssuesQueryHandlerTests
         var failedRefund = new PaymentBuilder().ForBooking(Guid.CreateVersion7()).WithInstallments(1).BuildPaid(1);
         failedRefund.RecordRefund(1, "re_1", 30_000, RefundStatus.Failed, now.AddDays(2));
 
+        var blockedPayout = new PaymentBuilder().ForBooking(Guid.CreateVersion7()).WithInstallments(1).BuildPaid(1);
+        blockedPayout.RecordTransferFailed(1, PaymentReconciler.HostPayoutsDisabled, now.AddDays(10));
+
         var repository = PaymentsTestData.Repository();
-        repository.Setup(r => r.ListNeedingAttentionAsync(It.IsAny<CancellationToken>())).ReturnsAsync([disputed, failedPayout, failedRefund]);
+        repository.Setup(r => r.ListNeedingAttentionAsync(It.IsAny<CancellationToken>())).ReturnsAsync([disputed, failedPayout, failedRefund, blockedPayout]);
 
         // Act
         var result = await new ListPaymentIssuesQueryHandler(repository.Object).HandleAsync(new ListPaymentIssuesQuery(), CancellationToken.None);
 
         // Assert
-        result.Value!.Select(i => i.Issue).Should().BeEquivalentTo(["dispute_open", "installment_overdue", "payout_failed", "refund_failed"]);
+        result.Value!.Select(i => i.Issue).Should().BeEquivalentTo(["dispute_open", "installment_overdue", "payout_failed", "refund_failed", "payout_blocked"]);
         result.Value!.Single(i => i.Issue == "payout_failed").FailureCode.Should().Be("NO_CONNECTED_ACCOUNT");
+        result.Value!.Single(i => i.Issue == "payout_blocked").FailureCode.Should().Be("HOST_PAYOUTS_DISABLED");
         result.Value!.Single(i => i.Issue == "dispute_open").StripeObjectId.Should().Be("dp_1");
     }
 }
@@ -451,6 +455,18 @@ public sealed class PaymentEffectsPublisherTests
     }
 
     [Fact]
+    public async Task PublishAsync_Should_OnlyAlertTheAdmin_When_ThePayoutIsBlocked()
+    {
+        // Act
+        await PublishAsync(PaymentEffectKind.PayoutBlocked);
+
+        // Assert
+        _notifier.Verify(n => n.AlertAdminAsync(It.Is<PaymentAlert>(a => a.Issue == "payout_blocked" && a.AmountCents == 10_000), It.IsAny<CancellationToken>()), Times.Once);
+        _notifier.Verify(n => n.NotifyAsync(It.IsAny<PaymentNotice>(), It.IsAny<CancellationToken>()), Times.Never);
+        _auditTrail.Verify(a => a.RecordAsync(It.IsAny<AuditRecord>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
     public async Task PublishAsync_Should_OnlyEmail_When_ItIsAReminder()
     {
         // Act
@@ -459,6 +475,17 @@ public sealed class PaymentEffectsPublisherTests
         // Assert
         _notifier.Verify(n => n.NotifyAsync(It.Is<PaymentNotice>(x => x.Kind == PaymentNoticeKind.InstallmentReminder), It.IsAny<CancellationToken>()), Times.Once);
         _auditTrail.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task PublishAsync_Should_OnlyAlertTheAdmin_When_TheOverdueIsEscalated()
+    {
+        // Act
+        await PublishAsync(PaymentEffectKind.InstallmentOverdueEscalated);
+
+        // Assert
+        _notifier.Verify(n => n.AlertAdminAsync(It.Is<PaymentAlert>(a => a.Issue == "installment_overdue_escalated" && a.AmountCents == 10_000), It.IsAny<CancellationToken>()), Times.Once);
+        _notifier.Verify(n => n.NotifyAsync(It.IsAny<PaymentNotice>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]

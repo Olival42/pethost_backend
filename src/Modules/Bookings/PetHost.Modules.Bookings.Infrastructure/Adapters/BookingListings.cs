@@ -12,7 +12,8 @@ namespace PetHost.Modules.Bookings.Infrastructure.Adapters;
 /// </summary>
 internal sealed class BookingListings(
     IListingDirectory listingDirectory,
-    IHostDirectory hostDirectory) : IBookingListings
+    IHostDirectory hostDirectory,
+    TimeProvider timeProvider) : IBookingListings
 {
     public async Task<BookableListing?> FindAsync(Guid listingId, CancellationToken cancellationToken)
     {
@@ -26,6 +27,10 @@ internal sealed class BookingListings(
         // Mesmo critério da busca: cantinho ativo de anfitrião ativo, sem suspensão e com repasses.
         var isBookable = listing.IsActive && host is { IsListable: true };
 
+        var blocked = await listingDirectory
+            .GetBlockedPeriodsAsync(listing.Id, BookingClock.Today(timeProvider.GetUtcNow()), cancellationToken)
+            .ConfigureAwait(false);
+
         return new BookableListing(
             listing.Id,
             listing.HostId,
@@ -36,7 +41,8 @@ internal sealed class BookingListings(
             listing.AcceptsSmall,
             listing.AcceptsMedium,
             listing.AcceptsLarge,
-            listing.AvailableWeekdays);
+            listing.AvailableWeekdays,
+            [.. blocked.Select(period => new ClosedPeriod(period.StartDate, period.EndDate))]);
     }
 
     public async Task<IReadOnlyDictionary<Guid, BookingListingSummary>> GetSummariesAsync(
