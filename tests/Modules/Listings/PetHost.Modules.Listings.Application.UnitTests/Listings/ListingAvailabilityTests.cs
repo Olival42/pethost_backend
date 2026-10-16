@@ -34,7 +34,7 @@ public sealed class ListingAvailabilityTests
 
         _repository.Setup(r => r.GetByIdAsync(_listing.Id, It.IsAny<CancellationToken>())).ReturnsAsync(_listing);
 
-        _addresses.Setup(a => a.GetAsync(ListingsTestData.OwnerUserId, It.IsAny<CancellationToken>()))
+        _addresses.Setup(a => a.GetAsync(ListingsTestData.OwnerUserId, It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ListingBuilder().BuildAddressData());
     }
 
@@ -76,8 +76,9 @@ public sealed class ListingAvailabilityTests
         // Act: 2 pets.
         await Search().HandleAsync(Query(pets: 2), CancellationToken.None);
 
-        // Assert
+        // Assert — as datas seguem para o repositório tirar os cantinhos com a agenda fechada.
         _search!.ExcludedListingIds.Should().Equal(full);
+        _search.Stay.Should().Be(new StayWindow(new DateOnly(2026, 10, 20), new DateOnly(2026, 10, 23)));
     }
 
     [Fact]
@@ -89,6 +90,7 @@ public sealed class ListingAvailabilityTests
         // Assert
         _search!.Filters.MinCapacity.Should().Be(3);
         _search.ExcludedListingIds.Should().BeNullOrEmpty();
+        _search.Stay.Should().BeNull();
         _bookings.Verify(b => b.GetPeakOccupancyAsync(It.IsAny<DateOnly>(), It.IsAny<DateOnly>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
@@ -139,5 +141,6 @@ public sealed class ListingAvailabilityTests
 
         // Assert: sem histórico de reservas, só o que vem do cantinho e do endereço.
         result.Value!.Badges.Should().Equal(ListingBadges.Neighbor, ListingBadges.Yard);
+        _addresses.Verify(a => a.GetAsync(ListingsTestData.OwnerUserId, Roles.Owner, It.IsAny<CancellationToken>()), Times.Once);
     }
 }

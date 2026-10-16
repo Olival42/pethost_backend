@@ -49,3 +49,9 @@ public sealed record ListingAddressRequest(
 /// <summary>Corpo de <c>PUT /listings/{listingId}/photos/order</c>.</summary>
 /// <param name="PhotoIds">Todas as fotos do cantinho, cada uma uma vez, na ordem nova. A primeira é a capa.</param>
 public sealed record ReorderPhotosRequest(IReadOnlyList<Guid>? PhotoIds);
+
+/// <summary>Corpo de <c>POST /listings/{listingId}/availability-blocks</c>.</summary>
+/// <param name="StartDate">Primeiro dia bloqueado, <c>yyyy-MM-dd</c>.</param>
+/// <param name="EndDate">Último dia bloqueado, inclusive (pode ser o mesmo do início).</param>
+/// <param name="Reason">Opcional, até 120 caracteres, só para o anfitrião.</param>
+public sealed record AvailabilityBlockRequest(string? StartDate, string? EndDate, string? Reason);

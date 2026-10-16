@@ -20,6 +20,8 @@
     <ProjectReference Include="..\..\Modules\Bookings\PetHost.Modules.Bookings.Presentation\PetHost.Modules.Bookings.Presentation.csproj" />
     <ProjectReference Include="..\..\Modules\Conversations\PetHost.Modules.Conversations.Infrastructure\PetHost.Modules.Conversations.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Conversations\PetHost.Modules.Conversations.Presentation\PetHost.Modules.Conversations.Presentation.csproj" />
+    <ProjectReference Include="..\..\Modules\Payments\PetHost.Modules.Payments.Infrastructure\PetHost.Modules.Payments.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Payments\PetHost.Modules.Payments.Presentation\PetHost.Modules.Payments.Presentation.csproj" />
   </ItemGroup>
 
   <ItemGroup>

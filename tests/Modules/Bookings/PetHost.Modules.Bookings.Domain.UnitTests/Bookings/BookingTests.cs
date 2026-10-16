@@ -16,7 +16,8 @@ public sealed class BookingRequestTests
         IReadOnlyCollection<BookablePet>? pets = null,
         IReadOnlyCollection<Guid>? busy = null,
         StayPeriod? period = null,
-        ListingOccupancy? occupancy = null) =>
+        ListingOccupancy? occupancy = null,
+        DateTimeOffset? now = null) =>
         Booking.Request(
             BookingBuilder.OwnerId,
             listing ?? BookingBuilder.Listing(),
@@ -25,7 +26,57 @@ public sealed class BookingRequestTests
             pets ?? [BookingBuilder.Pipoca()],
             busy ?? [],
             occupancy ?? ListingOccupancy.Empty,
-            Now);
+            now ?? Now);
+
+    [Fact]
+    public void Request_Should_ReturnCheckInTooSoon_When_CheckInIsLessThan72HoursAway()
+    {
+        // Act: 71h59 antes da meia-noite do dia 20.
+        var result = Request(now: BookingClock.StartOf(BookingBuilder.DefaultCheckIn).AddHours(-72).AddMinutes(1));
+
+        // Assert
+        result.FirstError.Should().Be(BookingsErrors.CheckInTooSoon);
+    }
+
+    [Fact]
+    public void Request_Should_LetTheHostAnswerUntil48HoursBefore_When_CheckInIsExactly72HoursAway()
+    {
+        // Arrange
+        var now = BookingClock.StartOf(BookingBuilder.DefaultCheckIn).AddHours(-72);
+
+        // Act
+        var booking = Request(now: now).Value!;
+
+        // Assert
+        booking.ResponseDeadline.Should().Be(Booking.LatestAcceptance(BookingBuilder.DefaultCheckIn));
+        booking.ResponseDeadline.Should().Be(now.AddHours(24));
+    }
+
+    [Fact]
+    public void LatestAcceptance_Should_Be48HoursBeforeMidnightOfTheCheckInDay()
+    {
+        // Act
+        var latest = Booking.LatestAcceptance(new DateOnly(2026, 10, 20));
+
+        // Assert: 18/10 00:00 em Brasília.
+        latest.Should().Be(new DateTimeOffset(2026, 10, 18, 0, 0, 0, BookingClock.LocalOffset));
+    }
+
+    [Theory]
+    [InlineData(0, 0, 19)] // 18/10 00:00: chegada dia 20 está a exatas 48h, ainda aceitável.
+    [InlineData(0, 1, 20)] // 18/10 00:01: chegada dia 20 já não dá.
+    [InlineData(23, 59, 20)]
+    public void LastCheckInClosedToAcceptance_Should_FollowThe48HourCutoff(int hour, int minute, int expectedDay)
+    {
+        // Arrange
+        var now = new DateTimeOffset(2026, 10, 18, hour, minute, 0, BookingClock.LocalOffset);
+
+        // Act
+        var closed = Booking.LastCheckInClosedToAcceptance(now);
+
+        // Assert
+        closed.Should().Be(new DateOnly(2026, 10, expectedDay));
+    }
 
     [Fact]
     public void Request_Should_CreateRequestedBookingWithTotalPrice_When_EverythingIsValid()
@@ -173,7 +224,7 @@ public sealed class BookingTransitionsTests
     // ----- aceitar -----
 
     [Fact]
-    public void Accept_Should_ConfirmAndOccupyCapacity_When_RequestedWithinTheDeadline()
+    public void Accept_Should_AwaitPaymentAndHoldCapacity_When_RequestedWithinTheDeadline()
     {
         // Arrange
         var booking = new BookingBuilder().Build();
@@ -184,10 +235,12 @@ public sealed class BookingTransitionsTests
 
         // Assert
         result.IsSuccess.Should().BeTrue();
-        booking.Status.Should().Be(BookingStatus.Confirmed);
+        booking.Status.Should().Be(BookingStatus.Accepted);
         booking.RespondedAt.Should().Be(at);
-        booking.ConfirmedAt.Should().Be(at);
+        booking.ConfirmedAt.Should().BeNull();
+        booking.PaymentDeadline.Should().Be(at + Booking.PaymentWindow);
         booking.OccupiesCapacity.Should().BeTrue();
+        booking.RevealsContact.Should().BeFalse();
     }
 
     [Fact]
@@ -290,22 +343,6 @@ public sealed class BookingTransitionsTests
         expired.Should().BeTrue();
         booking.Status.Should().Be(BookingStatus.Expired);
         booking.ExpiredAt.Should().Be(at);
-    }
-
-    [Fact]
-    public void Expire_Should_CloseTheRequest_When_CheckInDayPassedEvenWithin24Hours()
-    {
-        // Arrange: pedido feito às 23h do dia da chegada; à 01h do dia seguinte ainda não deu 24h.
-        var lastMinute = new BookingBuilder()
-            .WithPeriod(new DateOnly(2026, 10, 11), new DateOnly(2026, 10, 13))
-            .RequestedAt(BookingClock.StartOf(new DateOnly(2026, 10, 11)).AddHours(23))
-            .Build();
-
-        // Act
-        var expired = lastMinute.Expire(BookingClock.StartOf(new DateOnly(2026, 10, 12)).AddHours(1));
-
-        // Assert
-        expired.Should().BeTrue();
     }
 
     [Fact]

@@ -329,13 +329,14 @@ public sealed class HostLifecycleTests
         Is(_individual);
 
         // Act
-        var result = await new SuspendHostCommandHandler(_hosts.Object, _unitOfWork.Object, _accounts.Object, _auditTrail.Object, _time)
+        var result = await new SuspendHostCommandHandler(_hosts.Object, _unitOfWork.Object, _accounts.Object, _bookings.Object, _auditTrail.Object, _time)
             .HandleAsync(new SuspendHostCommand(AdminId, _individual.Id.Value, "Documento de terceiro"), CancellationToken.None);
 
         // Assert
         result.Value!.SuspendedAt.Should().NotBeNull();
         _accounts.Verify(a => a.SuspendAsync(UserId, "Documento de terceiro", AdminId, It.IsAny<CancellationToken>()), Times.Once);
         _auditTrail.Verify(a => a.RecordAsync(It.Is<AuditRecord>(r => r.Action == AuditActions.HostSuspended && r.Reason == "Documento de terceiro"), It.IsAny<CancellationToken>()), Times.Once);
+        _bookings.Verify(b => b.CancelForSuspensionAsync(_individual.Id.Value, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -347,19 +348,20 @@ public sealed class HostLifecycleTests
             .ReturnsAsync(Result.Failure(new Error("AUTH_ADMIN_SUSPENSION_FORBIDDEN", "x")));
 
         // Act
-        var result = await new SuspendHostCommandHandler(_hosts.Object, _unitOfWork.Object, _accounts.Object, _auditTrail.Object, _time)
+        var result = await new SuspendHostCommandHandler(_hosts.Object, _unitOfWork.Object, _accounts.Object, _bookings.Object, _auditTrail.Object, _time)
             .HandleAsync(new SuspendHostCommand(AdminId, _individual.Id.Value, "x"), CancellationToken.None);
 
         // Assert
         result.FirstError!.Code.Should().Be("AUTH_ADMIN_SUSPENSION_FORBIDDEN");
         _individual.IsSuspended.Should().BeFalse();
+        _bookings.Verify(b => b.CancelForSuspensionAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
     public async Task Suspend_Should_ReturnNotFound_When_HostDoesNotExist()
     {
         // Act
-        var result = await new SuspendHostCommandHandler(_hosts.Object, _unitOfWork.Object, _accounts.Object, _auditTrail.Object, _time)
+        var result = await new SuspendHostCommandHandler(_hosts.Object, _unitOfWork.Object, _accounts.Object, _bookings.Object, _auditTrail.Object, _time)
             .HandleAsync(new SuspendHostCommand(AdminId, Guid.CreateVersion7(), "x"), CancellationToken.None);
 
         // Assert

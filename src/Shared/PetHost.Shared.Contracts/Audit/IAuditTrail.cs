@@ -63,6 +63,10 @@ public static class AuditTargets
     /// <summary>Denúncia de mensagem do chat (módulo Conversations). O id é o da denúncia.</summary>
     public const string ConversationReport = "conversation_report";
 
+
+    /// <summary>Pagamento de uma reserva (módulo Payments). O id é o do pagamento.</summary>
+    public const string Payment = "payment";
+
     /// <summary>A própria trilha (consulta do admin).</summary>
     public const string Audit = "audit";
 }
@@ -175,20 +179,29 @@ public static class AuditActions
     public const string ListingDeactivated = "listing.deactivated";
     public const string ListingReactivated = "listing.reactivated";
 
+    /// <summary>O anfitrião fechou datas na agenda do cantinho (período nos detalhes; o motivo não entra).</summary>
+    public const string ListingDatesBlocked = "listing.dates_blocked";
+
+    /// <summary>O anfitrião reabriu datas que tinha fechado na agenda.</summary>
+    public const string ListingDatesUnblocked = "listing.dates_unblocked";
+
     // --- Reserva (Bookings) ---
 
     /// <summary>O tutor pediu a estadia.</summary>
     public const string BookingRequested = "booking.requested";
 
-    /// <summary>O anfitrião aceitou (sem o módulo de pagamento, já confirma).</summary>
+    /// <summary>O anfitrião aceitou: o tutor tem 24h para pagar a 1ª parcela.</summary>
     public const string BookingAccepted = "booking.accepted";
+
+    /// <summary>A 1ª parcela foi paga (confirmação do Stripe): a reserva está confirmada.</summary>
+    public const string BookingConfirmed = "booking.confirmed";
 
     public const string BookingDeclined = "booking.declined";
 
-    /// <summary>Pedido sem resposta no prazo, fechado pela tarefa em segundo plano.</summary>
+    /// <summary>Pedido sem resposta (ou aceite sem pagamento) no prazo, fechado pela tarefa em segundo plano.</summary>
     public const string BookingExpired = "booking.expired";
 
-    /// <summary>Cancelada pelo tutor ou pelo anfitrião (quem e o reembolso vão nos detalhes).</summary>
+    /// <summary>Cancelada pelo tutor, pelo anfitrião ou pela plataforma (parcela não paga); quem e o reembolso vão nos detalhes.</summary>
     public const string BookingCancelled = "booking.cancelled";
 
     /// <summary>O anfitrião marcou "chegou".</summary>
@@ -225,6 +238,36 @@ public static class AuditActions
 
     /// <summary>Admin listou as denúncias (com as mensagens denunciadas).</summary>
     public const string ConversationReportsListed = "conversation.reports_listed";
+
+
+    // --- Pagamento (Payments) ---
+
+    /// <summary>O tutor escolheu em quantas parcelas paga (ou trocou, antes de pagar).</summary>
+    public const string PaymentPlanChosen = "payment.plan_chosen";
+
+    /// <summary>Uma parcela foi paga (confirmação do Stripe), com o número e o meio (cartão ou Pix).</summary>
+    public const string PaymentInstallmentPaid = "payment.installment_paid";
+
+    /// <summary>Parcela venceu depois do check-in e passou da tolerância: em atraso.</summary>
+    public const string PaymentInstallmentOverdue = "payment.installment_overdue";
+
+    /// <summary>Reembolso pedido ao Stripe para uma parcela (valor em centavos).</summary>
+    public const string PaymentRefundCreated = "payment.refund_created";
+
+    /// <summary>O Stripe não conseguiu devolver o reembolso: o admin resolve.</summary>
+    public const string PaymentRefundFailed = "payment.refund_failed";
+
+    /// <summary>Repasse ao anfitrião feito (transferência para a conta conectada).</summary>
+    public const string PaymentPayoutTransferred = "payment.payout_transferred";
+
+    /// <summary>Repasse estornado do anfitrião (contestação perdida depois do repasse).</summary>
+    public const string PaymentPayoutReversed = "payment.payout_reversed";
+
+    /// <summary>O tutor contestou a cobrança no cartão (chargeback): repasse retido.</summary>
+    public const string PaymentDisputeOpened = "payment.dispute_opened";
+
+    /// <summary>A contestação foi decidida (ganha ou perdida, nos detalhes).</summary>
+    public const string PaymentDisputeClosed = "payment.dispute_closed";
 
     // --- Auditoria ---
     public const string AuditSearched = "audit.searched";

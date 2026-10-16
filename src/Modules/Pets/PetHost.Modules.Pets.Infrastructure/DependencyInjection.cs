@@ -10,6 +10,7 @@ using PetHost.Modules.Pets.Application.Pets.ListMyPets;
 using PetHost.Modules.Pets.Application.Pets.ReactivatePet;
 using PetHost.Modules.Pets.Application.Pets.RegisterPet;
 using PetHost.Modules.Pets.Application.Pets.RemovePetPhoto;
+using PetHost.Modules.Pets.Application.Pets.ReorderPetPhotos;
 using PetHost.Modules.Pets.Application.Pets.ReplacePetPhoto;
 using PetHost.Modules.Pets.Application.Pets.Responses;
 using PetHost.Modules.Pets.Application.Pets.UpdatePet;
@@ -62,6 +63,7 @@ public static class DependencyInjection
         services.AddValidatedCommandHandler<AddPetPhotoCommandHandler, AddPetPhotoCommand, PetResponse>();
         services.AddValidatedCommandHandler<ReplacePetPhotoCommandHandler, ReplacePetPhotoCommand, PetResponse>();
         services.AddValidatedCommandHandler<RemovePetPhotoCommandHandler, RemovePetPhotoCommand, PetResponse>();
+        services.AddValidatedCommandHandler<ReorderPetPhotosCommandHandler, ReorderPetPhotosCommand, PetResponse>();
 
         services.AddScoped<IQueryHandler<GetPetByIdQuery, PetResponse>, GetPetByIdQueryHandler>();
         services.AddScoped<IQueryHandler<ListMyPetsQuery, KeeperPetsResponse>, ListMyPetsQueryHandler>();

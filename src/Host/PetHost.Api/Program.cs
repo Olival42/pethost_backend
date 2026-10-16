@@ -34,6 +34,9 @@ using PetHost.Modules.Bookings.Presentation;
 using PetHost.Modules.Conversations.Application;
 using PetHost.Modules.Conversations.Infrastructure;
 using PetHost.Modules.Conversations.Presentation;
+using PetHost.Modules.Payments.Application;
+using PetHost.Modules.Payments.Infrastructure;
+using PetHost.Modules.Payments.Presentation;
 using PetHost.Shared.Infrastructure.Email;
 using PetHost.Shared.Infrastructure.Http;
 using PetHost.Shared.Infrastructure.Identity;
@@ -79,6 +82,7 @@ builder.Services
     .AddListingsPresentation()
     .AddBookingsPresentation()
     .AddConversationsPresentation()
+    .AddPaymentsPresentation()
     .AddAuditPresentation()
     .AddStripeWebhooks();
 
@@ -105,7 +109,8 @@ builder.Services.AddEmail(builder.Configuration);
 builder.Services.AddImageStorage(builder.Configuration);
 
 // --- Stripe (modo de teste): cliente da API e o endpoint único de webhooks.
-//     Cada módulo registra o que trata (o Hosts: account.updated das contas conectadas). ---
+//     Cada módulo registra o que trata (o Hosts: account.updated das contas conectadas;
+//     o Payments: cobranças, reembolsos e contestações). ---
 builder.Services.AddStripe(builder.Configuration);
 
 // --- CPF identifica a pessoa: a mesma pessoa (e-mail) em tutor e anfitrião (restrição 9) ---
@@ -142,6 +147,11 @@ builder.Services.AddBookingsInfrastructure(builder.Configuration);
 // --- Módulo Conversations (chat): conversa por dupla tutor–anfitrião, texto e foto, hub em tempo real ---
 builder.Services.AddConversationsApplication();
 builder.Services.AddConversationsInfrastructure(builder.Configuration);
+
+
+// --- Módulo Payments (pagamentos): parcelas com Pix/cartão, webhook, reembolso, repasse e contestação ---
+builder.Services.AddPaymentsApplication();
+builder.Services.AddPaymentsInfrastructure(builder.Configuration);
 
 // --- Autenticação ---
 var jwtOptions = builder.Configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>()
@@ -276,6 +286,9 @@ await app.Services.InitializeBookingsModuleAsync(
     applyMigrations: app.Environment.IsDevelopment());
 
 await app.Services.InitializeConversationsModuleAsync(
+    applyMigrations: app.Environment.IsDevelopment());
+
+await app.Services.InitializePaymentsModuleAsync(
     applyMigrations: app.Environment.IsDevelopment());
 
 await app.RunAsync();

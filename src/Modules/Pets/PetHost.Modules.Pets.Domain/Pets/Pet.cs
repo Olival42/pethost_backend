@@ -166,6 +166,38 @@ public sealed class Pet : Entity<PetId>
         return Result<PetPhoto>.Success(photo);
     }
 
+    /// <summary>
+    /// Põe as fotos na ordem de <paramref name="photoIds"/>: a primeira vira a capa (vaga 1) e as
+    /// outras ocupam as vagas seguintes, sem buraco. Id que não é foto deste pet:
+    /// <c>PET_PHOTO_NOT_FOUND</c> (404). A lista precisa ter <b>todas</b> as fotos, cada uma uma
+    /// vez; faltando ou repetida: <c>VALIDATION_ERROR</c> em <c>photoIds</c>. Mesma ordem e já sem
+    /// buraco não é alteração. Devolve se mudou.
+    /// </summary>
+    public Result<bool> ReorderPhotos(IReadOnlyList<PetPhotoId> photoIds, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(photoIds);
+
+        // Id que não é foto deste pet é 404, como nas outras rotas de foto.
+        var unknown = photoIds.Where(id => !HasPhoto(id)).Select(id => (PetPhotoId?)id).FirstOrDefault();
+        if (unknown is { } missing)
+            return Result<bool>.Failure(PetsErrors.PhotoNotFound(missing));
+
+        var isSameSet = photoIds.Count == _photos.Count && photoIds.Distinct().Count() == photoIds.Count;
+        if (!isSameSet)
+            return Result<bool>.Failure(PetsErrors.PhotoOrderInvalid);
+
+        var ordered = photoIds.Select(id => _photos.First(photo => photo.Id == id)).ToList();
+        if (ordered.Select(photo => photo.Position).SequenceEqual(Enumerable.Range(1, ordered.Count)))
+            return Result<bool>.Success(false);
+
+        for (var index = 0; index < ordered.Count; index++)
+            ordered[index].MoveTo(index + 1);
+
+        UpdatedAt = now;
+
+        return Result<bool>.Success(true);
+    }
+
     /// <summary>Desativa. Idempotente: desativar um pet inativo não muda nada.</summary>
     public void Deactivate(DateTimeOffset now)
     {

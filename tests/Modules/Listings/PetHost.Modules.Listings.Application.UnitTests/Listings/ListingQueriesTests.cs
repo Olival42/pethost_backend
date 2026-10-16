@@ -168,7 +168,7 @@ public sealed class SearchListingsQueryHandlerTests
             .Callback<ListingSearch, CancellationToken>((search, _) => _search = search)
             .ReturnsAsync(([new FoundListing(ListingsTestData.IndividualListing(), 2.345)], 1L));
 
-        _addresses.Setup(a => a.GetAsync(ListingsTestData.OwnerUserId, It.IsAny<CancellationToken>()))
+        _addresses.Setup(a => a.GetAsync(ListingsTestData.OwnerUserId, It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ListingBuilder().BuildAddressData());
 
         _sut = new SearchListingsQueryHandler(_repository.Object, ListingsTestData.Hosts().Object, _addresses.Object, _geocoder.Object, ListingsTestData.Bookings().Object, new FakeTimeProvider(ListingBuilder.DefaultNow));
@@ -190,6 +190,18 @@ public sealed class SearchListingsQueryHandlerTests
         _geocoder.Verify(g => g.LocateAsync(It.Is<ListingAddressData>(a => a.Neighborhood == "Zona 7"), It.IsAny<CancellationToken>()), Times.Once);
     }
 
+    [Theory]
+    [InlineData(Roles.Host)]
+    [InlineData(Roles.Owner)]
+    public async Task HandleAsync_Should_AskTheAddressOfTheTokenRole(string role)
+    {
+        // Act: quem decide entre o endereço da empresa e o da conta é a porta, pelo papel do token.
+        await _sut.HandleAsync(new SearchListingsQuery(ListingsTestData.OwnerUserId, Role: role), CancellationToken.None);
+
+        // Assert
+        _addresses.Verify(a => a.GetAsync(ListingsTestData.OwnerUserId, role, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
     [Fact]
     public async Task HandleAsync_Should_SearchAroundTheGivenPointWithoutTheMap_When_CoordinatesAreSent()
     {
@@ -200,7 +212,7 @@ public sealed class SearchListingsQueryHandlerTests
         result.IsSuccess.Should().BeTrue();
         _search!.Area!.Origin.Latitude.Should().Be(-23.4m);
         _search.Area.Origin.Longitude.Should().Be(-51.9m);
-        _addresses.Verify(a => a.GetAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Once, "o endereço só é lido para o selo Vizinho; o mapa não é consultado");
+        _addresses.Verify(a => a.GetAsync(It.IsAny<Guid>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Once, "o endereço só é lido para o selo Vizinho; o mapa não é consultado");
         _geocoder.Verify(g => g.LocateAsync(It.IsAny<ListingAddressData>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
@@ -229,7 +241,7 @@ public sealed class SearchListingsQueryHandlerTests
     public async Task HandleAsync_Should_ReturnAddressRequired_When_AccountHasNoAddress()
     {
         // Arrange
-        _addresses.Setup(a => a.GetAsync(ListingsTestData.OwnerUserId, It.IsAny<CancellationToken>())).ReturnsAsync((ListingAddressData?)null);
+        _addresses.Setup(a => a.GetAsync(ListingsTestData.OwnerUserId, It.IsAny<string?>(), It.IsAny<CancellationToken>())).ReturnsAsync((ListingAddressData?)null);
 
         // Act
         var result = await _sut.HandleAsync(new SearchListingsQuery(ListingsTestData.OwnerUserId), CancellationToken.None);
@@ -284,7 +296,7 @@ public sealed class SearchListingsQueryHandlerTests
         _search!.Area.Should().BeNull();
         _search.Filters.Should().Be(new ListingFilters(State: "PR", City: "Maringá", Neighborhood: "Zona 7"));
         result.Value!.Items.Should().ContainSingle().Which.DistanceKm.Should().BeNull();
-        _addresses.Verify(a => a.GetAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Once, "o endereço só é lido para o selo Vizinho; o mapa não é consultado");
+        _addresses.Verify(a => a.GetAsync(It.IsAny<Guid>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Once, "o endereço só é lido para o selo Vizinho; o mapa não é consultado");
         _geocoder.Verify(g => g.LocateAsync(It.IsAny<ListingAddressData>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 

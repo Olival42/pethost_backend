@@ -1,7 +1,8 @@
 namespace PetHost.Modules.Listings.Application.Abstractions;
 
 /// <summary>
-/// Porta para as reservas (módulo Bookings): vaga por período e os números dos selos. §5: a
+/// Porta para as reservas (módulo Bookings): vaga por período, os números dos selos e se o
+/// cantinho tem reserva em aberto (que barra a inativação). §5: a
 /// Application declara a interface; a Infrastructure implementa via <c>Shared.Contracts</c>.
 /// </summary>
 public interface IListingBookings
@@ -11,6 +12,9 @@ public interface IListingBookings
     /// mesma noite. Cantinho vazio no período não aparece.
     /// </summary>
     Task<IReadOnlyDictionary<Guid, int>> GetPeakOccupancyAsync(DateOnly checkIn, DateOnly checkOut, CancellationToken cancellationToken);
+
+    /// <summary>O cantinho tem reserva em aberto (solicitada, aceita, confirmada ou em andamento)?</summary>
+    Task<bool> HasOpenBookingAsync(Guid listingId, CancellationToken cancellationToken);
 
     /// <summary>Números de cada anfitrião (estadias concluídas, tempo médio de resposta). Sem reserva, não aparece.</summary>
     Task<IReadOnlyDictionary<Guid, HostTrackRecord>> GetTrackRecordsAsync(

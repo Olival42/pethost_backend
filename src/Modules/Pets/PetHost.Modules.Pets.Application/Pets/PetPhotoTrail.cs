@@ -3,10 +3,10 @@ using PetHost.Shared.Contracts.Audit;
 
 namespace PetHost.Modules.Pets.Application.Pets;
 
-/// <summary>Registro na trilha das mudanças nas fotos do pet (adicionar, substituir, tirar).</summary>
+/// <summary>Registro na trilha das mudanças nas fotos do pet (adicionar, substituir, tirar, reordenar).</summary>
 internal static class PetPhotoTrail
 {
-    /// <param name="change"><c>photos.added</c>, <c>photos.replaced</c> ou <c>photos.removed</c>.</param>
+    /// <param name="change"><c>photos.added</c>, <c>photos.replaced</c>, <c>photos.removed</c> ou <c>photos.reordered</c>.</param>
     public static Task RecordAsync(IAuditTrail auditTrail, Pet pet, string change, CancellationToken cancellationToken) =>
         auditTrail.RecordAsync(
             new AuditRecord(

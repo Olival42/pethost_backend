@@ -100,15 +100,26 @@ public sealed class BookingBuilder
             : throw new InvalidOperationException($"Invalid test booking: {booking.FirstError!.Message}");
     }
 
-    /// <summary>A reserva já aceita (Confirmada), logo depois do pedido.</summary>
-    public Booking BuildConfirmed()
+    /// <summary>A reserva aceita pelo anfitrião (esperando a 1ª parcela), 1h depois do pedido.</summary>
+    public Booking BuildAccepted()
     {
         var booking = Build();
         var accepted = booking.Accept(_listing, ListingOccupancy.Empty, _now.AddHours(1));
 
         return accepted.IsSuccess
             ? booking
-            : throw new InvalidOperationException($"Could not confirm test booking: {accepted.FirstError!.Message}");
+            : throw new InvalidOperationException($"Could not accept test booking: {accepted.FirstError!.Message}");
+    }
+
+    /// <summary>A reserva confirmada: aceita e com a 1ª parcela paga, 2h depois do pedido.</summary>
+    public Booking BuildConfirmed()
+    {
+        var booking = BuildAccepted();
+        var confirmed = booking.ConfirmPayment(_now.AddHours(2));
+
+        return confirmed.IsSuccess
+            ? booking
+            : throw new InvalidOperationException($"Could not confirm test booking: {confirmed.FirstError!.Message}");
     }
 
     /// <summary>A reserva com check-in feito (Em andamento), no dia da chegada.</summary>

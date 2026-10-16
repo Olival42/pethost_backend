@@ -12,6 +12,7 @@ using PetHost.Modules.Conversations.Infrastructure.Persistence;
 using PetHost.Modules.Hosts.Domain.Hosts;
 using PetHost.Modules.Hosts.Infrastructure.Persistence;
 using PetHost.Modules.Owners.Infrastructure.Persistence;
+using PetHost.Shared.Contracts.Bookings;
 using PetHost.TestKit;
 
 namespace PetHost.Modules.Conversations.IntegrationTests;
@@ -80,24 +81,39 @@ internal sealed class ConversationsScenario(ConversationsApiFixture fixture, Htt
     }
 
     /// <summary>
-    /// Uma estadia em andamento da dupla: pedido para hoje, aceite (sem o pagamento, aceitar já
-    /// confirma) e check-in. Devolve o id da reserva.
+    /// Uma estadia em andamento da dupla, como nos testes do Bookings: pedido com antecedência,
+    /// aceite, 1ª parcela paga (o Payments confirma pelo contrato <see cref="IBookingPaymentOutcomes"/>),
+    /// o dia da chegada (o período passa a começar hoje, por SQL) e check-in. Devolve o id da reserva.
     /// </summary>
     public async Task<Guid> StartStayAsync(Pair pair)
     {
         var bookingId = await RequestStayAsync(pair);
 
         (await SendAsync(HttpMethod.Post, $"/api/v1/bookings/{bookingId}/acceptance", pair.HostToken)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        await using (var scope = fixture.Services.CreateAsyncScope())
+        {
+            var outcomes = scope.ServiceProvider.GetRequiredService<IBookingPaymentOutcomes>();
+            (await outcomes.ConfirmPaidAsync(bookingId, Ct)).Should().Be(BookingPaymentOutcome.Done);
+        }
+
+        var today = BookingClock.Today(DateTimeOffset.UtcNow);
+        await fixture.ExecuteAsync(
+            $"UPDATE booking.bookings SET check_in_date = '{Iso(today)}', check_out_date = '{Iso(today.AddDays(2))}' WHERE id = '{bookingId}'");
+
         (await SendAsync(HttpMethod.Post, $"/api/v1/bookings/{bookingId}/check-in", pair.HostToken)).StatusCode.Should().Be(HttpStatusCode.OK);
 
         return bookingId;
     }
 
-    /// <summary>Um pedido de estadia (fica em aberto, <c>requested</c>) da Pipoca para hoje.</summary>
+    /// <summary>
+    /// Um pedido de estadia (fica em aberto, <c>requested</c>) da Pipoca, chegando daqui a 4 dias: o
+    /// pedido exige 72h de antecedência.
+    /// </summary>
     public async Task<Guid> RequestStayAsync(Pair pair)
     {
         var petId = await RegisterPetAsync(pair.OwnerToken, "Pipoca");
-        var today = BookingClock.Today(DateTimeOffset.UtcNow);
+        var today = BookingClock.Today(DateTimeOffset.UtcNow).AddDays(4);
 
         var response = await SendAsync(HttpMethod.Post, "/api/v1/bookings", pair.OwnerToken, new
         {

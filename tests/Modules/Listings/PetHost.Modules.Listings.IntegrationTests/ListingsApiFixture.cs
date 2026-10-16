@@ -5,6 +5,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using PetHost.Modules.Bookings.Infrastructure;
 using PetHost.Modules.Bookings.Infrastructure.Persistence;
+using PetHost.Modules.Payments.Infrastructure;
+using PetHost.Modules.Payments.Infrastructure.Persistence;
 using PetHost.Modules.Audit.Infrastructure;
 using PetHost.Modules.Audit.Infrastructure.Persistence;
 using PetHost.Modules.Auth.Infrastructure;
@@ -81,6 +83,7 @@ public sealed class ListingsApiFixture : IAsyncLifetime
 
             builder.UseSetting("RateLimiting:Enabled", "false");
             builder.UseSetting("BookingExpiration:Enabled", "false");
+            builder.UseSetting("Payments:MaintenanceEnabled", "false");
 
             builder.UseSetting("Email:Host", "smtp.invalid");
             builder.UseSetting("Email:FromAddress", "no-reply@pethost.test");
@@ -102,6 +105,7 @@ public sealed class ListingsApiFixture : IAsyncLifetime
         await Services.InitializeHostsModuleAsync(applyMigrations: true);
         await Services.InitializeListingsModuleAsync(applyMigrations: true);
         await Services.InitializeBookingsModuleAsync(applyMigrations: true);
+        await Services.InitializePaymentsModuleAsync(applyMigrations: true);
 
         _connection = new NpgsqlConnection(_postgres.GetConnectionString());
         await _connection.OpenAsync();
@@ -109,7 +113,7 @@ public sealed class ListingsApiFixture : IAsyncLifetime
         _respawner = await Respawner.CreateAsync(_connection, new RespawnerOptions
         {
             DbAdapter = DbAdapter.Postgres,
-            SchemasToInclude = [AuthDbContext.Schema, OwnersDbContext.Schema, AuditDbContext.Schema, HostsDbContext.Schema, ListingsDbContext.Schema, BookingsDbContext.Schema, EmailDbContext.Schema],
+            SchemasToInclude = [AuthDbContext.Schema, OwnersDbContext.Schema, AuditDbContext.Schema, HostsDbContext.Schema, ListingsDbContext.Schema, BookingsDbContext.Schema, PaymentsDbContext.Schema, EmailDbContext.Schema],
             TablesToIgnore =
             [
                 new Table(AuthDbContext.Schema, AuthDbContext.MigrationsHistoryTable),
@@ -118,6 +122,7 @@ public sealed class ListingsApiFixture : IAsyncLifetime
                 new Table(HostsDbContext.Schema, HostsDbContext.MigrationsHistoryTable),
                 new Table(ListingsDbContext.Schema, ListingsDbContext.MigrationsHistoryTable),
                 new Table(BookingsDbContext.Schema, BookingsDbContext.MigrationsHistoryTable),
+                new Table(PaymentsDbContext.Schema, PaymentsDbContext.MigrationsHistoryTable),
                 new Table(EmailDbContext.Schema, EmailDbContext.MigrationsHistoryTable),
             ],
         });

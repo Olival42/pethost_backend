@@ -40,6 +40,13 @@
       e a convencao do xUnit para [CollectionDefinition].
     -->
     <NoWarn>$(NoWarn);CA1707;CA1711</NoWarn>
+    <!--
+      Todo `dotnet test` ja mede a cobertura: um cobertura.xml por projeto em
+      artifacts/coverage (nome fixo, cada execucao sobrescreve a anterior), com o filtro do
+      coverage.settings.xml. O relatorio com os percentuais sai do ReportGenerator
+      (PROJECT_STANDARDS, secao 14).
+    -->
+    <TestingPlatformCommandLineArguments>$(TestingPlatformCommandLineArguments) --coverage --coverage-output-format cobertura --coverage-output $(MSBuildProjectName).cobertura.xml --coverage-settings "$(MSBuildThisFileDirectory)coverage.settings.xml" --results-directory "$(MSBuildThisFileDirectory)artifacts/coverage"</TestingPlatformCommandLineArguments>
   </PropertyGroup>
 
 </Project>

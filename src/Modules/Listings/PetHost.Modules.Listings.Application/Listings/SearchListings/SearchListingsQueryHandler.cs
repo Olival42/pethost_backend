@@ -23,8 +23,9 @@ namespace PetHost.Modules.Listings.Application.Listings.SearchListings;
 /// <c>422 LISTING_SEARCH_ADDRESS_NOT_LOCATED</c>; mapa fora do ar: <c>503 LISTING_GEOCODER_UNAVAILABLE</c>.
 /// <para>
 /// Com datas (<c>checkIn</c> + <c>checkOut</c>) e quantos pets vão (<c>pets</c>, padrão 1): só
-/// cantinhos que recebem em todos os dias do período (como o pedido de reserva) e com vaga para
-/// todos os pets em todas as noites, contando as estadias confirmadas e em andamento. Cada item
+/// cantinhos que recebem em todos os dias do período (como o pedido de reserva), sem nenhum desses
+/// dias bloqueado na agenda e com vaga para todos os pets em todas as noites, contando as
+/// estadias aceitas, confirmadas e em andamento. Cada item
 /// sai com os selos automáticos (<see cref="ListingBadges"/>).
 /// </para>
 /// </remarks>
@@ -67,7 +68,7 @@ public sealed class SearchListingsQueryHandler(
         filters = WithStay(filters, stay, query.Pets);
 
         // Endereço de quem busca: origem da busca por raio e base do selo "Vizinho".
-        var viewerAddress = await accountAddresses.GetAsync(query.UserId, cancellationToken).ConfigureAwait(false);
+        var viewerAddress = await accountAddresses.GetAsync(query.UserId, query.Role, cancellationToken).ConfigureAwait(false);
 
         SearchArea? area = null;
         if (IsRadiusSearch(query, filters))
@@ -83,7 +84,7 @@ public sealed class SearchListingsQueryHandler(
         var full = stay is null ? [] : await FullListingsAsync(stay, pets, cancellationToken).ConfigureAwait(false);
 
         var (items, total) = await listingRepository
-            .SearchAsync(new ListingSearch(area, filters, unavailableHosts, query.Page, query.PageSize, full), cancellationToken)
+            .SearchAsync(new ListingSearch(area, filters, unavailableHosts, query.Page, query.PageSize, full, stay), cancellationToken)
             .ConfigureAwait(false);
 
         var hostIds = items.Select(item => item.Listing.HostId).Distinct().ToList();

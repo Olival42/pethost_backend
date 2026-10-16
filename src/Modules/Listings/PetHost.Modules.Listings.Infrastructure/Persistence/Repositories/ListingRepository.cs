@@ -54,6 +54,13 @@ internal sealed class ListingRepository(ListingsDbContext dbContext) : IListingR
             matching = matching.Where(l => !fullIds.Contains(l.Id));
         }
 
+        // Algum dia do período (da chegada à saída, inclusive) bloqueado na agenda.
+        if (search.Stay is { } stay)
+        {
+            matching = matching.Where(l => !dbContext.AvailabilityBlocks.Any(
+                b => b.ListingId == l.Id && b.StartDate <= stay.CheckOut && b.EndDate >= stay.CheckIn));
+        }
+
         var ranked = search.Area is { } area
             ? WithinRadius(matching, area)
             : matching

@@ -211,10 +211,6 @@ namespace PetHost.Modules.Pets.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("uq_pet_photos_pet_id_content_hash")
                         .HasFilter("content_hash IS NOT NULL");
 
-                    b.HasIndex("PetId", "Position")
-                        .IsUnique()
-                        .HasDatabaseName("uq_pet_photos_pet_id_position");
-
                     b.ToTable("pet_photos", "pet", t =>
                         {
                             t.HasCheckConstraint("ck_pet_photos_position", "position BETWEEN 1 AND 3");

@@ -20,6 +20,7 @@ public sealed class OwnerAdminTests
     private readonly Mock<IOwnerRepository> _ownerRepository = new();
     private readonly Mock<IOwnersUnitOfWork> _unitOfWork = new();
     private readonly Mock<IOwnerAccounts> _ownerAccounts = new();
+    private readonly Mock<IOwnerBookings> _ownerBookings = new();
     private readonly Mock<IAuditTrail> _auditTrail = new();
     private readonly FakeTimeProvider _time = new(Accounts.Now);
     private readonly Owner _owner = Owner.Create(UserId, Cpf.Create("52998224725").Value!, Accounts.Now);
@@ -52,6 +53,16 @@ public sealed class OwnerAdminTests
     }
 
     [Fact]
+    public async Task Suspend_Should_CancelTheOwnersBookingsAfterSaving_When_Called()
+    {
+        // Suspender de novo também pede o cancelamento: completa o que tiver sobrado.
+        await Suspend().HandleAsync(new SuspendOwnerCommand(AdminId, _owner.Id.Value, "fraude de CPF"), CancellationToken.None);
+        await Suspend().HandleAsync(new SuspendOwnerCommand(AdminId, _owner.Id.Value, "fraude de CPF"), CancellationToken.None);
+
+        _ownerBookings.Verify(b => b.CancelForSuspensionAsync(_owner.Id.Value, It.IsAny<CancellationToken>()), Times.Exactly(2));
+    }
+
+    [Fact]
     public async Task Suspend_Should_LiftTheOwnerAgain_When_AccountCannotBeSuspended()
     {
         // Compensação: perfil e conta nunca ficam com status diferentes.
@@ -63,6 +74,7 @@ public sealed class OwnerAdminTests
 
         result.FirstError!.Code.Should().Be("AUTH_ADMIN_SUSPENSION_FORBIDDEN");
         _owner.IsSuspended.Should().BeFalse();
+        _ownerBookings.Verify(b => b.CancelForSuspensionAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
         _auditTrail.Verify(a => a.RecordAsync(It.IsAny<AuditRecord>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
@@ -137,7 +149,7 @@ public sealed class OwnerAdminTests
     }
 
     private SuspendOwnerCommandHandler Suspend() =>
-        new(_ownerRepository.Object, _unitOfWork.Object, _ownerAccounts.Object, _auditTrail.Object, _time);
+        new(_ownerRepository.Object, _unitOfWork.Object, _ownerAccounts.Object, _ownerBookings.Object, _auditTrail.Object, _time);
 
     private LiftOwnerSuspensionCommandHandler Lift() =>
         new(_ownerRepository.Object, _unitOfWork.Object, _ownerAccounts.Object, _auditTrail.Object, _time);

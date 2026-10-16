@@ -19,6 +19,8 @@ using PetHost.Modules.Listings.Infrastructure;
 using PetHost.Modules.Listings.Infrastructure.Persistence;
 using PetHost.Modules.Owners.Infrastructure;
 using PetHost.Modules.Owners.Infrastructure.Persistence;
+using PetHost.Modules.Payments.Infrastructure;
+using PetHost.Modules.Payments.Infrastructure.Persistence;
 using PetHost.Modules.Pets.Infrastructure;
 using PetHost.Modules.Pets.Infrastructure.Persistence;
 using PetHost.Shared.Infrastructure.Email;
@@ -120,6 +122,7 @@ public sealed class ConversationsApiFixture : IAsyncLifetime
             builder.UseSetting("BookingExpiration:Enabled", "false");
             builder.UseSetting("ConversationRetention:Enabled", "false");
             builder.UseSetting("ConversationUnreadEmail:Enabled", "false");
+            builder.UseSetting("Payments:MaintenanceEnabled", "false");
 
             builder.UseSetting("Email:Host", "smtp.invalid");
             builder.UseSetting("Email:FromAddress", "no-reply@pethost.test");
@@ -149,6 +152,7 @@ public sealed class ConversationsApiFixture : IAsyncLifetime
         await Services.InitializeListingsModuleAsync(applyMigrations: true);
         await Services.InitializeBookingsModuleAsync(applyMigrations: true);
         await Services.InitializeConversationsModuleAsync(applyMigrations: true);
+        await Services.InitializePaymentsModuleAsync(applyMigrations: true);
 
         _connection = new NpgsqlConnection(_postgres.GetConnectionString());
         await _connection.OpenAsync();
@@ -156,7 +160,7 @@ public sealed class ConversationsApiFixture : IAsyncLifetime
         string[] schemas =
         [
             AuthDbContext.Schema, OwnersDbContext.Schema, AuditDbContext.Schema, HostsDbContext.Schema, PetsDbContext.Schema,
-            ListingsDbContext.Schema, BookingsDbContext.Schema, ConversationsDbContext.Schema, EmailDbContext.Schema,
+            ListingsDbContext.Schema, BookingsDbContext.Schema, ConversationsDbContext.Schema, PaymentsDbContext.Schema, EmailDbContext.Schema,
         ];
 
         _respawner = await Respawner.CreateAsync(_connection, new RespawnerOptions

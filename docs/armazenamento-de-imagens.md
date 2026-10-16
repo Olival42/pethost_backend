@@ -70,6 +70,7 @@ As peças genéricas, que servem a qualquer módulo:
 | `POST` | `/api/v1/pets/{petId}/photos` | dono do pet | Adiciona uma foto ao pet (até 3). Resposta: o pet, com `photos`. | `200` |
 | `PATCH` | `/api/v1/pets/{petId}/photos/{photoId}` | dono do pet | Substitui a imagem de uma foto (mesmo id e posição). | `200` |
 | `DELETE` | `/api/v1/pets/{petId}/photos/{photoId}` | dono do pet | Tira uma foto do pet. | `200` |
+| `PUT` | `/api/v1/pets/{petId}/photos/order` | dono do pet | Reordena as fotos (`{ "photoIds": [...] }`); a primeira vira a capa. Não mexe no bucket. | `200` |
 
 O upload é `multipart/form-data` com a imagem na parte **`file`**:
 

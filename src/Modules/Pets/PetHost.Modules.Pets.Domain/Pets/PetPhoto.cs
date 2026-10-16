@@ -78,6 +78,9 @@ public sealed class PetPhoto
         return Result<string>.Success(previous);
     }
 
+    /// <summary>Muda a vaga. Só o agregado chama, sempre renumerando todas juntas.</summary>
+    internal void MoveTo(int position) => Position = position;
+
     private static Result<string> CheckUrl(string? url)
     {
         var text = url?.Trim();

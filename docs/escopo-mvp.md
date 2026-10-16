@@ -87,12 +87,12 @@ A ideia é que o produto não pareça um sistema genérico. Ele tem quatro princ
 | **Tipos de pet**            | Lista fixa: cachorro, gato, calopsita, papagaio, periquito, canário, coelho, hamster, porquinho-da-índia, peixe, tartaruga/jabuti e **exótico** (o tutor descreve o animal; o anfitrião decide se aceita no pedido e na conversa). Porte (P, M, G): obrigatório para cachorro, opcional para gato. |
 | **Cadastro de pet (ficha)** | Nome, foto, tipo, raça (texto livre), porte, idade, sexo, castrado, vacinas em dia, remédio e horário, alimentação, se dá bem com cães, gatos e crianças, veterinário, peso aproximado, microchip, alergias e "coisas que só quem convive sabe". O **anfitrião** também cadastra os pets que moram na casa dele: o tutor vê com quais animais o pet vai conviver. |
 | **Cantinho**                | Fotos (até 5, em ordem escolhida pelo anfitrião), descrição, bairro e endereço (a coordenada é calculada pela API), tipo de casa, tem quintal, tem cães, gatos ou crianças em casa, tipos e portes aceitos, capacidade (quantos pets ao mesmo tempo, de tutores diferentes), diária por pet (em reais), regras da casa e **dias da semana em que recebe**. Pessoa física tem **um** cantinho (até 10 pets); empresa tem **um por filial** (até 200 pets cada, tipo de casa opcional). Detalhes em [`modulo-listings.md`](modulo-listings.md). |
-| **Agenda**                  | Tudo disponível por padrão. O anfitrião bloqueia datas. Estadias pagas bloqueiam sozinhas.                                                                                                                                             |
+| **Agenda**                  | Tudo disponível por padrão. O anfitrião bloqueia datas. Estadias pagas bloqueiam sozinhas. (Feito: períodos fechados pelo anfitrião barram o pedido e somem da busca por datas — [`modulo-listings.md`](modulo-listings.md) seção 6.1.) |
 | **Verificação**             | **Solicitação de cadastro de anfitrião:** CPF, tipo de documento (RG, CNH ou CIN), frente, verso e selfie segurando o documento, num bucket privado. O admin confere e aprova (aí nasce o perfil de anfitrião) ou recusa com motivo (pode tentar de novo até 3 vezes; fraude é definitiva). As fotos são apagadas depois da decisão. Depois da aprovação, o cadastro de recebimento no Stripe. Sem os dois, o cantinho não aparece na busca. Detalhes em [`modulo-hosts.md`](modulo-hosts.md). |
-| **Busca**                   | **Por raio** (5 a 50 km) a partir do endereço do tutor ou de um ponto enviado (latitude e longitude); depois, datas + qual pet vai. Resultado em lista com foto, bairro, distância, preço, nota e selos. (Feito: raio, distância e ordem; filtros somados por estado, cidade, bairro, espécie, porte, dias da semana, faixa de diária, capacidade, quintal, tipo da casa e quem mora nela (cachorro, gato, criança) — com ou sem raio; datas com vaga para todos os pets (pelas reservas); selos Vizinho, Responde rápido, Casa com quintal e Experiente. Falta: datas bloqueadas na agenda e o selo Bem avaliado, que dependem da agenda e das avaliações.) |
+| **Busca**                   | **Por raio** (5 a 50 km) a partir do endereço do tutor ou de um ponto enviado (latitude e longitude); depois, datas + qual pet vai. Resultado em lista com foto, bairro, distância, preço, nota e selos. (Feito: raio, distância e ordem; filtros somados por estado, cidade, bairro, espécie, porte, dias da semana, faixa de diária, capacidade, quintal, tipo da casa e quem mora nela (cachorro, gato, criança) — com ou sem raio; datas com vaga para todos os pets (pelas reservas); selos Vizinho, Responde rápido, Casa com quintal e Experiente. datas bloqueadas na agenda do anfitrião. Falta: o selo Bem avaliado, que depende das avaliações.) |
 | **Chat**                    | Botão "Puxar conversa" no cantinho. Texto e foto. Uma conversa por dupla tutor–anfitrião. Durante a estadia, é ali que chegam as fotos. (Feito, só o backend: o tutor puxa conversa no cantinho; texto e foto (bucket público); contador de não lidas e marcar como lida; mensagem enviada durante a estadia em andamento fica ligada à reserva; mensagens e contador chegam em tempo real pelo hub SignalR; retenção de 90 dias sem atividade, salvo reserva em aberto; moderação: qualquer lado bloqueia a conversa e denuncia a mensagem recebida, e o admin analisa a fila de denúncias (procedente bloqueia a conversa de vez); e-mail de resumo para quem tem mensagem sem ler há 15 minutos (sem o texto). Detalhes em [`modulo-conversations.md`](modulo-conversations.md).)                                                                                                |
-| **Reserva**                 | Pedir → anfitrião aceita ou recusa (24h) → tutor paga (24h) → confirmada → "chegou" → "voltou pra casa". (Feito: pedido com período, pets, dias da semana e capacidade; aceite/recusa com expiração em 24h; cancelamento até a chegada com reembolso 100/50; check-in e check-out; listagens do tutor e do anfitrião. Sem o pagamento, o aceite já confirma. Detalhes em [`modulo-bookings.md`](modulo-bookings.md).) |
-| **Pagamento**               | Stripe Connect com checkout transparente: cartão e Pix dentro do PetHost. Detalhes na seção 6.                                                                                                                                         |
+| **Reserva**                 | Pedir → anfitrião aceita ou recusa (24h) → tutor paga (24h) → confirmada → "chegou" → "voltou pra casa". (Feito: pedido com período, pets, dias da semana e capacidade; pedido com 72h de antecedência; aceite/recusa com expiração em 24h (aceite até 48h antes da chegada); cancelamento até a chegada com reembolso 100/50; check-in e check-out; listagens do tutor e do anfitrião; o aceite segura a vaga por 24h e a 1ª parcela paga confirma. Detalhes em [`modulo-bookings.md`](modulo-bookings.md).) |
+| **Pagamento**               | Stripe Connect com checkout transparente: cartão e Pix dentro do PetHost, à vista ou em até 6 parcelas. Detalhes na seção 6. (Feito: parcelas, checkout, confirmação por webhook, repasse 90/10 no check-out, reembolso no cancelamento, parcela vencida com multa e juros, contestação. Detalhes em [`modulo-payments.md`](modulo-payments.md).) |
 | **Avaliação**               | Depois do check-out, cada lado avalia o outro: nota de 1 a 5 e comentário, em até 7 dias.                                                                                                                                              |
 | **Selos automáticos**       | Calculados, não cadastrados: Vizinho, Responde rápido, Casa com quintal, Experiente, Bem avaliado (regras na seção 7).                                                                                                                 |
 | **"Combina com seu pet"**   | Ao ver um cantinho, o sistema cruza a ficha do pet com a casa e com os outros hóspedes do período: "A Pipoca não se dá com gatos e aqui tem gato" ou "Nessas datas a Dona Cida também recebe o Thor, cão grande". Avisa, não bloqueia. |
@@ -115,10 +115,10 @@ A ideia é que o produto não pareça um sistema genérico. Ele tem quatro princ
 | **Várias cidades e idiomas**                           | Piloto só em Maringá.                                               |
 
 ### 3.3 Se sobrar tempo (nessa ordem)
-1. Recuperar senha por e-mail.
+1. ~~Recuperar senha por e-mail~~ — feito: `POST /api/v1/auth/password/forgot` e `/reset` ([`modulo-auth.md`](modulo-auth.md) seção 2.4).
 2. Mapa com Leaflet e OpenStreetMap (gratuito).
-3. Avisos por e-mail (pedido novo, pagamento confirmado). Já feitos: reserva aceita e recusada (ao tutor), confirmada (ao anfitrião) e cancelada (aos dois).
-4. Filtro por faixa de preço.
+3. ~~Avisos por e-mail (pedido novo)~~ — feito: o anfitrião recebe o pedido novo com o prazo para responder. Também feitos: reserva aceita e recusada (ao tutor), confirmada depois do pagamento e cancelada (aos dois); parcela paga, lembrete de vencimento, atraso (e o lembrete semanal do atraso) e reembolso (ao tutor); repasse e estorno (ao anfitrião); alertas de pagamento ao admin.
+4. ~~Filtro por faixa de preço~~ — feito: `minNightlyRate` e `maxNightlyRate` na busca ([`modulo-listings.md`](modulo-listings.md) seção 5).
 
 ## 4. Contas e o que cada uma vê
 
@@ -155,16 +155,21 @@ O PetHost é a plataforma no Stripe; cada anfitrião é uma **conta conectada**.
 | Etapa             | O que acontece                                                                                                                                                                                        |
 |-----------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | **Anfitrião conecta** | Depois que o admin aprova a verificação, faz o cadastro de recebimento com o componente embutido do Stripe. Guardamos o hosts.stripe_account_id e só liberamos o cantinho quando o Stripe avisa que a conta pode receber (hosts.stripe_payouts_enabled). |
-| **Tutor paga**        | A API cria a cobrança (valor total, BRL, ligada à reserva). A tela usa o Payment Element: cartão e Pix dentro do PetHost, QR code do Pix na própria página.                                               |
+| **Tutor paga**        | O tutor escolhe **à vista ou em até 6 parcelas** (cada uma de pelo menos R$ 50). Cada parcela é uma cobrança no Stripe (BRL, ligada à reserva): o Stripe não parcela cartão de conta brasileira, então o parcelamento é do PetHost. A 1ª vence em 24h (e confirma a reserva); as outras, a cada 30 dias, inclusive depois da estadia. A tela usa o Payment Element: cartão e Pix dentro do PetHost, QR code do Pix na própria página. |
 | **Confirmação**       | Só via webhook. A reserva vira Confirmada quando o Stripe avisa que o pagamento deu certo, nunca pelo retorno do navegador.                                                                               |
-| **Repasse**           | Em "voltou pra casa", a API transfere **90%** para o anfitrião, amarrado à cobrança original. **10%** ficam com o PetHost, e é dessa parte que sai a taxa do Stripe.                                      |
-| **Cancelamento**      | Como o repasse só acontece no fim, cancelar antes da chegada é só um reembolso.                                                                                                                           |
+| **Repasse**           | Em "voltou pra casa", a API transfere **90%** de cada parcela paga para o anfitrião, amarrado à cobrança da parcela; parcela paga depois disso é repassada quando é paga. **10%** ficam com o PetHost, e é dessa parte que sai a taxa do Stripe. |
+| **Cancelamento**      | Como o repasse só acontece no fim, cancelar antes da chegada é só um reembolso (sobre o que já foi pago; parcelas futuras são canceladas).                                                                 |
+| **Parcela vencida**   | 24h de tolerância. Antes do check-in, a plataforma cancela a reserva e devolve tudo; depois, a parcela fica em atraso, com **multa de 2% e juros de 1% ao mês** (por dia, divididos 90/10 como a parcela), lembrete por e-mail a cada 7 dias, e o tutor não pede outra estadia até pagar. Sem negativação no MVP. |
+| **Contestação**       | No cartão (o Pix não tem): o repasse fica retido enquanto o banco decide; perdida depois do repasse, o valor é estornado do anfitrião.                                                                      |
 
 | Quem cancela | Quando                          | Tutor recebe de volta                 |
 |------------------|-------------------------------------|-------------------------------------------|
 | Tutor            | 48h ou mais antes da chegada        | 100%                                      |
 | Tutor            | Menos de 48h antes                  | 50% (os outros 50% seguem o 90/10 normal) |
 | Anfitrião        | A qualquer momento antes da chegada | 100%                                      |
+| Plataforma       | Parcela vencida antes da chegada    | 100%                                      |
+
+O percentual vale sobre o que o tutor já pagou.
 
 > **Para testar na semana 1**
 >
@@ -172,11 +177,11 @@ O PetHost é a plataforma no Stripe; cada anfitrião é uma **conta conectada**.
 
 ## 7. Regras que valem
 1. Cantinho só aparece na busca com anfitrião verificado (ok do admin na solicitação), ativo e sem suspensão + Stripe liberado + cantinho ativo. O onboarding do Stripe só abre depois da aprovação.
-2. **Capacidade:** em nenhum dia do período a soma dos pets de reservas Confirmadas ou Em andamento, mais os pets do novo pedido, pode passar da capacidade do cantinho. Tutores diferentes podem dividir o mesmo período.
+2. **Capacidade:** em nenhum dia do período a soma dos pets de reservas Aceitas (nas 24h para pagar), Confirmadas ou Em andamento, mais os pets do novo pedido, pode passar da capacidade do cantinho. Tutores diferentes podem dividir o mesmo período.
 3. Uma reserva é de um tutor só e leva 1 ou mais pets dele. Todos precisam ser de tipo e porte aceitos. A busca só mostra cantinhos com vaga para todos os pets escolhidos.
 4. Valor = diária × noites × número de pets. Noites = data de saída − data de chegada.
-5. Anfitrião tem 24h para responder; tutor tem 24h para pagar depois do aceite. Senão, Expirada.
-6. Datas só ficam bloqueadas quando a reserva é paga (Confirmada).
+5. Pedido com pelo menos **72h** de antecedência da chegada. Anfitrião tem 24h para responder, e só aceita até **48h antes da chegada**; tutor tem 24h para pagar a 1ª parcela depois do aceite. Senão, Expirada.
+6. O aceite segura as datas por 24h, enquanto o tutor paga; paga (Confirmada), elas ficam bloqueadas. Sem pagar, a reserva expira e as datas voltam.
 7. Antes do pagamento, o tutor vê só o bairro. Endereço e telefone aparecem depois.
 8. O tutor leva a ração e entrega o remédio. A tela de pedido lembra disso, e o tutor confirma.
 9. Avaliação: só depois de Concluída, uma por lado, em até 7 dias, nota inteira de 1 a 5.
@@ -185,7 +190,7 @@ O PetHost é a plataforma no Stripe; cada anfitrião é uma **conta conectada**.
 
 ## 8. Modelo entidade-relacionamento
 
-Modelo lógico do MVP: 16 tabelas. Nomes em inglês e snake_case, no padrão de mercado; o app continua em português. O **dicionário de dados** ([`dicionario-de-dados.md`](dicionario-de-dados.md)) explica cada tabela e coluna.
+Modelo lógico do MVP: 17 tabelas. Nomes em inglês e snake_case, no padrão de mercado; o app continua em português. O **dicionário de dados** ([`dicionario-de-dados.md`](dicionario-de-dados.md)) explica cada tabela e coluna.
 
 | No app                    | No banco                      |
 |-------------------------------|-----------------------------------|
@@ -218,6 +223,7 @@ erDiagram
     bookings ||--|{ booking_pets : "includes"
     pets ||--o{ booking_pets : ""
     bookings ||--o| payments : "paid by"
+    payments ||--|{ payment_installments : "split into"
     bookings ||--o{ reviews : "reviewed in"
     users ||--o{ reviews : "writes / receives"
     owners ||--o{ conversations : "talks"
@@ -288,6 +294,10 @@ erDiagram
     payments {
         uuid id PK
         uuid booking_id FK, UK
+    }
+    payment_installments {
+        uuid id PK
+        uuid payment_id FK
         varchar stripe_payment_intent_id UK
     }
     stripe_events {
@@ -332,7 +342,8 @@ _Aqui só as chaves. Todas as colunas estão no dicionário de dados e na versã
 | **users → bookings**               | 1 : N             | O tutor faz várias reservas.                     |
 | **listings → bookings**            | 1 : N             | Várias no mesmo período, limitadas por capacity. |
 | **bookings → pets**                | N : N             | Com pets, via booking_pets.                      |
-| **bookings → payments**            | 1 : 0..1          | Criado quando o tutor vai pagar.                 |
+| **bookings → payments**            | 1 : 0..1          | Criado quando o tutor escolhe as parcelas.       |
+| **payments → payment_installments** | 1 : 1..6         | Uma cobrança no Stripe por parcela.              |
 | **bookings → reviews**             | 1 : 0..2          | Uma por lado.                                    |
 | **users → reviews**                | 1 : N             | author_id e reviewee_id.                         |
 | **owners / hosts → conversations** | 1 : N             | owner_id e host_id; uma por dupla.               |
@@ -345,7 +356,7 @@ _Aqui só as chaves. Todas as colunas estão no dicionário de dados e na versã
 3. booking_pets: todo pet precisa ser do mesmo tutor da reserva (pet de anfitrião não se hospeda), e de tipo e porte aceitos pelo cantinho.
 4. bookings: check_out_date \> check_in_date; pet_count = linhas em booking_pets; nightly_rate é cópia do preço no momento do pedido.
 5. Capacidade: em nenhum dia, a soma de pet_count das reservas confirmed ou in_progress do cantinho passa de listings.capacity.
-6. Dinheiro do Stripe em centavos inteiros (\*\_cents); diária e valor da reserva em reais (`numeric`), como no cantinho. payments: platform_fee_cents + host_payout_cents = amount_cents − refunded_cents.
+6. Dinheiro do Stripe em centavos inteiros (\*\_cents); diária e valor da reserva em reais (`numeric`), como no cantinho. Em cada parcela (payment_installments): platform_fee_cents + host_payout_cents = amount_cents + late_fee_cents − refunded_cents.
 7. reviews.rating entre 1 e 5; só para bookings com status completed.
 8. stripe_events.stripe_event_id único: webhook repetido não é processado duas vezes.
 9. **CPF identifica a pessoa; o e-mail identifica o login.** Um CPF aparece em no máximo uma conta de tutor e uma de anfitrião, e só se as duas forem do **mesmo e-mail** (a mesma pessoa). CPF já usado por outro e-mail, em qualquer papel, é recusado (`409`). Vale entre tutores e anfitriões (inclusive o representante de empresa e as solicitações abertas), pelo contrato `ICpfOwnership` ([`modulo-hosts.md`](modulo-hosts.md) seção 4.1).

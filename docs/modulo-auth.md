@@ -623,11 +623,13 @@ dotnet run --project src/Host/PetHost.Api
 
 **1003 testes passando** na solução (última execução), build com 0 avisos. Nomes no padrão `MethodName_Should_X_When_Y` (§14).
 
-Como rodar (os de integração precisam do Docker Desktop ligado):
+Como rodar (os de integração precisam do Docker Desktop ligado; a solução inteira tem 1852 testes):
 
 ```bash
 dotnet test --solution PetHost.slnx
 ```
+
+Só os que não precisam de Docker, um projeto, um teste, cobertura e o que fazer com "Zero testes executados": [`PROJECT_STANDARDS.md`](PROJECT_STANDARDS.md), seção 14, "Rodando os testes".
 
 Cobertos pela integração, entre outros: a mesma pessoa com conta de tutora e de anfitriã (senha de uma não serve na outra), 5 refresh simultâneos com o mesmo token (só 1 vence), logout invalidando o refresh, token adulterado recusado pelo host, envelope em todo erro, `/health/ready` com Postgres e Redis, troca de senha encerrando as sessões de dois aparelhos, token de troca reusado ou substituído por pedido novo, senha fraca devolvendo todas as regras sem gastar o token, inativar a conta de tutor sem afetar a de anfitriã, troca de conta recusando a senha da conta errada.
 

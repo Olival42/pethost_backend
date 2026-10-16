@@ -72,6 +72,19 @@ internal sealed class ListingDirectory(ListingsDbContext dbContext) : IListingDi
                 l.Address.State));
     }
 
+    public async Task<IReadOnlyList<BlockedPeriod>> GetBlockedPeriodsAsync(Guid listingId, DateOnly from, CancellationToken cancellationToken)
+    {
+        var id = new ListingId(listingId);
+
+        return await dbContext.AvailabilityBlocks
+            .AsNoTracking()
+            .Where(b => b.ListingId == id && b.EndDate >= from)
+            .OrderBy(b => b.StartDate)
+            .Select(b => new BlockedPeriod(b.StartDate, b.EndDate))
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+    }
+
     private static ListingReference ToReference(Listing listing) => new(
         listing.Id.Value,
         listing.HostId,

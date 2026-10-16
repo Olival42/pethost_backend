@@ -8,6 +8,7 @@ using PetHost.Modules.Pets.Application.Pets.ListMyPets;
 using PetHost.Modules.Pets.Application.Pets.ReactivatePet;
 using PetHost.Modules.Pets.Application.Pets.RegisterPet;
 using PetHost.Modules.Pets.Application.Pets.RemovePetPhoto;
+using PetHost.Modules.Pets.Application.Pets.ReorderPetPhotos;
 using PetHost.Modules.Pets.Application.Pets.ReplacePetPhoto;
 using PetHost.Modules.Pets.Application.Pets.Responses;
 using PetHost.Modules.Pets.Application.Pets.UpdatePet;
@@ -32,6 +33,7 @@ public sealed class PetsController(
     ICommandHandler<AddPetPhotoCommand, PetResponse> addPetPhoto,
     ICommandHandler<ReplacePetPhotoCommand, PetResponse> replacePetPhoto,
     ICommandHandler<RemovePetPhotoCommand, PetResponse> removePetPhoto,
+    ICommandHandler<ReorderPetPhotosCommand, PetResponse> reorderPetPhotos,
     IQueryHandler<GetPetByIdQuery, PetResponse> getPetById,
     IQueryHandler<ListMyPetsQuery, KeeperPetsResponse> listMyPets) : ControllerBase
 {
@@ -264,6 +266,34 @@ public sealed class PetsController(
     {
         var result = await replacePetPhoto.HandleAsync(
             new ReplacePetPhotoCommand(User.GetUserId(), CurrentRole(), petId, photoId, file.ToImageUpload()),
+            cancellationToken);
+
+        return result.ToActionResult();
+    }
+
+    /// <summary>Reordena as fotos do pet: a primeira da lista vira a capa.</summary>
+    /// <remarks>
+    /// Corpo: <c>{ "photoIds": [...] }</c> com <b>todas</b> as fotos do pet, cada uma uma vez, na
+    /// ordem nova (vaga 1 até a 3). Para só trocar a capa, mande a escolhida primeiro. Id que não é
+    /// foto deste pet: 404 <c>PET_PHOTO_NOT_FOUND</c>. Lista incompleta ou com repetição: 400 no
+    /// campo <c>photoIds</c>. Pet de outra conta: 404 <c>PET_NOT_FOUND</c>.
+    /// </remarks>
+    [HttpPut("{petId:guid}/photos/order")]
+    [Authorize(Roles = Keepers)]
+    [ProducesResponseType<ApiResponse<PetResponse>>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ApiResponse<PetResponse>>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ApiResponse<PetResponse>>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ApiResponse<PetResponse>>(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType<ApiResponse<PetResponse>>(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> ReorderPhotosAsync(
+        Guid petId,
+        [FromBody] ReorderPetPhotosRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var result = await reorderPetPhotos.HandleAsync(
+            new ReorderPetPhotosCommand(User.GetUserId(), CurrentRole(), petId, request.PhotoIds),
             cancellationToken);
 
         return result.ToActionResult();

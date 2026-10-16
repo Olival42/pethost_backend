@@ -11,8 +11,11 @@ namespace PetHost.Modules.Pets.Infrastructure.Persistence.Configurations;
 /// </summary>
 /// <remarks>
 /// O banco repete o limite de fotos: a vaga (<c>position</c>) vai de 1 a <see cref="Pet.MaxPhotos"/>
-/// e é única por pet. Dois uploads ao mesmo tempo não passam de 3 fotos. O hash da imagem também
-/// é único por pet: a mesma imagem não entra duas vezes.
+/// e é única por pet. Dois uploads ao mesmo tempo não passam de 3 fotos. Essa unicidade é uma
+/// constraint <b>deferrable</b> (<c>uq_pet_photos_pet_id_position</c>), criada em SQL na migration
+/// <c>MakePetPhotoPositionDeferrable</c>: reordenar troca vagas entre fotos na mesma transação, e a
+/// conferência fica para o commit. O hash da imagem também é único por pet: a mesma imagem não
+/// entra duas vezes.
 /// </remarks>
 internal sealed class PetPhotoConfiguration : IEntityTypeConfiguration<PetPhoto>
 {
@@ -51,10 +54,6 @@ internal sealed class PetPhotoConfiguration : IEntityTypeConfiguration<PetPhoto>
             .HasColumnName("created_at")
             .HasColumnType("timestamptz")
             .IsRequired();
-
-        builder.HasIndex(photo => new { photo.PetId, photo.Position })
-            .IsUnique()
-            .HasDatabaseName("uq_pet_photos_pet_id_position");
 
         // A mesma imagem não entra duas vezes no mesmo pet. Fotos antigas, sem hash, ficam de fora.
         builder.HasIndex(photo => new { photo.PetId, photo.ContentHash })

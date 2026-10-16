@@ -9,6 +9,8 @@ using PetHost.Modules.Auth.Infrastructure;
 using PetHost.Modules.Auth.Infrastructure.Persistence;
 using PetHost.Modules.Bookings.Infrastructure;
 using PetHost.Modules.Bookings.Infrastructure.Persistence;
+using PetHost.Modules.Payments.Infrastructure;
+using PetHost.Modules.Payments.Infrastructure.Persistence;
 using PetHost.Modules.Hosts.Infrastructure;
 using PetHost.Modules.Hosts.Infrastructure.Persistence;
 using PetHost.Modules.Listings.Application.Abstractions;
@@ -56,6 +58,11 @@ public sealed class BookingsApiFixture : IAsyncLifetime
 
     public IServiceProvider Services => Factory.Services;
 
+    /// <summary>Admin criado pelo seeder, para cancelar, encerrar a estadia e suspender.</summary>
+    public const string AdminEmail = "admin@pethost.test";
+
+    public const string AdminPassword = "senha-do-admin-123";
+
     /// <summary>E-mails que a API mandou (o despachante entrega aqui em vez do SMTP).</summary>
     public System.Collections.Concurrent.ConcurrentQueue<EmailMessage> SentEmails { get; } = new();
 
@@ -86,6 +93,11 @@ public sealed class BookingsApiFixture : IAsyncLifetime
             builder.UseSetting("RateLimiting:Enabled", "false");
             builder.UseSetting("HostVerification:PurgeEnabled", "false");
             builder.UseSetting("BookingExpiration:Enabled", "false");
+            builder.UseSetting("Payments:MaintenanceEnabled", "false");
+
+            builder.UseSetting("Seed:Admin:Enabled", "true");
+            builder.UseSetting("Seed:Admin:Email", AdminEmail);
+            builder.UseSetting("Seed:Admin:Password", AdminPassword);
 
             builder.UseSetting("Email:Host", "smtp.invalid");
             builder.UseSetting("Email:FromAddress", "no-reply@pethost.test");
@@ -108,6 +120,7 @@ public sealed class BookingsApiFixture : IAsyncLifetime
         await Services.InitializePetsModuleAsync(applyMigrations: true);
         await Services.InitializeListingsModuleAsync(applyMigrations: true);
         await Services.InitializeBookingsModuleAsync(applyMigrations: true);
+        await Services.InitializePaymentsModuleAsync(applyMigrations: true);
 
         _connection = new NpgsqlConnection(_postgres.GetConnectionString());
         await _connection.OpenAsync();
@@ -115,7 +128,7 @@ public sealed class BookingsApiFixture : IAsyncLifetime
         string[] schemas =
         [
             AuthDbContext.Schema, OwnersDbContext.Schema, AuditDbContext.Schema, HostsDbContext.Schema,
-            PetsDbContext.Schema, ListingsDbContext.Schema, BookingsDbContext.Schema, EmailDbContext.Schema,
+            PetsDbContext.Schema, ListingsDbContext.Schema, BookingsDbContext.Schema, PaymentsDbContext.Schema, EmailDbContext.Schema,
         ];
 
         _respawner = await Respawner.CreateAsync(_connection, new RespawnerOptions
@@ -126,6 +139,7 @@ public sealed class BookingsApiFixture : IAsyncLifetime
         });
     }
 
+    /// <summary>Limpa os schemas e recria o admin do seed.</summary>
     public async Task ResetAsync()
     {
         // O despachante entrega em segundo plano: e-mail que o teste anterior deixou na fila chegaria
@@ -136,6 +150,8 @@ public sealed class BookingsApiFixture : IAsyncLifetime
 
         if (_respawner is not null && _connection is not null)
             await _respawner.ResetAsync(_connection);
+
+        await Services.InitializeAuthModuleAsync(applyMigrations: false);
     }
 
     private async Task WaitForEmailOutboxToDrainAsync(TimeSpan timeout)

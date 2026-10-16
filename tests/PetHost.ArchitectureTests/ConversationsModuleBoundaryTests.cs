@@ -42,6 +42,10 @@ public sealed class ConversationsModuleBoundaryTests
         typeof(Modules.Bookings.Presentation.Bookings.BookingsController).Assembly,
         typeof(Modules.Audit.Domain.Entries.AuditEntry).Assembly,
         typeof(Modules.Audit.Infrastructure.DependencyInjection).Assembly,
+        typeof(Modules.Payments.Domain.Payments.Payment).Assembly,
+        typeof(Modules.Payments.Application.Payments.ChoosePaymentPlan.ChoosePaymentPlanCommand).Assembly,
+        typeof(Modules.Payments.Infrastructure.DependencyInjection).Assembly,
+        typeof(Modules.Payments.Presentation.Payments.BookingPaymentController).Assembly,
     ];
 
     private const string EntityFramework = "Microsoft.EntityFrameworkCore";
@@ -55,7 +59,7 @@ public sealed class ConversationsModuleBoundaryTests
         {
             Types.InAssembly(assembly)
                 .Should()
-                .NotHaveDependencyOnAny("PetHost.Modules.Auth", "PetHost.Modules.Owners", "PetHost.Modules.Hosts", "PetHost.Modules.Pets", "PetHost.Modules.Listings", "PetHost.Modules.Bookings", "PetHost.Modules.Audit")
+                .NotHaveDependencyOnAny("PetHost.Modules.Auth", "PetHost.Modules.Owners", "PetHost.Modules.Hosts", "PetHost.Modules.Pets", "PetHost.Modules.Listings", "PetHost.Modules.Bookings", "PetHost.Modules.Audit", "PetHost.Modules.Payments")
                 .GetResult().IsSuccessful.Should().BeTrue($"{assembly.GetName().Name} só fala com outro módulo por Shared.Contracts (§5)");
         }
     }

@@ -46,11 +46,17 @@ public sealed class CreateBookingCommandValidator : AbstractValidator<CreateBook
             // para os erros dos dois campos voltarem juntos.
             var hasCheckOut = StayPeriod.TryParseDate(command.CheckOut, out var checkOut);
 
-            var period = StayPeriod.Create(checkIn, hasCheckOut ? checkOut : checkIn.AddDays(1), BookingClock.Today(timeProvider.GetUtcNow()));
-            if (period.IsSuccess)
-                return;
+            var now = timeProvider.GetUtcNow();
+            var period = StayPeriod.Create(checkIn, hasCheckOut ? checkOut : checkIn.AddDays(1), BookingClock.Today(now));
+            var errors = period.IsSuccess
+                ? []
+                : period.Errors!.Where(error => hasCheckOut || error.Field == BookingsErrors.CheckInInThePast.Field).ToList();
 
-            foreach (var error in period.Errors!.Where(error => hasCheckOut || error.Field == BookingsErrors.CheckInInThePast.Field))
+            // Chegada válida mas em cima da hora: o anfitrião não teria como aceitar a tempo.
+            if (errors.TrueForAll(error => error.Field != BookingsErrors.CheckInTooSoon.Field) && Booking.IsTooSoonToRequest(checkIn, now))
+                errors.Add(BookingsErrors.CheckInTooSoon);
+
+            foreach (var error in errors)
                 context.AddFailure(error.Field ?? string.Empty, error.Message);
         });
     }

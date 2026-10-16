@@ -82,9 +82,35 @@ public static class BookingAccess
     }
 
     /// <summary>
+    /// Para o anfitrião, como <see cref="LoadForHostAsync"/>; para o admin (papel <c>admin</c>),
+    /// qualquer reserva — é assim que ele encerra a estadia de um anfitrião suspenso.
+    /// </summary>
+    public static async Task<Result<Booking>> LoadForHostOrAdminAsync(
+        IBookingRepository bookingRepository,
+        IBookingParties bookingParties,
+        Guid userId,
+        string role,
+        Guid bookingId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(bookingRepository);
+
+        if (role != Roles.Admin)
+            return await LoadForHostAsync(bookingRepository, bookingParties, userId, bookingId, cancellationToken).ConfigureAwait(false);
+
+        var id = new BookingId(bookingId);
+        var booking = await bookingRepository.GetByIdAsync(id, cancellationToken).ConfigureAwait(false);
+
+        return booking is null
+            ? Result<Booking>.Failure(BookingsErrors.NotFound(id))
+            : Result<Booking>.Success(booking);
+    }
+
+    /// <summary>
     /// A reserva <paramref name="bookingId"/>, rastreada, e o lado de quem pede: o tutor que pediu
-    /// (papel <c>owner</c>) ou o anfitrião do cantinho (papel <c>host</c>). Não exige perfil ativo:
-    /// quem inativou a conta ainda pode cancelar o que estava marcado.
+    /// (papel <c>owner</c>), o anfitrião do cantinho (papel <c>host</c>) ou a plataforma (papel
+    /// <c>admin</c>, qualquer reserva). Não exige perfil ativo: quem inativou a conta ainda pode
+    /// cancelar o que estava marcado.
     /// </summary>
     public static async Task<Result<PartyBooking>> LoadForPartyAsync(
         IBookingRepository bookingRepository,
@@ -95,6 +121,15 @@ public static class BookingAccess
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(bookingRepository);
+
+        if (role == Roles.Admin)
+        {
+            var adminLoaded = await LoadForHostOrAdminAsync(bookingRepository, bookingParties, userId, role, bookingId, cancellationToken).ConfigureAwait(false);
+
+            return adminLoaded.IsFailure
+                ? Result<PartyBooking>.FromFailure(adminLoaded)
+                : Result<PartyBooking>.Success(new PartyBooking(adminLoaded.Value!, BookingParty.Platform));
+        }
 
         var side = role == Roles.Host ? BookingParty.Host : BookingParty.Owner;
 

@@ -36,7 +36,7 @@
 4. **Erro esperado não usa exceção.** Fluxo de negócio previsível retorna `Result`. Exceção só para bug ou infraestrutura fora.
 5. **Toda regra de negócio tem teste unitário.** Sem exceção.
 
-**Módulos** (bounded contexts): `Auth` (conta, sessão, perfil comum), `Owners` (perfil de tutor), `Hosts` (anfitrião: verificação de identidade aprovada pelo admin e perfil verificado, PF/PJ), `Audit` (trilha de auditoria de todos os módulos), `Pets` (ficha do pet, do tutor ou do anfitrião), `Listings` (cantinho: o espaço do anfitrião, com fotos e busca com filtros e raio — [`modulo-listings.md`](modulo-listings.md)), `Bookings` (reserva: pedido, aceite/recusa, cancelamento, check-in e check-out — [`modulo-bookings.md`](modulo-bookings.md)), `Conversations` (chat: uma conversa por dupla tutor–anfitrião, texto e foto, não lidas e aviso em tempo real pelo hub — [`modulo-conversations.md`](modulo-conversations.md)), `Availability`, `Payments`, `Reviews`, `Notifications`. Criar módulo novo é decisão de arquitetura — discutir antes do PR.
+**Módulos** (bounded contexts): `Auth` (conta, sessão, perfil comum), `Owners` (perfil de tutor), `Hosts` (anfitrião: verificação de identidade aprovada pelo admin e perfil verificado, PF/PJ), `Audit` (trilha de auditoria de todos os módulos), `Pets` (ficha do pet, do tutor ou do anfitrião), `Listings` (cantinho: o espaço do anfitrião, com fotos e busca com filtros e raio — [`modulo-listings.md`](modulo-listings.md)), `Bookings` (reserva: pedido, aceite/recusa, cancelamento, check-in e check-out — [`modulo-bookings.md`](modulo-bookings.md)), `Payments` (pagamento da reserva: Pix ou cartão em até 6 parcelas, checkout transparente, webhook, reembolso, repasse 90/10 e contestação — [`modulo-payments.md`](modulo-payments.md)), `Conversations` (chat: uma conversa por dupla tutor–anfitrião, texto e foto, não lidas e aviso em tempo real pelo hub — [`modulo-conversations.md`](modulo-conversations.md)), `Availability`, `Reviews`, `Notifications`. Criar módulo novo é decisão de arquitetura — discutir antes do PR.
 
 ---
 
@@ -117,7 +117,7 @@ Proibido: referenciar projeto de outro módulo, compartilhar `DbContext`, fazer 
 
 **Recurso de infraestrutura usado por mais de um módulo** (conexão Redis, bucket, caixa de saída de e-mail, cliente do Stripe) é registrado pelo `Shared.Infrastructure`, de forma idempotente (`TryAdd*`): cada módulo chama `AddRedis(...)`/`AddStripe(...)`, e nenhum depende do registro feito por outro. Cada módulo usa um prefixo próprio nas chaves (`pethost:<módulo>:...`).
 
-**Webhook de serviço externo** (Stripe) tem **um** endpoint para a API inteira, no `Shared.Infrastructure` (`POST /api/v1/stripe/webhooks`): ele confere a assinatura uma vez e entrega o evento a cada `IStripeWebhookHandler` que o módulo registrou para o tipo (`AddScoped<IStripeWebhookHandler, ...>`). O handler trata o evento como **aviso** e relê o objeto na API do serviço — idempotente e imune a evento repetido ou fora de ordem. Exceção no handler = `500`, e o serviço reenvia.
+**Webhook de serviço externo** (Stripe) tem **um** endpoint para a API inteira, no `Shared.Infrastructure` (`POST /api/v1/stripe/webhooks`): ele confere a assinatura uma vez e entrega o evento a cada `IStripeWebhookHandler` que o módulo registrou para o tipo (`AddScoped<IStripeWebhookHandler, ...>`). O handler trata o evento como **aviso** e relê o objeto na API do serviço — idempotente e imune a evento repetido ou fora de ordem. Exceção no handler = `500`, e o serviço reenvia. Hoje: o Hosts trata `account.updated`; o Payments, os eventos de cobrança, reembolso e contestação (e guarda os ids tratados em `payment.stripe_events`).
 
 **Regra que atravessa módulos** (ex.: o CPF identifica a pessoa entre tutor e anfitrião): cada módulo implementa um contrato de consulta pequeno em `Shared.Contracts` (`ICpfHolderLookup`), registrado com `AddScoped` — todos são lidos —, e a regra mora num lugar só (`ICpfOwnership`, implementado em `Shared.Infrastructure`). Nenhum módulo conhece o outro.
 
@@ -510,7 +510,7 @@ public sealed class BookingsController(
 | Regra | Detalhe |
 |-------|---------|
 | Um `DbContext` por módulo | `BookingsDbContext`, `AuthDbContext` |
-| Um schema por módulo | `auth`, `owner`, `host`, `pet`, `listing`, `booking`, `conversation`, `audit` (singular). Infraestrutura compartilhada que precisa de tabela também ganha schema e `DbContext` próprios em `Shared.Infrastructure`: `email` (caixa de saída de e-mails) |
+| Um schema por módulo | `auth`, `owner`, `host`, `pet`, `listing`, `booking`, `conversation`, `payment`, `audit` (singular). Infraestrutura compartilhada que precisa de tabela também ganha schema e `DbContext` próprios em `Shared.Infrastructure`: `email` (caixa de saída de e-mails) |
 | Migrations e histórico isolados | `Persistence/Migrations`, `__ef_migrations_history` no schema do módulo |
 | Sem `JOIN` entre schemas | Cruzar dado só pelo §5 |
 | `DbContext` nunca sai da `Infrastructure` | `Application` só conhece interfaces |
@@ -590,6 +590,14 @@ O time pensa em português, o código fala inglês. Esta é a tradução oficial
 | Puxar conversa (no cantinho) | `StartConversation` | Quem enviou (tutor ou anfitrião) | `SentBy` (`ConversationParty`: `owner`/`host`) |
 | Não lidas / marcar como lida | `Unread` (`UnreadCount`) / `ReadMarker` (`MarkConversationRead`) | Mensagens mais antigas (cursor) | `Before` |
 | Aviso em tempo real (hub) | `Realtime` (`ConversationsHub`, `IConversationRealtime`) | Apagar conversas paradas (LGPD) | `Retention` (`PurgeInactiveConversations`) |
+| Pagamento da reserva (o plano de parcelas) | `Payment` (`InstallmentCount`) | Parcela | `Installment` *(❌ Parcel, Quota)* |
+| Prazo para pagar a 1ª parcela (24h depois do aceite) | `PaymentDeadline` (`PaymentWindow`) | Checkout transparente (abrir o pagamento da parcela) | `PaymentSession` (rota `/payment-session`) |
+| Parcela em atraso / tolerância de 24h | `Overdue` / `OverdueGrace` | Lembrete de vencimento | `Reminder` (`TakeReminders`) |
+| Multa e juros por atraso | `LateFee` (`LateFeeFor`, `LateFeeCents`) *(❌ Interest, Penalty)* | Lembrete semanal da parcela em atraso | `OverdueReminder` (`TakeOverdueReminders`) |
+| Contestação no cartão (chargeback) | `Dispute` | Estorno do repasse (contestação perdida) | `TransferReversal` (`PayoutStatus.Reversed`) |
+| Taxa da plataforma (10%) | `PlatformFee` | Parte do anfitrião (90%) | `HostShare` / `HostPayout` |
+| Ganhos do anfitrião (os repasses) | `HostEarnings` (`/payments/payouts/me`) | Pendências de pagamento (admin) | `PaymentIssues` |
+| Cancelada pela plataforma (parcela não paga) | `BookingParty.Platform` (`CancelUnpaid`) | Releitura do Stripe / reconciliação | `ChargeSnapshot` / `Reconcile` (`PaymentReconciler`) |
 
 ---
 
@@ -644,6 +652,9 @@ POST   /api/v1/bookings/{bookingId:guid}/acceptance  ·  POST /api/v1/bookings/{
 POST   /api/v1/bookings/{bookingId:guid}/cancellation  ·  POST /api/v1/bookings/{bookingId:guid}/check-in  ·  /check-out
 POST   /api/v1/conversations  ·  GET /api/v1/conversations/me  ·  GET /api/v1/conversations/me/unread-count  ·  GET /api/v1/conversations/{conversationId:guid}
 GET    /api/v1/conversations/{conversationId:guid}/messages?before=&pageSize=  ·  POST .../messages  ·  POST .../messages/photo  ·  PUT .../read-marker
+GET    /api/v1/bookings/{bookingId:guid}/payment  ·  PUT /api/v1/bookings/{bookingId:guid}/payment  ·  POST .../payment/synchronization
+POST   /api/v1/bookings/{bookingId:guid}/payment/installments/{installmentNumber:int}/payment-session
+GET    /api/v1/payments/payouts/me  ·  GET /api/v1/payments/issues  ·  POST /api/v1/stripe/webhooks
 GET    /api/v1/hosts/{hostId:guid}/availability?from=2026-11-01&to=2026-11-30
 ```
 
@@ -808,9 +819,45 @@ Integração: `WebApplicationFactory<Program>` + `PostgreSqlContainer` (`postgre
 
 Pipeline falha abaixo do mínimo. `[ExcludeFromCodeCoverage]` exige justificativa em comentário — permitido só em `Migrations/` e `DependencyInjection.cs`.
 
+**Todo `dotnet test` já mede a cobertura** (`TestingPlatformCommandLineArguments` no `Directory.Build.props`): um `artifacts/coverage/<Projeto>.cobertura.xml` por projeto de teste, sobrescrito a cada execução. O filtro está em `coverage.settings.xml` na raiz: mede só os assemblies `PetHost.*` da aplicação — fora os projetos de teste, o `PetHost.TestKit`, as `Migrations/` e o que tiver `[ExcludeFromCodeCoverage]`.
+
+> **O `dotnet test` sozinho não gera o HTML nem mostra os percentuais** — só os XMLs. O `dotnet test` não tem um gancho que rode depois de todos os projetos terminarem, então o relatório fica no script.
+
+| Comando | Roda os testes? | Gera |
+|---------|-----------------|------|
+| `dotnet test` | sim | só os `artifacts/coverage/*.cobertura.xml` (um por projeto) |
+| `./scripts/coverage.ps1` / `./scripts/coverage.sh` | sim | os XMLs **+** o HTML em `artifacts/coverage/report/index.html` **+** o resumo no terminal |
+| `dotnet reportgenerator ...` (abaixo) | não | só o HTML e o resumo, a partir dos XMLs que já estão lá (ex.: depois de um `dotnet test`, ou se o `report/` foi apagado) |
+
+Para ver o número, o script roda os testes e junta tudo com o **ReportGenerator** (ferramenta local, em `dotnet-tools.json`; o script faz o `dotnet tool restore`):
+
 ```bash
-dotnet test --collect:"XPlat Code Coverage" --results-directory ./artifacts/coverage
+./scripts/coverage.sh              # Linux/macOS/Git Bash  (--sem-docker: só unidade e arquitetura)
+./scripts/coverage.ps1             # PowerShell            (-SemDocker: idem)
 ```
+
+Mostra no terminal o resumo (linha, branch, método) e uma linha por assembly; o detalhe por classe e por linha fica em `artifacts/coverage/report/index.html`. Sem Docker, `Infrastructure` e `Presentation` aparecem quase zeradas: elas são cobertas pela integração (tabela acima). Só o relatório, sem rodar os testes de novo (precisa dos XMLs em `artifacts/coverage`; se a pasta inteira sumiu, rode o script):
+
+```bash
+dotnet reportgenerator "-reports:artifacts/coverage/*.cobertura.xml" "-targetdir:artifacts/coverage/report" "-reporttypes:Html;TextSummary" "-filefilters:-*.g.cs"
+```
+
+Última medição (solução inteira, com integração): **92,9 % de linha e 81,5 % de branch**.
+
+### Rodando os testes
+
+O `global.json` liga o **Microsoft Testing Platform** (`"test": { "runner": "Microsoft.Testing.Platform" }`) e cada projeto de teste é um executável do xUnit v3. Precisa do SDK do .NET 10; os testes de integração precisam do Docker rodando (Testcontainers sobe Postgres, Redis e RustFS).
+
+| Para | Comando |
+|------|---------|
+| Tudo (unidade, arquitetura e integração) | `dotnet test` |
+| Só o que não precisa de Docker | `dotnet test --filter-not-namespace "*.IntegrationTests*" --ignore-exit-code 8` |
+| Um projeto | `dotnet test --project tests/Modules/Listings/PetHost.Modules.Listings.Application.UnitTests` |
+| Um teste ou grupo | `dotnet test --project <projeto> --filter-method "*Search*"` (também `--filter-class`, `--filter-namespace`) |
+| Sem compilar de novo | acrescente `--no-build` |
+| Direto pelo executável | `tests/<...>/bin/Debug/net10.0/<Projeto>.exe` |
+
+> **"Zero testes executados" (código de saída 5)?** É opção do runner antigo (VSTest) que o `dotnet test` repassa ao executável do teste, e ele recusa: `-nologo`, `--collect:"XPlat Code Coverage"`, `--logger`, `--settings`. Use os equivalentes acima (`--filter-*`; a cobertura já vem ligada). O código **8** é "nenhum teste rodou" num projeto — esperado nos projetos de integração quando o filtro tira todos eles; por isso o `--ignore-exit-code 8`.
 
 ---
 

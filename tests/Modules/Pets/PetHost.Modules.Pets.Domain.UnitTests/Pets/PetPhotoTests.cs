@@ -184,5 +184,81 @@ public sealed class PetPhotoTests
         pet.Photos.Should().HaveCount(1);
     }
 
+    [Fact]
+    public void ReorderPhotos_Should_MakeTheFirstOneTheCover_When_TheListHasEveryPhoto()
+    {
+        // Arrange
+        var pet = new PetProfileBuilder().BuildPet(Owner, photos: 3);
+        var (first, second, third) = (pet.Photos[0], pet.Photos[1], pet.Photos[2]);
+
+        // Act
+        var result = pet.ReorderPhotos([third.Id, first.Id, second.Id], Later);
+
+        // Assert
+        result.Value.Should().BeTrue();
+        pet.Photos.Select(p => p.Id).Should().Equal(third.Id, first.Id, second.Id);
+        pet.Photos.Select(p => p.Position).Should().Equal(1, 2, 3);
+        pet.UpdatedAt.Should().Be(Later);
+    }
+
+    [Fact]
+    public void ReorderPhotos_Should_CloseTheGap_When_APhotoWasRemovedFromTheMiddle()
+    {
+        // Arrange — vagas 1 e 3 (a 2 foi tirada).
+        var pet = new PetProfileBuilder().BuildPet(Owner, photos: 3);
+        pet.RemovePhoto(pet.Photos[1].Id, Later);
+        var ids = pet.Photos.Select(p => p.Id).ToList();
+
+        // Act — mesma ordem, mas com buraco: renumera.
+        var result = pet.ReorderPhotos(ids, Later);
+
+        // Assert
+        result.Value.Should().BeTrue();
+        pet.Photos.Select(p => p.Position).Should().Equal(1, 2);
+    }
+
+    [Fact]
+    public void ReorderPhotos_Should_ChangeNothing_When_TheOrderIsTheSame()
+    {
+        // Arrange
+        var pet = new PetProfileBuilder().BuildPet(Owner, photos: 2);
+
+        // Act
+        var result = pet.ReorderPhotos([.. pet.Photos.Select(p => p.Id)], Later);
+
+        // Assert
+        result.Value.Should().BeFalse();
+        pet.UpdatedAt.Should().Be(Now);
+    }
+
+    [Fact]
+    public void ReorderPhotos_Should_FailWithPhotoNotFound_When_AnIdIsNotFromThePet()
+    {
+        // Arrange
+        var pet = new PetProfileBuilder().BuildPet(Owner, photos: 2);
+        var stranger = PetPhotoId.New();
+
+        // Act
+        var result = pet.ReorderPhotos([stranger, pet.Photos[0].Id], Later);
+
+        // Assert
+        result.FirstError!.Code.Should().Be("PET_PHOTO_NOT_FOUND");
+    }
+
+    [Fact]
+    public void ReorderPhotos_Should_FailWithOrderInvalidAndKeepTheSlots_When_APhotoIsMissing()
+    {
+        // Arrange
+        var pet = new PetProfileBuilder().BuildPet(Owner, photos: 3);
+
+        // Act
+        var result = pet.ReorderPhotos([pet.Photos[2].Id, pet.Photos[0].Id], Later);
+
+        // Assert
+        result.FirstError!.Field.Should().Be("photoIds");
+        pet.Photos.Select(p => p.Position).Should().Equal(1, 2, 3);
+        pet.Photos[0].Url.Should().Be(PetProfileBuilder.PhotoUrl(1));
+    }
+
     private static string Hash(string seed) => seed.PadLeft(64, '0');
 }
