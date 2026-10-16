@@ -128,10 +128,28 @@ public sealed class BookingsApiFixture : IAsyncLifetime
 
     public async Task ResetAsync()
     {
+        // O despachante entrega em segundo plano: e-mail que o teste anterior deixou na fila chegaria
+        // depois do Clear e cairia no teste seguinte (era o teste instável de e-mail). A linha só
+        // sai da fila depois de entregue, então fila vazia = nada mais vai chegar.
+        await WaitForEmailOutboxToDrainAsync(TimeSpan.FromSeconds(15));
         SentEmails.Clear();
 
         if (_respawner is not null && _connection is not null)
             await _respawner.ResetAsync(_connection);
+    }
+
+    private async Task WaitForEmailOutboxToDrainAsync(TimeSpan timeout)
+    {
+        if (_connection is null)
+            return;
+
+        var deadline = DateTimeOffset.UtcNow + timeout;
+        await using var pending = new NpgsqlCommand(
+            $"SELECT count(*) FROM {EmailDbContext.Schema}.outbox_emails WHERE failed_at IS NULL",
+            (NpgsqlConnection)_connection);
+
+        while ((long)(await pending.ExecuteScalarAsync())! > 0 && DateTimeOffset.UtcNow < deadline)
+            await Task.Delay(50);
     }
 
     /// <summary>Roda SQL direto no banco (para simular o tempo passando).</summary>
