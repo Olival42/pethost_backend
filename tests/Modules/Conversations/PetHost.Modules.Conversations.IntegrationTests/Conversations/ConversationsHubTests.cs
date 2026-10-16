@@ -1,7 +1,9 @@
 using System.Text.Json;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http.Connections;
+using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.SignalR.Client;
+using Microsoft.AspNetCore.TestHost;
 using Xunit;
 
 namespace PetHost.Modules.Conversations.IntegrationTests.Conversations;
@@ -9,7 +11,8 @@ namespace PetHost.Modules.Conversations.IntegrationTests.Conversations;
 /// <summary>
 /// O hub <c>/hubs/conversations</c> com o cliente oficial do SignalR, por WebSocket e com o token na
 /// query (<c>access_token</c>), como o navegador faz: a mensagem enviada pela API chega na hora ao
-/// outro lado, com o contador de não lidas, e conexão sem token é recusada.
+/// outro lado, com o contador de não lidas, e conexão sem token é recusada. Com o backplane no
+/// Redis, o evento chega também a quem está conectado em outra instância da API.
 /// </summary>
 [Collection(ConversationsApiCollection.Name)]
 public sealed class ConversationsHubTests(ConversationsApiFixture fixture) : IAsyncLifetime
@@ -17,6 +20,7 @@ public sealed class ConversationsHubTests(ConversationsApiFixture fixture) : IAs
     private static readonly TimeSpan Wait = TimeSpan.FromSeconds(10);
 
     private readonly List<HubConnection> _connections = [];
+    private WebApplicationFactory<Program>? _otherInstance;
     private HttpClient _client = null!;
     private ConversationsScenario _scenario = null!;
 
@@ -33,6 +37,9 @@ public sealed class ConversationsHubTests(ConversationsApiFixture fixture) : IAs
     {
         foreach (var connection in _connections)
             await connection.DisposeAsync();
+
+        if (_otherInstance is not null)
+            await _otherInstance.DisposeAsync();
 
         _client.Dispose();
     }
@@ -92,6 +99,52 @@ public sealed class ConversationsHubTests(ConversationsApiFixture fixture) : IAs
     }
 
     [Fact]
+    public async Task Hub_Should_PushTheMessageThroughTheRedisBackplane_When_TheHostIsConnectedToAnotherInstance()
+    {
+        // Arrange
+        var pair = await _scenario.ArrangeAsync();
+        var conversationId = await _scenario.StartAsync(pair);
+        _otherInstance = fixture.WithSettings(new Dictionary<string, string>());
+        var host = await ConnectAsync(pair.HostToken, _otherInstance.Server);
+        var message = Next(host, "messageCreated");
+        var unread = Next(host, "unreadCountChanged");
+
+        // Act: a mensagem é gravada pela instância principal; o anfitrião está só na outra.
+        await _scenario.SendTextAsync(pair.OwnerToken, conversationId, "Chegou pela outra instância?");
+
+        // Assert
+        (await message.WaitAsync(Wait, Ct)).GetProperty("body").GetString().Should().Be("Chegou pela outra instância?");
+        (await unread.WaitAsync(Wait, Ct)).GetProperty("total").GetInt32().Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Hub_Should_PushTheBlockToTheOtherSide_When_TheHostBlocksAndUnblocks()
+    {
+        // Arrange
+        var pair = await _scenario.ArrangeAsync();
+        var conversationId = await _scenario.StartAsync(pair);
+        var owner = await ConnectAsync(pair.OwnerToken);
+        var changes = new System.Collections.Concurrent.ConcurrentQueue<JsonElement>();
+        var twoChanges = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        owner.On<JsonElement>("conversationBlockChanged", payload =>
+        {
+            changes.Enqueue(payload);
+            if (changes.Count == 2)
+                twoChanges.TrySetResult();
+        });
+        var block = $"{ConversationsScenario.ConversationsRoute}/{conversationId}/block";
+
+        // Act
+        await _scenario.SendAsync(HttpMethod.Put, block, pair.HostToken);
+        await _scenario.SendAsync(HttpMethod.Delete, block, pair.HostToken);
+
+        // Assert
+        await twoChanges.Task.WaitAsync(Wait, Ct);
+        changes.Select(c => c.GetProperty("blocked").GetBoolean()).Should().Equal(true, false);
+        changes.Should().OnlyContain(c => c.GetProperty("conversationId").GetGuid() == conversationId);
+    }
+
+    [Fact]
     public async Task Hub_Should_RefuseTheConnection_When_ThereIsNoToken()
     {
         // Act
@@ -101,11 +154,15 @@ public sealed class ConversationsHubTests(ConversationsApiFixture fixture) : IAs
         await connect.Should().ThrowAsync<Exception>();
     }
 
-    /// <summary>Conecta por WebSocket no servidor em memória, com o token na query, como o navegador.</summary>
-    private async Task<HubConnection> ConnectAsync(string? token)
+    /// <summary>
+    /// Conecta por WebSocket no servidor em memória (o da fixture, ou <paramref name="server"/>), com
+    /// o token na query, como o navegador.
+    /// </summary>
+    private async Task<HubConnection> ConnectAsync(string? token, TestServer? server = null)
     {
+        server ??= fixture.Server;
         var connection = new HubConnectionBuilder()
-            .WithUrl(new Uri(fixture.Server.BaseAddress, "hubs/conversations"), options =>
+            .WithUrl(new Uri(server.BaseAddress, "hubs/conversations"), options =>
             {
                 options.Transports = HttpTransportType.WebSockets;
                 options.SkipNegotiation = true;
@@ -115,7 +172,7 @@ public sealed class ConversationsHubTests(ConversationsApiFixture fixture) : IAs
                         ? context.Uri
                         : new UriBuilder(context.Uri) { Query = $"access_token={Uri.EscapeDataString(token)}" }.Uri;
 
-                    return await fixture.Server.CreateWebSocketClient().ConnectAsync(uri, cancellationToken);
+                    return await server.CreateWebSocketClient().ConnectAsync(uri, cancellationToken);
                 };
             })
             .Build();

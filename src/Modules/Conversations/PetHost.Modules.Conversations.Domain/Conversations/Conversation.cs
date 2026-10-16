@@ -1,4 +1,6 @@
+using PetHost.Modules.Conversations.Domain.Errors;
 using PetHost.Shared.Kernel.Domain;
+using PetHost.Shared.Kernel.Results;
 
 namespace PetHost.Modules.Conversations.Domain.Conversations;
 
@@ -39,6 +41,33 @@ public sealed class Conversation : Entity<ConversationId>
     public DateTimeOffset CreatedAt { get; private set; }
     public DateTimeOffset UpdatedAt { get; private set; }
 
+    /// <summary>Qual lado bloqueou a conversa. Nulo enquanto nenhum dos dois bloqueou.</summary>
+    public ConversationParty? BlockedBy { get; private set; }
+
+    /// <summary>Quando um dos lados bloqueou. Nulo enquanto nenhum dos dois bloqueou.</summary>
+    public DateTimeOffset? BlockedAt { get; private set; }
+
+    /// <summary>
+    /// Quando a moderação bloqueou (denúncia procedente). Independe do bloqueio dos lados: nenhum dos
+    /// dois tira. Nulo enquanto a moderação não bloqueou.
+    /// </summary>
+    public DateTimeOffset? ModerationBlockedAt { get; private set; }
+
+    /// <summary>A moderação bloqueou a conversa.</summary>
+    public bool IsBlockedByModeration => ModerationBlockedAt is not null;
+
+    /// <summary>A conversa está bloqueada (por um dos lados ou pela moderação): ninguém envia.</summary>
+    public bool IsBlocked => BlockedBy is not null || IsBlockedByModeration;
+
+    /// <summary>
+    /// Quando o tutor recebeu o último e-mail de "mensagens não lidas" desta conversa. Gravado pela
+    /// tarefa do aviso (<c>IConversationRepository.MarkUnreadNotifiedAsync</c>), não pelo domínio.
+    /// </summary>
+    public DateTimeOffset? OwnerUnreadNotifiedAt { get; private set; }
+
+    /// <summary>Quando o anfitrião recebeu o último e-mail de "mensagens não lidas" desta conversa.</summary>
+    public DateTimeOffset? HostUnreadNotifiedAt { get; private set; }
+
     /// <summary>Última atividade: a última mensagem ou, sem nenhuma, a abertura. Base da retenção.</summary>
     public DateTimeOffset LastActivityAt => LastMessageAt ?? CreatedAt;
 
@@ -75,4 +104,74 @@ public sealed class Conversation : Entity<ConversationId>
 
     /// <summary>Sem mensagem nova desde <paramref name="cutoff"/> (nem abertura, se ninguém escreveu).</summary>
     public bool IsInactiveSince(DateTimeOffset cutoff) => LastActivityAt < cutoff;
+
+    /// <summary>
+    /// Bloqueia a conversa pelo lado <paramref name="party"/>: enquanto bloqueada, ninguém envia, e os
+    /// dois continuam lendo o histórico. Devolve se mudou (bloquear de novo é idempotente). Já
+    /// bloqueada pelo outro lado: <c>CONVERSATION_ALREADY_BLOCKED</c>.
+    /// </summary>
+    public Result<bool> Block(ConversationParty party, DateTimeOffset now)
+    {
+        if (BlockedBy == party)
+            return Result<bool>.Success(false);
+
+        if (BlockedBy is not null)
+            return Result<bool>.Failure(ConversationsErrors.AlreadyBlocked);
+
+        BlockedBy = party;
+        BlockedAt = now;
+        UpdatedAt = now > UpdatedAt ? now : UpdatedAt;
+
+        return Result<bool>.Success(true);
+    }
+
+    /// <summary>
+    /// A moderação bloqueia a conversa (o admin julgou procedente uma denúncia dela). Ninguém envia, os
+    /// dois continuam lendo, e nenhum dos lados tira: o desbloqueio de um lado só tira o bloqueio dele.
+    /// Devolve se mudou (já bloqueada pela moderação é idempotente).
+    /// </summary>
+    public bool BlockByModeration(DateTimeOffset now)
+    {
+        if (IsBlockedByModeration)
+            return false;
+
+        ModerationBlockedAt = now;
+        UpdatedAt = now > UpdatedAt ? now : UpdatedAt;
+
+        return true;
+    }
+
+    /// <summary>
+    /// O admin tira o bloqueio da moderação (procedente dado por engano, ou reconsiderado). O bloqueio
+    /// de um dos lados, se houver, continua. Devolve se mudou (sem bloqueio da moderação é idempotente).
+    /// </summary>
+    public bool LiftModerationBlock(DateTimeOffset now)
+    {
+        if (!IsBlockedByModeration)
+            return false;
+
+        ModerationBlockedAt = null;
+        UpdatedAt = now > UpdatedAt ? now : UpdatedAt;
+
+        return true;
+    }
+
+    /// <summary>
+    /// Desbloqueia o bloqueio de um dos lados (o da moderação continua). Só quem bloqueou desbloqueia (<c>CONVERSATION_UNBLOCK_FORBIDDEN</c>). Devolve se
+    /// mudou (conversa já liberada é idempotente).
+    /// </summary>
+    public Result<bool> Unblock(ConversationParty party, DateTimeOffset now)
+    {
+        if (BlockedBy is null)
+            return Result<bool>.Success(false);
+
+        if (BlockedBy != party)
+            return Result<bool>.Failure(ConversationsErrors.UnblockForbidden);
+
+        BlockedBy = null;
+        BlockedAt = null;
+        UpdatedAt = now > UpdatedAt ? now : UpdatedAt;
+
+        return Result<bool>.Success(true);
+    }
 }

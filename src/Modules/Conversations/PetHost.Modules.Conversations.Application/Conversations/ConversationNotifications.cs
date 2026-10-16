@@ -1,4 +1,5 @@
 using PetHost.Modules.Conversations.Application.Abstractions;
+using PetHost.Modules.Conversations.Application.Conversations.Responses;
 using PetHost.Modules.Conversations.Application.Messages.Responses;
 using PetHost.Modules.Conversations.Domain.Conversations;
 
@@ -7,7 +8,7 @@ namespace PetHost.Modules.Conversations.Application.Conversations;
 /// <summary>
 /// Quem recebe cada aviso em tempo real. Roda depois que a mensagem foi gravada: a mensagem vai
 /// para as contas dos dois lados (quem enviou vê nas outras abas e aparelhos), e o contador de não
-/// lidas vai só para quem recebeu.
+/// lidas vai só para quem recebeu. O bloqueio e o desbloqueio vão para os dois lados.
 /// </summary>
 public sealed class ConversationNotifications(
     IConversationParties conversationParties,
@@ -44,5 +45,28 @@ public sealed class ConversationNotifications(
             .ConfigureAwait(false);
 
         await conversationRealtime.UnreadCountChangedAsync(recipient.UserId, unread, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>A conversa foi bloqueada ou desbloqueada: avisa as contas dos dois lados.</summary>
+    public async Task BlockChangedAsync(Conversation conversation, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(conversation);
+
+        var owners = await conversationParties.GetOwnersAsync([conversation.OwnerId], cancellationToken).ConfigureAwait(false);
+        var hosts = await conversationParties.GetHostsAsync([conversation.HostId], cancellationToken).ConfigureAwait(false);
+
+        Guid[] accounts =
+        [
+            .. new[] { owners.GetValueOrDefault(conversation.OwnerId), hosts.GetValueOrDefault(conversation.HostId) }
+                .OfType<PartyInfo>()
+                .Select(party => party.UserId),
+        ];
+
+        if (accounts.Length == 0)
+            return;
+
+        await conversationRealtime
+            .BlockChangedAsync(accounts, new ConversationBlockResponse(conversation.Id.Value, conversation.IsBlocked), cancellationToken)
+            .ConfigureAwait(false);
     }
 }

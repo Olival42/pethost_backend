@@ -13,7 +13,8 @@ namespace PetHost.Modules.Conversations.Application.Messages.SendMessage;
 /// Grava a mensagem de texto e avisa os dois lados pelo hub. Só o tutor e o anfitrião da
 /// conversa, ativos e sem suspensão (<c>403 CONVERSATION_OWNER_DEACTIVATED</c> /
 /// <c>CONVERSATION_HOST_DEACTIVATED</c>), e o outro lado não pode estar suspenso
-/// (<c>403 CONVERSATION_RECIPIENT_SUSPENDED</c>). Com a dupla numa reserva em andamento, a mensagem
+/// (<c>403 CONVERSATION_RECIPIENT_SUSPENDED</c>), nem a conversa bloqueada
+/// (<c>422 CONVERSATION_BLOCKED</c>). Com a dupla numa reserva em andamento, a mensagem
 /// leva o id dela (histórico da reserva).
 /// </summary>
 public sealed class SendMessageCommandHandler(
@@ -44,6 +45,10 @@ public sealed class SendMessageCommandHandler(
             .ConfigureAwait(false);
         if (recipient.IsFailure)
             return Result<MessageResponse>.FromFailure(recipient);
+
+        var open = ConversationAccess.EnsureNotBlocked(conversation);
+        if (open.IsFailure)
+            return Result<MessageResponse>.FromFailure(open);
 
         var bookingId = await conversationBookings
             .GetInProgressBookingIdAsync(conversation.OwnerId, conversation.HostId, cancellationToken)

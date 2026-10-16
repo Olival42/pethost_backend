@@ -129,6 +129,9 @@ services:
       Email__FromAddress: ${EMAIL_FROM_ADDRESS:-no-reply@pethost.local}
       Email__FromName: ${EMAIL_FROM_NAME:-PetHost}
 
+      # --- suporte: e-mail que o app mostra quando a API manda falar com o suporte ---
+      Support__Email: ${SUPPORT_EMAIL:-}
+
       # --- esqueci a senha ---
       PasswordReset__TokenLifetimeMinutes: ${PASSWORD_RESET_TOKEN_LIFETIME_MINUTES:-30}
       PasswordReset__ResetUrl: ${PASSWORD_RESET_URL:-}
@@ -163,6 +166,12 @@ services:
       # Conversa parada ha este numero de dias some, com mensagens e fotos (salvo reserva em aberto).
       ConversationRetention__InactivityDays: ${CONVERSATION_RETENTION_INACTIVITY_DAYS:-90}
       ConversationRetention__IntervalMinutes: ${CONVERSATION_RETENTION_INTERVAL_MINUTES:-1440}
+      # E-mail de "mensagens nao lidas" (resumo, sem o texto) para quem nao abriu o app.
+      ConversationUnreadEmail__DelayMinutes: ${CONVERSATION_UNREAD_EMAIL_DELAY_MINUTES:-15}
+      ConversationUnreadEmail__CooldownMinutes: ${CONVERSATION_UNREAD_EMAIL_COOLDOWN_MINUTES:-60}
+      ConversationUnreadEmail__AppUrl: ${CONVERSATION_UNREAD_EMAIL_APP_URL:-}
+      # E-mail do admin que recebe o aviso de denuncia nova. Vazio = sem e-mail (o admin consulta a fila).
+      ConversationModeration__AdminAlertEmail: ${CONVERSATION_MODERATION_ADMIN_ALERT_EMAIL:-}
 
       # --- anfitriao de demonstracao (apresentacao) ---
       # Cria na subida um anfitriao ja verificado, opcionalmente ligado a uma conta do Stripe.

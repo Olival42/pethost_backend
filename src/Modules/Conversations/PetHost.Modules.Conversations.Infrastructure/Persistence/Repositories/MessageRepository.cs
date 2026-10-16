@@ -20,6 +20,11 @@ internal sealed class MessageRepository(ConversationsDbContext dbContext) : IMes
             .Where(m => m.ConversationId == conversationId && m.SentBy != reader && m.ReadAt == null)
             .ExecuteUpdateAsync(setters => setters.SetProperty(m => m.ReadAt, now), cancellationToken);
 
+    public Task<Message?> FindInConversationAsync(ConversationId conversationId, MessageId id, CancellationToken cancellationToken) =>
+        dbContext.Messages
+            .AsNoTracking()
+            .FirstOrDefaultAsync(m => m.Id == id && m.ConversationId == conversationId, cancellationToken);
+
     public async Task<IReadOnlyList<string>> ListImageUrlsAsync(ConversationId conversationId, CancellationToken cancellationToken) =>
         await dbContext.Messages
             .AsNoTracking()

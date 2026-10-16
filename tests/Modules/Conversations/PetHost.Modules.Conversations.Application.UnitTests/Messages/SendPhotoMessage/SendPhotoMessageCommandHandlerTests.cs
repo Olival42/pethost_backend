@@ -186,6 +186,21 @@ public sealed class SendPhotoMessageCommandHandlerTests
         _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
+    [Fact]
+    public async Task HandleAsync_Should_ReturnBlockedWithoutUploading_When_TheConversationIsBlocked()
+    {
+        // Arrange
+        _conversation.Block(ConversationParty.Owner, ConversationBuilder.DefaultNow);
+
+        // Act
+        var result = await _sut.HandleAsync(HostSends("Olha ela!"), CancellationToken.None);
+
+        // Assert
+        result.FirstError.Should().Be(ConversationsErrors.Blocked);
+        _storage.Verify(s => s.SaveAsync(It.IsAny<ImageUpload?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
     private SendPhotoMessageCommand HostSends(string? caption) =>
         new(ConversationBuilder.HostUserId, Roles.Host, _conversation.Id.Value, Image, caption);
 }

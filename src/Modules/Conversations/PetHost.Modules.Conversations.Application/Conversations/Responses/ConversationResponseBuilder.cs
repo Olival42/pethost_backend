@@ -43,6 +43,9 @@ public sealed class ConversationResponseBuilder(IConversationParties conversatio
             Summary(hosts.GetValueOrDefault(row.HostId)),
             row.LastMessage is null ? null : MessageResponse.From(row.LastMessage),
             row.UnreadCount,
+            row.Blocked,
+            row.BlockedByViewer,
+            row.BlockedByModeration,
             row.LastMessageAt,
             row.CreatedAt))];
     }

@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using PetHost.Modules.Conversations.Domain.Conversations;
+using PetHost.Modules.Conversations.Domain.Reports;
 
 namespace PetHost.Modules.Conversations.Infrastructure.Persistence.Repositories;
 
@@ -28,9 +29,8 @@ internal sealed class ConversationRepository(ConversationsDbContext dbContext) :
         int skip,
         int take,
         CancellationToken cancellationToken) =>
-        await dbContext.Conversations
+        await Purgeable(cutoff)
             .AsNoTracking()
-            .Where(c => (c.LastMessageAt ?? c.CreatedAt) < cutoff)
             .OrderBy(c => c.LastMessageAt ?? c.CreatedAt)
             .ThenBy(c => c.Id)
             .Skip(skip)
@@ -39,19 +39,42 @@ internal sealed class ConversationRepository(ConversationsDbContext dbContext) :
             .ConfigureAwait(false);
 
     /// <summary>
-    /// Um <c>DELETE ... WHERE</c> com a condição de inatividade: o Postgres confere de novo na hora
-    /// de apagar. Se o envio de uma mensagem gravou antes, a conversa não está mais parada e fica.
-    /// As mensagens saem pelo <c>ON DELETE CASCADE</c>.
+    /// Um <c>DELETE ... WHERE</c> com a condição de inatividade (e de moderação): o Postgres confere
+    /// de novo na hora de apagar. Se o envio de uma mensagem gravou antes, a conversa não está mais
+    /// parada e fica; se chegou uma denúncia ou um bloqueio, também. As mensagens e as denúncias já
+    /// analisadas saem pelo <c>ON DELETE CASCADE</c>.
     /// </summary>
     public async Task<bool> DeleteIfInactiveAsync(ConversationId id, DateTimeOffset cutoff, CancellationToken cancellationToken)
     {
-        var deleted = await dbContext.Conversations
-            .Where(c => c.Id == id && (c.LastMessageAt ?? c.CreatedAt) < cutoff)
+        var deleted = await Purgeable(cutoff)
+            .Where(c => c.Id == id)
             .ExecuteDeleteAsync(cancellationToken)
             .ConfigureAwait(false);
 
         return deleted > 0;
     }
 
+    public async Task MarkUnreadNotifiedAsync(ConversationId id, ConversationParty recipient, DateTimeOffset at, CancellationToken cancellationToken)
+    {
+        var conversation = dbContext.Conversations.Where(c => c.Id == id);
+
+        if (recipient == ConversationParty.Owner)
+            await conversation.ExecuteUpdateAsync(set => set.SetProperty(c => c.OwnerUnreadNotifiedAt, at), cancellationToken).ConfigureAwait(false);
+        else
+            await conversation.ExecuteUpdateAsync(set => set.SetProperty(c => c.HostUnreadNotifiedAt, at), cancellationToken).ConfigureAwait(false);
+    }
+
     public void Add(Conversation conversation) => dbContext.Conversations.Add(conversation);
+
+    /// <summary>
+    /// O que a retenção pode apagar: sem atividade desde <paramref name="cutoff"/>, sem bloqueio (o
+    /// bloqueio some junto com a conversa, e o tutor poderia puxar conversa de novo) e sem denúncia
+    /// esperando o admin (ele precisa ver a mensagem e a foto).
+    /// </summary>
+    private IQueryable<Conversation> Purgeable(DateTimeOffset cutoff) =>
+        dbContext.Conversations.Where(c =>
+            (c.LastMessageAt ?? c.CreatedAt) < cutoff
+            && c.BlockedBy == null
+            && c.ModerationBlockedAt == null
+            && !dbContext.MessageReports.Any(r => r.ConversationId == c.Id && r.Status == ReportStatus.Pending));
 }

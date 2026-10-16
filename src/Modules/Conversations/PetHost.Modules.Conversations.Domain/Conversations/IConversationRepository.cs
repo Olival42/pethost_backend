@@ -17,8 +17,9 @@ public interface IConversationRepository
     Task<Conversation?> FindByPartiesAsync(Guid ownerId, Guid hostId, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Conversas sem atividade desde <paramref name="cutoff"/>, da mais antiga para a mais nova,
-    /// pulando as <paramref name="skip"/> primeiras. Sem rastreamento.
+    /// Conversas sem atividade desde <paramref name="cutoff"/> que a retenção pode apagar (sem
+    /// bloqueio e sem denúncia pendente), da mais antiga para a mais nova, pulando as
+    /// <paramref name="skip"/> primeiras. Sem rastreamento.
     /// </summary>
     Task<IReadOnlyList<Conversation>> ListInactiveAsync(
         DateTimeOffset cutoff,
@@ -28,10 +29,17 @@ public interface IConversationRepository
 
     /// <summary>
     /// Apaga a conversa (as mensagens vão junto) se ela continua sem atividade desde
-    /// <paramref name="cutoff"/>. A condição é conferida pelo banco no momento do apagamento:
-    /// mensagem que chegou depois da leitura salva a conversa. Devolve se apagou.
+    /// <paramref name="cutoff"/>, sem bloqueio e sem denúncia pendente. A condição é conferida pelo
+    /// banco no momento do apagamento: mensagem, bloqueio ou denúncia que chegou depois da leitura
+    /// salva a conversa. Devolve se apagou.
     /// </summary>
     Task<bool> DeleteIfInactiveAsync(ConversationId id, DateTimeOffset cutoff, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Registra que <paramref name="recipient"/> recebeu o e-mail de mensagens não lidas desta conversa
+    /// em <paramref name="at"/>. Grava na hora, só essa coluna (um envio ao mesmo tempo não a sobrescreve).
+    /// </summary>
+    Task MarkUnreadNotifiedAsync(ConversationId id, ConversationParty recipient, DateTimeOffset at, CancellationToken cancellationToken);
 
     void Add(Conversation conversation);
 }

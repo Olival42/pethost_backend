@@ -1,7 +1,10 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using PetHost.Shared.Infrastructure.Redis;
+using StackExchange.Redis;
 
 namespace PetHost.Shared.Infrastructure.Realtime;
 
@@ -25,18 +28,43 @@ public static class RealtimeServiceCollectionExtensions
     public const string AccessTokenQueryParameter = "access_token";
 
     /// <summary>
-    /// Registra o SignalR com o mesmo JSON da API (<paramref name="configureJson"/>: camelCase,
-    /// nulo omitido, enum como texto) e a identificação da conexão pela claim <c>sub</c>.
+    /// Prefixo dos canais do backplane no Redis, no padrão das chaves do projeto
+    /// (<c>pethost:&lt;módulo&gt;:...</c>). Separa os canais do SignalR de qualquer outro uso do Redis.
     /// </summary>
-    public static IServiceCollection AddRealtime(this IServiceCollection services, Action<JsonSerializerOptions> configureJson)
+    public const string BackplaneChannelPrefix = "pethost:signalr";
+
+    /// <summary>
+    /// Registra o SignalR com o mesmo JSON da API (<paramref name="configureJson"/>: camelCase,
+    /// nulo omitido, enum como texto), a identificação da conexão pela claim <c>sub</c> e o
+    /// backplane no Redis.
+    /// </summary>
+    /// <remarks>
+    /// <b>Backplane:</b> as conexões ficam na memória da instância que as aceitou. Com o Redis no
+    /// meio, o <c>Clients.User(...)</c> de uma instância publica num canal e todas as instâncias
+    /// entregam às conexões que têm: a mensagem gravada pela instância A chega a quem está
+    /// conectado na B. A conexão do backplane é própria (o SignalR a descarta ao desligar, e a do
+    /// <c>AddRedis</c> é compartilhada com o Auth), mas usa a mesma connection string.
+    /// </remarks>
+    public static IServiceCollection AddRealtime(
+        this IServiceCollection services,
+        IConfiguration configuration,
+        Action<JsonSerializerOptions> configureJson)
     {
         ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(configuration);
         ArgumentNullException.ThrowIfNull(configureJson);
+
+        var redisConnectionString = configuration.GetConnectionString(RedisServiceCollectionExtensions.ConnectionName)
+            ?? throw new InvalidOperationException(
+                $"Connection string '{RedisServiceCollectionExtensions.ConnectionName}' is not configured.");
 
         // Antes do AddSignalR: ele registra o provedor padrão com TryAdd, que então não entra.
         services.AddSingleton<IUserIdProvider, SubjectUserIdProvider>();
 
-        services.AddSignalR().AddJsonProtocol(protocol => configureJson(protocol.PayloadSerializerOptions));
+        services.AddSignalR()
+            .AddJsonProtocol(protocol => configureJson(protocol.PayloadSerializerOptions))
+            .AddStackExchangeRedis(redisConnectionString, redis =>
+                redis.Configuration.ChannelPrefix = RedisChannel.Literal(BackplaneChannelPrefix));
 
         return services;
     }

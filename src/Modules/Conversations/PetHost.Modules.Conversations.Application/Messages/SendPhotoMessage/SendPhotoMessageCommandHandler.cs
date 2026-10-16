@@ -13,7 +13,8 @@ namespace PetHost.Modules.Conversations.Application.Messages.SendPhotoMessage;
 /// <summary>
 /// Envia a foto ao bucket público e grava a mensagem. A posse, o perfil ativo e o outro lado sem
 /// suspensão são conferidos <b>antes</b> do envio: conversa de outra pessoa é <c>404</c>,
-/// destinatário suspenso é <c>403 CONVERSATION_RECIPIENT_SUSPENDED</c>, e nada vai para o bucket.
+/// destinatário suspenso é <c>403 CONVERSATION_RECIPIENT_SUSPENDED</c>, conversa bloqueada é
+/// <c>422 CONVERSATION_BLOCKED</c>, e nada vai para o bucket.
 /// Se a gravação falhar, a foto recém-enviada é apagada (<see cref="ImageReplacement"/>).
 /// </summary>
 /// <remarks>
@@ -50,6 +51,10 @@ public sealed class SendPhotoMessageCommandHandler(
             .ConfigureAwait(false);
         if (recipient.IsFailure)
             return Result<MessageResponse>.FromFailure(recipient);
+
+        var open = ConversationAccess.EnsureNotBlocked(conversation);
+        if (open.IsFailure)
+            return Result<MessageResponse>.FromFailure(open);
 
         var bookingId = await conversationBookings
             .GetInProgressBookingIdAsync(conversation.OwnerId, conversation.HostId, cancellationToken)

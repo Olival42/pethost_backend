@@ -29,6 +29,15 @@ namespace PetHost.Modules.Conversations.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<DateTimeOffset?>("BlockedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("blocked_at");
+
+                    b.Property<string>("BlockedBy")
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)")
+                        .HasColumnName("blocked_by");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamptz")
                         .HasColumnName("created_at");
@@ -37,13 +46,25 @@ namespace PetHost.Modules.Conversations.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("host_id");
 
+                    b.Property<DateTimeOffset?>("HostUnreadNotifiedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("host_unread_notified_at");
+
                     b.Property<DateTimeOffset?>("LastMessageAt")
                         .HasColumnType("timestamptz")
                         .HasColumnName("last_message_at");
 
+                    b.Property<DateTimeOffset?>("ModerationBlockedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("moderation_blocked_at");
+
                     b.Property<Guid>("OwnerId")
                         .HasColumnType("uuid")
                         .HasColumnName("owner_id");
+
+                    b.Property<DateTimeOffset?>("OwnerUnreadNotifiedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("owner_unread_notified_at");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamptz")
@@ -62,7 +83,12 @@ namespace PetHost.Modules.Conversations.Infrastructure.Persistence.Migrations
                     b.HasIndex("OwnerId", "LastMessageAt")
                         .HasDatabaseName("ix_conversations_owner_id_last_message_at");
 
-                    b.ToTable("conversations", "conversation");
+                    b.ToTable("conversations", "conversation", t =>
+                        {
+                            t.HasCheckConstraint("ck_conversations_block", "(blocked_by IS NULL) = (blocked_at IS NULL)");
+
+                            t.HasCheckConstraint("ck_conversations_blocked_by", "blocked_by IS NULL OR blocked_by IN ('owner', 'host')");
+                        });
                 });
 
             modelBuilder.Entity("PetHost.Modules.Conversations.Domain.Messages.Message", b =>
@@ -125,6 +151,112 @@ namespace PetHost.Modules.Conversations.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("PetHost.Modules.Conversations.Domain.Preferences.NotificationPreference", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<bool>("UnreadMessagesEmail")
+                        .HasColumnType("boolean")
+                        .HasColumnName("unread_messages_email");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_notification_preferences");
+
+                    b.ToTable("notification_preferences", "conversation");
+                });
+
+            modelBuilder.Entity("PetHost.Modules.Conversations.Domain.Reports.MessageReport", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("ConversationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("conversation_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("description");
+
+                    b.Property<Guid>("MessageId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("message_id");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("reason");
+
+                    b.Property<string>("ReportedBy")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)")
+                        .HasColumnName("reported_by");
+
+                    b.Property<string>("ResolutionNote")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("resolution_note");
+
+                    b.Property<DateTimeOffset?>("ResolvedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("resolved_at");
+
+                    b.Property<Guid?>("ResolvedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("resolved_by");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("status");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id")
+                        .HasName("pk_message_reports");
+
+                    b.HasIndex("ConversationId")
+                        .HasDatabaseName("ix_message_reports_conversation_id_pending")
+                        .HasFilter("status = 'pending'");
+
+                    b.HasIndex("MessageId")
+                        .IsUnique()
+                        .HasDatabaseName("uq_message_reports_message_id");
+
+                    b.HasIndex("Status", "CreatedAt")
+                        .HasDatabaseName("ix_message_reports_status_created_at");
+
+                    b.ToTable("message_reports", "conversation", t =>
+                        {
+                            t.HasCheckConstraint("ck_message_reports_reason", "reason IN ('spam', 'harassment', 'scam', 'inappropriate', 'other')");
+
+                            t.HasCheckConstraint("ck_message_reports_reported_by", "reported_by IN ('owner', 'host')");
+
+                            t.HasCheckConstraint("ck_message_reports_resolution", "(status = 'pending' AND resolved_at IS NULL AND resolved_by IS NULL AND resolution_note IS NULL) OR (status <> 'pending' AND resolved_at IS NOT NULL AND resolved_by IS NOT NULL AND resolution_note IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_message_reports_status", "status IN ('pending', 'upheld', 'dismissed')");
+                        });
+                });
+
             modelBuilder.Entity("PetHost.Modules.Conversations.Domain.Messages.Message", b =>
                 {
                     b.HasOne("PetHost.Modules.Conversations.Domain.Conversations.Conversation", null)
@@ -133,6 +265,23 @@ namespace PetHost.Modules.Conversations.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_messages_conversations_conversation_id");
+                });
+
+            modelBuilder.Entity("PetHost.Modules.Conversations.Domain.Reports.MessageReport", b =>
+                {
+                    b.HasOne("PetHost.Modules.Conversations.Domain.Conversations.Conversation", null)
+                        .WithMany()
+                        .HasForeignKey("ConversationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_message_reports_conversations_conversation_id");
+
+                    b.HasOne("PetHost.Modules.Conversations.Domain.Messages.Message", null)
+                        .WithMany()
+                        .HasForeignKey("MessageId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_message_reports_messages_message_id");
                 });
 #pragma warning restore 612, 618
         }

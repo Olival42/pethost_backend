@@ -9,7 +9,8 @@ namespace PetHost.Modules.Conversations.Infrastructure.Persistence;
 
 /// <summary>
 /// Confirma a transação do módulo Conversations e traduz as corridas que o banco barra em erro de
-/// negócio (§15): o índice único da dupla e a conversa apagada pela retenção no meio do envio.
+/// negócio (§15): o índice único da dupla, a denúncia repetida da mesma mensagem e a conversa
+/// apagada pela retenção no meio do envio ou da denúncia.
 /// </summary>
 /// <remarks>
 /// Em falha, o rastreamento é limpo: as mudanças recusadas não voltam a ser tentadas por um
@@ -29,7 +30,8 @@ internal sealed class ConversationsUnitOfWork(ConversationsDbContext dbContext) 
         }
         catch (DbUpdateConcurrencyException)
         {
-            // A conversa sumiu entre a leitura e a gravação (a retenção apagou).
+            // A conversa sumiu entre a leitura e a gravação (a retenção apagou), ou outro admin
+            // analisou a mesma denúncia antes (xmin).
             dbContext.ChangeTracker.Clear();
             return Result.Failure(ConversationsErrors.Conflict);
         }
@@ -69,6 +71,7 @@ internal sealed class ConversationsUnitOfWork(ConversationsDbContext dbContext) 
     private static Error ErrorFor(string? constraint) => constraint switch
     {
         "uq_conversations_owner_id_host_id" => ConversationsErrors.AlreadyExists,
+        "uq_message_reports_message_id" => ConversationsErrors.ReportAlreadyExists,
         _ => ConversationsErrors.Conflict,
     };
 }

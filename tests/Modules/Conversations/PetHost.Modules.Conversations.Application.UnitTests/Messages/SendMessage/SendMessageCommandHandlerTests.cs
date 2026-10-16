@@ -256,6 +256,55 @@ public sealed class SendMessageCommandHandlerTests
         _realtime.Verify(r => r.MessageCreatedAsync(It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<MessageResponse>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
+    [Fact]
+    public async Task HandleAsync_Should_ReturnBlockedWithoutSaving_When_TheConversationIsBlocked()
+    {
+        // Arrange
+        _conversation.Block(ConversationParty.Host, Now);
+
+        // Act
+        var result = await _sut.HandleAsync(OwnerSends("Oi?"), CancellationToken.None);
+
+        // Assert
+        result.FirstError.Should().Be(ConversationsErrors.Blocked);
+        _unitOfWork.Verify(u => u.RunLockedOnConversationAsync(It.IsAny<ConversationId>(), It.IsAny<Func<CancellationToken, Task<Result>>>(), It.IsAny<CancellationToken>()), Times.Never);
+        _auditTrail.Verify(a => a.RecordAsync(It.IsAny<AuditRecord>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task HandleAsync_Should_ReturnBlockedByModerationWithoutSaving_When_TheAdminBlockedTheConversation()
+    {
+        // Arrange: um dos lados também bloqueou; o erro da moderação vem primeiro (é o que o app mostra).
+        _conversation.Block(ConversationParty.Owner, Now);
+        _conversation.BlockByModeration(Now);
+
+        // Act
+        var result = await _sut.HandleAsync(OwnerSends("Oi?"), CancellationToken.None);
+
+        // Assert
+        result.FirstError.Should().Be(ConversationsErrors.BlockedByModeration);
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task HandleAsync_Should_ReturnBlockedWithoutSaving_When_TheConversationIsBlockedWhileWaitingForTheLock()
+    {
+        // Arrange: o outro lado bloqueou entre a primeira leitura e a trava; a releitura mostra.
+        _repository
+            .Setup(r => r.ReloadAsync(_conversation, It.IsAny<CancellationToken>()))
+            .Callback(() => _conversation.Block(ConversationParty.Host, Now))
+            .Returns(Task.CompletedTask);
+
+        // Act
+        var result = await _sut.HandleAsync(OwnerSends("Oi?"), CancellationToken.None);
+
+        // Assert
+        result.FirstError.Should().Be(ConversationsErrors.Blocked);
+        _added.Should().BeNull();
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+        _realtime.Verify(r => r.MessageCreatedAsync(It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<MessageResponse>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
     private SendMessageCommand OwnerSends(string body) =>
         new(ConversationBuilder.OwnerUserId, Roles.Owner, _conversation.Id.Value, body);
 }

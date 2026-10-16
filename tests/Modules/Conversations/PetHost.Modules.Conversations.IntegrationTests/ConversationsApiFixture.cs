@@ -40,6 +40,18 @@ namespace PetHost.Modules.Conversations.IntegrationTests;
 /// </summary>
 public sealed class ConversationsApiFixture : IAsyncLifetime
 {
+    /// <summary>Admin criado pelo seeder, para a fila de denúncias.</summary>
+    public const string AdminEmail = "admin@pethost.test";
+
+    /// <summary>Senha do admin do seeder (só de teste).</summary>
+    public const string AdminPassword = "senha-do-admin-123";
+
+    /// <summary>Quem recebe o aviso de denúncia nova.</summary>
+    public const string ModerationAlertEmail = "moderacao@pethost.test";
+
+    /// <summary>Os e-mails que a caixa de saída entregou (o SMTP é trocado por este coletor).</summary>
+    public System.Collections.Concurrent.ConcurrentQueue<EmailMessage> SentEmails { get; } = new();
+
     private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder("postgres:17-alpine")
         .WithDatabase("pethost")
         .WithUsername("pethost")
@@ -107,16 +119,23 @@ public sealed class ConversationsApiFixture : IAsyncLifetime
             builder.UseSetting("HostVerification:PurgeEnabled", "false");
             builder.UseSetting("BookingExpiration:Enabled", "false");
             builder.UseSetting("ConversationRetention:Enabled", "false");
+            builder.UseSetting("ConversationUnreadEmail:Enabled", "false");
 
             builder.UseSetting("Email:Host", "smtp.invalid");
             builder.UseSetting("Email:FromAddress", "no-reply@pethost.test");
+
+            builder.UseSetting("ConversationModeration:AdminAlertEmail", ModerationAlertEmail);
+
+            builder.UseSetting("Seed:Admin:Enabled", "true");
+            builder.UseSetting("Seed:Admin:Email", AdminEmail);
+            builder.UseSetting("Seed:Admin:Password", AdminPassword);
 
             foreach (var (key, value) in _bucket.Settings)
                 builder.UseSetting(key, value);
 
             builder.ConfigureTestServices(services =>
             {
-                services.AddSingleton<IEmailSender, DiscardingEmailSender>();
+                services.AddSingleton<IEmailSender>(new RecordingEmailSender(SentEmails));
                 services.AddSingleton<IGeocoder, MaringaGeocoder>();
             });
         });
@@ -148,10 +167,15 @@ public sealed class ConversationsApiFixture : IAsyncLifetime
         });
     }
 
+    /// <summary>Limpa os schemas e recria o admin do seed.</summary>
     public async Task ResetAsync()
     {
+        SentEmails.Clear();
+
         if (_respawner is not null && _connection is not null)
             await _respawner.ResetAsync(_connection);
+
+        await Services.InitializeAuthModuleAsync(applyMigrations: false);
     }
 
     /// <summary>
@@ -195,10 +219,31 @@ public sealed class ConversationsApiFixture : IAsyncLifetime
         await _postgres.DisposeAsync();
     }
 
-    /// <summary>Os e-mails da reserva não importam aqui: são descartados.</summary>
-    private sealed class DiscardingEmailSender : IEmailSender
+    /// <summary>Não envia nada: guarda o que seria enviado, para o teste conferir (o aviso ao admin).</summary>
+    private sealed class RecordingEmailSender(System.Collections.Concurrent.ConcurrentQueue<EmailMessage> sent) : IEmailSender
     {
-        public Task SendAsync(EmailMessage message, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task SendAsync(EmailMessage message, CancellationToken cancellationToken)
+        {
+            sent.Enqueue(message);
+            return Task.CompletedTask;
+        }
+    }
+
+    /// <summary>Espera até a caixa de saída entregar um e-mail que satisfaça <paramref name="match"/>.</summary>
+    public async Task<EmailMessage?> WaitForEmailAsync(Func<EmailMessage, bool> match, TimeSpan timeout)
+    {
+        var deadline = DateTimeOffset.UtcNow + timeout;
+
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var found = SentEmails.FirstOrDefault(match);
+            if (found is not null)
+                return found;
+
+            await Task.Delay(100);
+        }
+
+        return null;
     }
 
     /// <summary>Todo endereço cai na Zona 7 de Maringá.</summary>

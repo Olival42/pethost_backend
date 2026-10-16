@@ -60,6 +60,9 @@ public static class AuditTargets
     /// <summary>Conversa do chat (módulo Conversations). O id é o da conversa.</summary>
     public const string Conversation = "conversation";
 
+    /// <summary>Denúncia de mensagem do chat (módulo Conversations). O id é o da denúncia.</summary>
+    public const string ConversationReport = "conversation_report";
+
     /// <summary>A própria trilha (consulta do admin).</summary>
     public const string Audit = "audit";
 }
@@ -204,6 +207,24 @@ public static class AuditActions
 
     /// <summary>Conversa apagada pela retenção (sem atividade no prazo), com as mensagens e as fotos.</summary>
     public const string ConversationPurged = "conversation.purged";
+
+    /// <summary>Um dos lados bloqueou a conversa (quem, nos detalhes): ninguém envia até desbloquear.</summary>
+    public const string ConversationBlocked = "conversation.blocked";
+
+    /// <summary>Quem bloqueou desbloqueou a conversa.</summary>
+    public const string ConversationUnblocked = "conversation.unblocked";
+
+    /// <summary>Quem recebeu uma mensagem a denunciou (motivo nos detalhes; nunca o texto nem a descrição).</summary>
+    public const string ConversationMessageReported = "conversation.message_reported";
+
+    /// <summary>Admin analisou uma denúncia (desfecho nos detalhes, observação como motivo).</summary>
+    public const string ConversationReportResolved = "conversation.report_resolved";
+
+    /// <summary>Admin abriu uma denúncia com a mensagem e o contexto: acesso a conversa privada (LGPD).</summary>
+    public const string ConversationReportViewed = "conversation.report_viewed";
+
+    /// <summary>Admin listou as denúncias (com as mensagens denunciadas).</summary>
+    public const string ConversationReportsListed = "conversation.reports_listed";
 
     // --- Auditoria ---
     public const string AuditSearched = "audit.searched";

@@ -21,6 +21,15 @@ public interface IConversationParties
     /// </summary>
     Task<bool> IsSuspendedAsync(ConversationParty side, Guid profileId, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// E-mail, nome e se pode receber aviso de cada perfil do lado <paramref name="side"/>, numa
+    /// consulta por módulo. Quem sumiu não aparece.
+    /// </summary>
+    Task<IReadOnlyDictionary<Guid, PartyContact>> GetContactsAsync(
+        ConversationParty side,
+        IReadOnlyCollection<Guid> profileIds,
+        CancellationToken cancellationToken);
+
     /// <summary>Nome, foto e conta de cada tutor, numa consulta por módulo. Quem sumiu não aparece.</summary>
     Task<IReadOnlyDictionary<Guid, PartyInfo>> GetOwnersAsync(
         IReadOnlyCollection<Guid> ownerIds,

@@ -2,16 +2,23 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using PetHost.Modules.Conversations.Application.Conversations.BlockConversation;
 using PetHost.Modules.Conversations.Application.Conversations.GetConversationById;
 using PetHost.Modules.Conversations.Application.Conversations.GetUnreadMessageCount;
 using PetHost.Modules.Conversations.Application.Conversations.ListMyConversations;
 using PetHost.Modules.Conversations.Application.Conversations.MarkConversationRead;
 using PetHost.Modules.Conversations.Application.Conversations.Responses;
 using PetHost.Modules.Conversations.Application.Conversations.StartConversation;
+using PetHost.Modules.Conversations.Application.Conversations.UnblockConversation;
 using PetHost.Modules.Conversations.Application.Messages.ListConversationMessages;
 using PetHost.Modules.Conversations.Application.Messages.Responses;
 using PetHost.Modules.Conversations.Application.Messages.SendMessage;
 using PetHost.Modules.Conversations.Application.Messages.SendPhotoMessage;
+using PetHost.Modules.Conversations.Application.Preferences;
+using PetHost.Modules.Conversations.Application.Preferences.GetNotificationSettings;
+using PetHost.Modules.Conversations.Application.Preferences.UpdateNotificationSettings;
+using PetHost.Modules.Conversations.Application.Reports.ReportMessage;
+using PetHost.Modules.Conversations.Application.Reports.Responses;
 using PetHost.Shared.Contracts.Authorization;
 using PetHost.Shared.Contracts.Responses;
 using PetHost.Shared.Infrastructure.Http;
@@ -25,6 +32,8 @@ namespace PetHost.Modules.Conversations.Presentation.Conversations;
 /// Chat entre o tutor e o anfitrião: uma conversa por dupla, com texto e foto. Quem pede sai sempre
 /// do token — nunca do corpo — e o lado (tutor ou anfitrião) sai do papel do token. As mensagens
 /// novas e o contador de não lidas também chegam em tempo real pelo hub <c>/hubs/conversations</c>.
+/// Moderação: os dois lados bloqueiam a conversa e denunciam a mensagem que receberam (a fila do
+/// admin fica em <c>ConversationReportsAdminController</c>).
 /// </summary>
 [ApiController]
 [Route("api/v1/conversations")]
@@ -33,6 +42,11 @@ public sealed class ConversationsController(
     ICommandHandler<SendMessageCommand, MessageResponse> sendMessage,
     ICommandHandler<SendPhotoMessageCommand, MessageResponse> sendPhotoMessage,
     ICommandHandler<MarkConversationReadCommand, UnreadCountResponse> markConversationRead,
+    ICommandHandler<BlockConversationCommand, ConversationResponse> blockConversation,
+    ICommandHandler<UnblockConversationCommand, ConversationResponse> unblockConversation,
+    ICommandHandler<ReportMessageCommand, SubmittedReportResponse> reportMessage,
+    ICommandHandler<UpdateNotificationSettingsCommand, NotificationSettingsResponse> updateNotificationSettings,
+    IQueryHandler<GetNotificationSettingsQuery, NotificationSettingsResponse> getNotificationSettings,
     IQueryHandler<ListMyConversationsQuery, PagedResult<ConversationResponse>> listMyConversations,
     IQueryHandler<GetConversationByIdQuery, ConversationResponse> getConversationById,
     IQueryHandler<GetUnreadMessageCountQuery, UnreadCountResponse> getUnreadMessageCount,
@@ -106,6 +120,44 @@ public sealed class ConversationsController(
     {
         var result = await getUnreadMessageCount.HandleAsync(
             new GetUnreadMessageCountQuery(User.GetUserId(), CurrentRole()),
+            cancellationToken);
+
+        return result.ToActionResult();
+    }
+
+    /// <summary>O que a conta logada recebe do chat fora do app.</summary>
+    /// <remarks>
+    /// <c>unreadMessagesEmail</c>: o e-mail de "mensagens não lidas" (resumo, sem o texto, depois de
+    /// 15 min sem ler). Ligado por padrão. A escolha é da conta: tutor e anfitrião escolhem cada um.
+    /// </remarks>
+    [HttpGet("me/notification-settings")]
+    [Authorize(Roles = $"{Roles.Owner},{Roles.Host}")]
+    [ProducesResponseType<ApiResponse<NotificationSettingsResponse>>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ApiResponse<NotificationSettingsResponse>>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ApiResponse<NotificationSettingsResponse>>(StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> GetNotificationSettingsAsync(CancellationToken cancellationToken)
+    {
+        var result = await getNotificationSettings.HandleAsync(new GetNotificationSettingsQuery(User.GetUserId()), cancellationToken);
+
+        return result.ToActionResult();
+    }
+
+    /// <summary>Liga ou desliga o e-mail de mensagens não lidas.</summary>
+    /// <remarks>Corpo: <c>{ "unreadMessagesEmail": false }</c>. Obrigatório (400 no campo). Idempotente.</remarks>
+    [HttpPut("me/notification-settings")]
+    [Authorize(Roles = $"{Roles.Owner},{Roles.Host}")]
+    [ProducesResponseType<ApiResponse<NotificationSettingsResponse>>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ApiResponse<NotificationSettingsResponse>>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ApiResponse<NotificationSettingsResponse>>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ApiResponse<NotificationSettingsResponse>>(StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> UpdateNotificationSettingsAsync(
+        [FromBody] UpdateNotificationSettingsRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var result = await updateNotificationSettings.HandleAsync(
+            new UpdateNotificationSettingsCommand(User.GetUserId(), request.UnreadMessagesEmail),
             cancellationToken);
 
         return result.ToActionResult();
@@ -242,6 +294,84 @@ public sealed class ConversationsController(
             cancellationToken);
 
         return result.ToActionResult();
+    }
+
+    /// <summary>Bloqueia a conversa: ninguém envia até quem bloqueou desbloquear.</summary>
+    /// <remarks>
+    /// Os dois lados continuam lendo o histórico; enviar dá 422 <c>CONVERSATION_BLOCKED</c>. Devolve a
+    /// conversa (<c>blocked</c>, <c>blockedByMe</c>), e os dois lados recebem
+    /// <c>conversationBlockChanged</c> pelo hub. Idempotente. Já bloqueada pelo outro lado: 422
+    /// <c>CONVERSATION_ALREADY_BLOCKED</c>. Não exige perfil ativo.
+    /// </remarks>
+    [HttpPut("{conversationId:guid}/block")]
+    [Authorize(Roles = $"{Roles.Owner},{Roles.Host}")]
+    [ProducesResponseType<ApiResponse<ConversationResponse>>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ApiResponse<ConversationResponse>>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ApiResponse<ConversationResponse>>(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType<ApiResponse<ConversationResponse>>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ApiResponse<ConversationResponse>>(StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> BlockAsync(Guid conversationId, CancellationToken cancellationToken)
+    {
+        var result = await blockConversation.HandleAsync(
+            new BlockConversationCommand(User.GetUserId(), CurrentRole(), conversationId),
+            cancellationToken);
+
+        return result.ToActionResult();
+    }
+
+    /// <summary>Desbloqueia a conversa. Só quem bloqueou.</summary>
+    /// <remarks>
+    /// Bloqueada pelo outro lado: 403 <c>CONVERSATION_UNBLOCK_FORBIDDEN</c>. Idempotente: conversa já
+    /// liberada volta como está. Os dois lados recebem <c>conversationBlockChanged</c> pelo hub.
+    /// </remarks>
+    [HttpDelete("{conversationId:guid}/block")]
+    [Authorize(Roles = $"{Roles.Owner},{Roles.Host}")]
+    [ProducesResponseType<ApiResponse<ConversationResponse>>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ApiResponse<ConversationResponse>>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ApiResponse<ConversationResponse>>(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType<ApiResponse<ConversationResponse>>(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> UnblockAsync(Guid conversationId, CancellationToken cancellationToken)
+    {
+        var result = await unblockConversation.HandleAsync(
+            new UnblockConversationCommand(User.GetUserId(), CurrentRole(), conversationId),
+            cancellationToken);
+
+        return result.ToActionResult();
+    }
+
+    /// <summary>Denuncia uma mensagem recebida, para o admin analisar.</summary>
+    /// <remarks>
+    /// Corpo: <c>reason</c> (<c>spam</c>, <c>harassment</c>, <c>scam</c>, <c>inappropriate</c> ou
+    /// <c>other</c>) e <c>description</c> (opcional, até 1.000 caracteres; obrigatória em
+    /// <c>other</c>). Só quem recebeu: a própria mensagem dá 422 <c>CONVERSATION_REPORT_OWN_MESSAGE</c>.
+    /// Uma denúncia por mensagem: 409 <c>CONVERSATION_REPORT_ALREADY_EXISTS</c>. Mensagem que não é
+    /// desta conversa: 404 <c>CONVERSATION_MESSAGE_NOT_FOUND</c>. Não bloqueia a conversa (é o
+    /// <c>PUT .../block</c>).
+    /// </remarks>
+    [HttpPost("{conversationId:guid}/messages/{messageId:guid}/report")]
+    [Authorize(Roles = $"{Roles.Owner},{Roles.Host}")]
+    [ProducesResponseType<ApiResponse<SubmittedReportResponse>>(StatusCodes.Status201Created)]
+    [ProducesResponseType<ApiResponse<SubmittedReportResponse>>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ApiResponse<SubmittedReportResponse>>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ApiResponse<SubmittedReportResponse>>(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType<ApiResponse<SubmittedReportResponse>>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ApiResponse<SubmittedReportResponse>>(StatusCodes.Status409Conflict)]
+    [ProducesResponseType<ApiResponse<SubmittedReportResponse>>(StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> ReportAsync(
+        Guid conversationId,
+        Guid messageId,
+        [FromBody] ReportMessageRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var result = await reportMessage.HandleAsync(
+            new ReportMessageCommand(User.GetUserId(), CurrentRole(), conversationId, messageId, request.Reason, request.Description),
+            cancellationToken);
+
+        return result.IsSuccess
+            ? result.ToCreatedResult($"{Route}/reports/{result.Value!.Id}")
+            : result.ToActionResult();
     }
 
     /// <summary>O lado de quem pede: o anfitrião fala como anfitrião; o resto, como tutor.</summary>

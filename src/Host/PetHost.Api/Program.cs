@@ -8,6 +8,7 @@ using Microsoft.IdentityModel.Tokens;
 using PetHost.Api.Authentication;
 using PetHost.Api.HealthChecks;
 using PetHost.Api.OpenApi;
+using PetHost.Api.Support;
 using PetHost.Modules.Audit.Application;
 using PetHost.Modules.Audit.Infrastructure;
 using PetHost.Modules.Audit.Presentation;
@@ -85,8 +86,11 @@ builder.Services
 // exceção e o 401 do JWT escrevem com WriteAsJsonAsync, que usa estas opções.
 builder.Services.ConfigureHttpJsonOptions(json => ConfigureJson(json.SerializerOptions));
 
-// --- Tempo real (SignalR): o hub só empurra eventos, com o mesmo JSON da API ---
-builder.Services.AddRealtime(ConfigureJson);
+// --- Contato do suporte (GET /api/v1/support): o app mostra quando a API manda falar com o suporte ---
+builder.Services.Configure<SupportOptions>(builder.Configuration.GetSection(SupportOptions.SectionName));
+
+// --- Tempo real (SignalR): o hub só empurra eventos, com o mesmo JSON da API; backplane no Redis ---
+builder.Services.AddRealtime(builder.Configuration, ConfigureJson);
 
 // Documento OpenAPI (/openapi/v1.json) com o JWT declarado, para o Swagger UI.
 builder.Services.AddOpenApi(openApi => openApi.AddDocumentTransformer<BearerSecuritySchemeTransformer>());

@@ -1,6 +1,6 @@
 # PetHost — Dicionário de dados
 
-_Modelo lógico do MVP · 16 tabelas · outubro de 2026 · complementa o [`escopo-mvp.md`](escopo-mvp.md)_
+_Modelo lógico do MVP · 18 tabelas · outubro de 2026 · complementa o [`escopo-mvp.md`](escopo-mvp.md)_
 
 Este documento explica cada tabela e cada coluna do banco: o que guarda, por que existe e quais regras valem. O banco ainda não foi escolhido (PostgreSQL ou SQL Server), então os tipos são genéricos; a seção 1 mostra como cada um vira tipo real.
 
@@ -91,6 +91,8 @@ Os nomes seguem o padrão mais comum em projetos atuais. A regra de ouro: **um j
 | Agenda bloqueada | `availability_blocks` |  |
 | Pagamento e repasse | `payments` | Repasse = payout; taxa da plataforma = platform fee. |
 | Conversa · Mensagem | `conversations` · `messages` |  |
+| Denúncia de mensagem | `message_reports` | Quem recebeu a mensagem denuncia; o admin analisa. |
+| Preferência de aviso do chat | `notification_preferences` | Liga/desliga o e-mail de mensagens não lidas, por conta. |
 | Avaliação | `reviews` | Quem avalia: author. Quem é avaliado: reviewee. |
 
 ## 4. Diagrama
@@ -118,6 +120,7 @@ erDiagram
     owners ||--o{ conversations : "talks"
     hosts ||--o{ conversations : "talks"
     conversations ||--o{ messages : "contains"
+    messages ||--o| message_reports : "reported in"
     bookings ||--o{ messages : "during"
     users {
         uuid id PK
@@ -369,8 +372,26 @@ erDiagram
         uuid owner_id FK, UK
         uuid host_id FK, UK
         timestamptz last_message_at "nullable"
+        varchar blocked_by "nullable"
+        timestamptz blocked_at "nullable"
+        timestamptz moderation_blocked_at "nullable"
+        timestamptz owner_unread_notified_at "nullable"
+        timestamptz host_unread_notified_at "nullable"
         timestamptz created_at
         timestamptz updated_at
+    }
+    message_reports {
+        uuid id PK
+        uuid message_id FK, UK
+        uuid conversation_id FK
+        varchar reported_by
+        varchar reason
+        varchar description "nullable"
+        varchar status
+        timestamptz created_at
+        timestamptz resolved_at "nullable"
+        uuid resolved_by FK "nullable"
+        varchar resolution_note "nullable"
     }
     messages {
         uuid id PK
@@ -754,10 +775,15 @@ O chat entre um tutor e um anfitrião. Uma conversa por dupla, que serve antes, 
 | `owner_id` | `uuid` | `FK UK²` | não | Tutor que puxou a conversa → owner.owners.id. |
 | `host_id` | `uuid` | `FK UK²` | não | Anfitrião do cantinho → host.hosts.id. |
 | `last_message_at` | `timestamptz` |  | sim | Quando chegou a última mensagem (só avança). Ordena a lista e é a base da retenção. Nulo enquanto ninguém escreveu. |
+| `blocked_by` | `enum` |  | sim | Quem bloqueou: `owner` ou `host`. Nulo = liberada. Bloqueada, ninguém envia; só quem bloqueou desbloqueia. |
+| `blocked_at` | `timestamptz` |  | sim | Quando foi bloqueada. Nulo junto com `blocked_by` (CHECK). |
+| `moderation_blocked_at` | `timestamptz` |  | sim | Quando a moderação bloqueou (denúncia procedente). Independe de `blocked_by`: nenhum dos lados tira. Nulo = sem bloqueio da moderação. |
+| `owner_unread_notified_at` | `timestamptz` |  | sim | Quando o tutor recebeu o último e-mail de mensagens não lidas desta conversa. Só mensagem nova depois disso (e 60 min depois) gera outro. |
+| `host_unread_notified_at` | `timestamptz` |  | sim | O mesmo, para o anfitrião. |
 | `created_at` | `timestamptz` |  | não | Quando a conversa foi aberta (UTC). Base da retenção se ninguém escreveu. |
 | `updated_at` | `timestamptz` |  | não | Última alteração (UTC). |
 
-> Índice único (`owner_id, host_id`): `uq_conversations_owner_id_host_id`. Índices (`owner_id, last_message_at`) e (`host_id, last_message_at`) para as listas. **Retenção (LGPD):** apagada, com as mensagens e as fotos, 90 dias depois da última atividade — a não ser que a dupla tenha reserva em aberto.
+> Índice único (`owner_id, host_id`): `uq_conversations_owner_id_host_id`. Índices (`owner_id, last_message_at`) e (`host_id, last_message_at`) para as listas. **Retenção (LGPD):** apagada, com as mensagens e as fotos, 90 dias depois da última atividade — a não ser que a dupla tenha reserva em aberto, que a conversa esteja bloqueada ou que tenha denúncia pendente.
 
 ### `messages` · Mensagens
 
@@ -775,6 +801,36 @@ Cada mensagem do chat. Pode ter texto, foto ou os dois. Durante a estadia, as fo
 | `created_at` | `timestamptz` |  | não | Quando a mensagem foi enviada (UTC). |
 
 > Índice em (`conversation_id, created_at`) para a página de mensagens (cursor por `created_at, id`). Índice parcial (`conversation_id, sent_by`) `WHERE read_at IS NULL` para o contador. Índice parcial em `booking_id` `WHERE booking_id IS NOT NULL`.
+
+### `message_reports` · Denúncias de mensagem
+
+Quem recebeu uma mensagem a denuncia; o admin analisa. Schema `conversation`. Uma denúncia por mensagem.
+
+| Coluna | Tipo | Chave | Nulo | Descrição |
+|---|---|---|---|---|
+| `id` | `uuid` | `PK` | não | Identificador da denúncia (UUID v7). |
+| `message_id` | `uuid` | `FK UK` | não | Mensagem denunciada → messages.id. FK física, `ON DELETE CASCADE`. |
+| `conversation_id` | `uuid` | `FK` | não | Conversa da mensagem → conversations.id. FK física, `ON DELETE CASCADE`. A retenção consulta as pendentes por ela. |
+| `reported_by` | `enum` |  | não | Quem denunciou: `owner` ou `host` — o lado que recebeu a mensagem. |
+| `reason` | `enum` |  | não | `spam`, `harassment`, `scam`, `inappropriate` ou `other`. |
+| `description` | `varchar(1000)` |  | sim | O que quem denunciou contou. Obrigatória em `other`. |
+| `status` | `enum` |  | não | `pending` (esperando o admin), `upheld` (procedente: bloqueia a conversa pela moderação) ou `dismissed` (improcedente). |
+| `created_at` | `timestamptz` |  | não | Quando foi denunciada (UTC). |
+| `resolved_at` | `timestamptz` |  | sim | Quando o admin analisou. |
+| `resolved_by` | `uuid` | `FK` | sim | Admin que analisou → auth.users.id (FK lógica). |
+| `resolution_note` | `varchar(1000)` |  | sim | Observação do admin (obrigatória ao analisar). |
+
+> Único em `message_id`: `uq_message_reports_message_id`. Índice (`status, created_at`) para a fila; parcial em `conversation_id` `WHERE status = 'pending'` para a retenção. CHECK: pendente sem `resolved_*`; analisada com data, admin e observação. Concorrência otimista pelo `xmin`. Enquanto pendente, segura a conversa na retenção.
+
+### `notification_preferences` · Preferências de aviso do chat
+
+O que a conta quer receber do chat fora do app. Schema `conversation`. Só existe linha para a conta que mudou a escolha; sem linha, recebe tudo.
+
+| Coluna | Tipo | Chave | Nulo | Descrição |
+|---|---|---|---|---|
+| `user_id` | `uuid` | `PK` `FK` | não | Conta → auth.users.id (FK lógica). Tutor e anfitrião da mesma pessoa são contas diferentes. |
+| `unread_messages_email` | `boolean` |  | não | Recebe o e-mail de "mensagens não lidas". |
+| `updated_at` | `timestamptz` |  | não | Última mudança (UTC). |
 
 ### `audit_entries` · Trilha de auditoria
 
@@ -855,6 +911,7 @@ Avaliação feita depois da reserva concluída. Cada lado avalia o outro uma vez
 | `owners` / `hosts` | `conversations` | 1 : N | owner_id → owners.id e host_id → hosts.id, sem FK física; uma por dupla. |
 | `conversations` | `messages` | 1 : N | FK física, `ON DELETE CASCADE` (a retenção apaga a conversa inteira). |
 | `bookings` | `messages` | 1 : N | booking_id, sem FK física: as mensagens enviadas durante a estadia. |
+| `messages` | `message_reports` | 1 : 0..1 | FK física, `ON DELETE CASCADE`; uma denúncia por mensagem. |
 
 ## 7. Valores dos enums
 

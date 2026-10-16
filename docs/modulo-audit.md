@@ -141,8 +141,6 @@ Sem FK para as tabelas dos outros módulos: o registro sobrevive mesmo se a cont
 | Módulo próprio, schema `audit` | Pedido seu. A trilha é de todos os módulos e não pertence a nenhum; contrato em `Shared.Contracts` (§5). |
 | Gravar depois da operação, em contexto próprio, sem derrubar o request | A operação já aconteceu; falhar a trilha não pode desfazê-la nem virar `500`. O log guarda o registro se o banco falhar. |
 | Registrar leitura do admin (`owner.viewed`, `owner.listed`, `audit.searched`) | LGPD: rastreio de acesso a dado pessoal. |
-| IP do cliente na trilha | Investigar fraude (vários logins recusados do mesmo IP). É dado pessoal: ver pendência 1. |
+| IP do cliente na trilha | Investigar fraude (vários logins recusados do mesmo IP). É dado pessoal. |
 
-| # | Pendência | Impacto |
-|---|---|---|
-| 1 | Sem tela no admin. | Hoje é só a rota; a tela de disputa de CPF pode mostrar a trilha do tutor. |
+A tela do admin fica no front, que é um projeto separado; aqui está só a rota.

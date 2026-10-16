@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using PetHost.Modules.Conversations.Domain.Conversations;
 using PetHost.Modules.Conversations.Domain.Messages;
+using PetHost.Modules.Conversations.Domain.Preferences;
+using PetHost.Modules.Conversations.Domain.Reports;
 
 namespace PetHost.Modules.Conversations.Infrastructure.Persistence;
 
@@ -19,6 +21,10 @@ public sealed class ConversationsDbContext(DbContextOptions<ConversationsDbConte
     public DbSet<Conversation> Conversations => Set<Conversation>();
 
     public DbSet<Message> Messages => Set<Message>();
+
+    public DbSet<MessageReport> MessageReports => Set<MessageReport>();
+
+    public DbSet<NotificationPreference> NotificationPreferences => Set<NotificationPreference>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

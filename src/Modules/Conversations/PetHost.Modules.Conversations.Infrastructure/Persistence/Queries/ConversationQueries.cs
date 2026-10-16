@@ -3,6 +3,7 @@ using PetHost.Modules.Conversations.Application.Abstractions;
 using PetHost.Modules.Conversations.Application.Conversations;
 using PetHost.Modules.Conversations.Domain.Conversations;
 using PetHost.Modules.Conversations.Domain.Messages;
+using PetHost.Modules.Conversations.Domain.Reports;
 
 namespace PetHost.Modules.Conversations.Infrastructure.Persistence.Queries;
 
@@ -103,6 +104,115 @@ internal sealed class ConversationQueries(ConversationsDbContext dbContext) : IC
             .ConfigureAwait(false);
     }
 
+    public async Task<(IReadOnlyList<ReportRow> Items, long TotalCount)> ListReportsAsync(
+        ReportStatus? status,
+        int page,
+        int pageSize,
+        CancellationToken cancellationToken)
+    {
+        var reports = dbContext.MessageReports.AsNoTracking();
+        if (status is { } wanted)
+            reports = reports.Where(r => r.Status == wanted);
+
+        var total = await reports.LongCountAsync(cancellationToken).ConfigureAwait(false);
+        if (total == 0)
+            return ([], 0);
+
+        var onPage = reports
+            .OrderBy(r => r.CreatedAt)
+            .ThenBy(r => r.Id)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize);
+
+        return (await ProjectReportsAsync(onPage, cancellationToken).ConfigureAwait(false), total);
+    }
+
+    /// <summary>
+    /// Duas consultas, uma por lado: o gatilho é ter mensagem do outro lado, não lida, enviada até
+    /// <paramref name="unreadSince"/> e depois do último e-mail desse lado; a contagem é de todas as não
+    /// lidas. Usa o índice parcial das não lidas (<c>conversation_id, sent_by WHERE read_at IS NULL</c>).
+    /// </summary>
+    public async Task<IReadOnlyList<UnreadNotificationRow>> ListUnreadToNotifyAsync(
+        DateTimeOffset unreadSince,
+        DateTimeOffset notifiedBefore,
+        int take,
+        CancellationToken cancellationToken)
+    {
+        var toOwners = await dbContext.Conversations
+            .AsNoTracking()
+            .Where(c => c.OwnerUnreadNotifiedAt == null || c.OwnerUnreadNotifiedAt <= notifiedBefore)
+            .Where(c => dbContext.Messages.Any(m =>
+                m.ConversationId == c.Id && m.SentBy == ConversationParty.Host && m.ReadAt == null
+                && m.CreatedAt <= unreadSince
+                && (c.OwnerUnreadNotifiedAt == null || m.CreatedAt > c.OwnerUnreadNotifiedAt)))
+            .OrderBy(c => c.Id)
+            .Take(take)
+            .Select(c => new UnreadNotificationRow(
+                c.Id,
+                ConversationParty.Owner,
+                c.OwnerId,
+                c.HostId,
+                dbContext.Messages.Count(m => m.ConversationId == c.Id && m.SentBy == ConversationParty.Host && m.ReadAt == null)))
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var toHosts = await dbContext.Conversations
+            .AsNoTracking()
+            .Where(c => c.HostUnreadNotifiedAt == null || c.HostUnreadNotifiedAt <= notifiedBefore)
+            .Where(c => dbContext.Messages.Any(m =>
+                m.ConversationId == c.Id && m.SentBy == ConversationParty.Owner && m.ReadAt == null
+                && m.CreatedAt <= unreadSince
+                && (c.HostUnreadNotifiedAt == null || m.CreatedAt > c.HostUnreadNotifiedAt)))
+            .OrderBy(c => c.Id)
+            .Take(take)
+            .Select(c => new UnreadNotificationRow(
+                c.Id,
+                ConversationParty.Host,
+                c.HostId,
+                c.OwnerId,
+                dbContext.Messages.Count(m => m.ConversationId == c.Id && m.SentBy == ConversationParty.Owner && m.ReadAt == null)))
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return [.. toOwners, .. toHosts];
+    }
+
+    public Task<int> CountPendingReportsAsync(CancellationToken cancellationToken) =>
+        dbContext.MessageReports.AsNoTracking().CountAsync(r => r.Status == ReportStatus.Pending, cancellationToken);
+
+    public async Task<ReportRow?> GetReportAsync(MessageReportId id, CancellationToken cancellationToken)
+    {
+        var rows = await ProjectReportsAsync(dbContext.MessageReports.AsNoTracking().Where(r => r.Id == id), cancellationToken)
+            .ConfigureAwait(false);
+
+        return rows.Count == 0 ? null : rows[0];
+    }
+
+    /// <summary>As denúncias (na ordem de <paramref name="reports"/>) com a mensagem e os dois lados da conversa.</summary>
+    private async Task<IReadOnlyList<ReportRow>> ProjectReportsAsync(
+        IQueryable<MessageReport> reports,
+        CancellationToken cancellationToken) =>
+        await (
+            from r in reports
+            join m in dbContext.Messages on r.MessageId equals m.Id
+            join c in dbContext.Conversations on r.ConversationId equals c.Id
+            select new ReportRow(
+                r.Id,
+                r.ConversationId,
+                c.OwnerId,
+                c.HostId,
+                new MessageRow(m.Id, m.ConversationId, m.SentBy, m.Body, m.ImageUrl, m.BookingId, m.CreatedAt),
+                r.ReportedBy,
+                r.Reason,
+                r.Description,
+                r.Status,
+                r.CreatedAt,
+                r.ResolvedAt,
+                r.ResolvedBy,
+                r.ResolutionNote))
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
     private IQueryable<Conversation> Of(ConversationParticipant participant) =>
         participant.Side == ConversationParty.Owner
             ? dbContext.Conversations.AsNoTracking().Where(c => c.OwnerId == participant.ProfileId)
@@ -129,6 +239,8 @@ internal sealed class ConversationQueries(ConversationsDbContext dbContext) : IC
                 c.HostId,
                 c.LastMessageAt,
                 c.CreatedAt,
+                c.BlockedBy,
+                c.ModerationBlockedAt,
                 Unread = dbContext.Messages.Count(m => m.ConversationId == c.Id && m.SentBy != viewer && m.ReadAt == null),
             })
             .ToListAsync(cancellationToken)
@@ -160,6 +272,9 @@ internal sealed class ConversationQueries(ConversationsDbContext dbContext) : IC
             h.LastMessageAt,
             h.CreatedAt,
             lastByConversation.GetValueOrDefault(h.Id),
-            h.Unread))];
+            h.Unread,
+            Blocked: h.BlockedBy != null || h.ModerationBlockedAt != null,
+            BlockedByViewer: h.BlockedBy == viewer,
+            BlockedByModeration: h.ModerationBlockedAt != null))];
     }
 }

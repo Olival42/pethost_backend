@@ -166,7 +166,7 @@ Pessoa jurídica (empresa de hospedagem): o **CPF, o documento e a selfie são d
 | `201` | — | Rascunho aberto. `Location: /api/v1/hosts/me/application`. |
 | `400` | `VALIDATION_ERROR` | `cpf`, `documentType`, `acceptNotice`, `personType` e, na empresa, `cnpj`, `legalName`, `tradeName`, `companyAddress.*` — todos juntos. Pessoa física com dado de empresa: erro no campo `cnpj`. |
 | `409` | `HOST_APPLICATION_ALREADY_EXISTS` | Já há uma solicitação aberta. |
-| `409` | `HOST_CPF_ALREADY_REGISTERED` | O CPF já é de uma conta de **outro e-mail** — tutor, anfitrião ou solicitação aberta (seção 4.1). |
+| `409` | `HOST_CPF_ALREADY_REGISTERED` | O CPF já é de uma conta de **outro e-mail** — tutor, anfitrião ou solicitação aberta (seção 4.1). O app mostra o e-mail do suporte (`GET /api/v1/support`); o admin resolve com a liberação de identidade (seção 4.2). |
 | `409` | `HOST_CNPJ_ALREADY_REGISTERED` | O CNPJ já é de um anfitrião ou de solicitação aberta de outra conta. |
 | `422` | `HOST_ALREADY_VERIFIED` | A conta já é anfitriã. |
 | `422` | `HOST_APPLICATION_BLOCKED` | Houve recusa por suspeita de fraude. |

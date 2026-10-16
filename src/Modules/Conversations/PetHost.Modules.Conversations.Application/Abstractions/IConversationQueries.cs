@@ -1,6 +1,7 @@
 using PetHost.Modules.Conversations.Application.Conversations;
 using PetHost.Modules.Conversations.Domain.Conversations;
 using PetHost.Modules.Conversations.Domain.Messages;
+using PetHost.Modules.Conversations.Domain.Reports;
 
 namespace PetHost.Modules.Conversations.Application.Abstractions;
 
@@ -36,4 +37,31 @@ public interface IConversationQueries
         MessageId? before,
         int take,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// As denúncias (todas, ou só as da situação <paramref name="status"/>), da mais antiga para a
+    /// mais nova — a fila do admin —, com a mensagem denunciada.
+    /// </summary>
+    Task<(IReadOnlyList<ReportRow> Items, long TotalCount)> ListReportsAsync(
+        ReportStatus? status,
+        int page,
+        int pageSize,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Até <paramref name="take"/> (conversa, lado) com mensagem do outro lado não lida, enviada até
+    /// <paramref name="unreadSince"/> e depois do último e-mail desse lado — que, se houve, foi até
+    /// <paramref name="notifiedBefore"/> (o intervalo mínimo entre dois e-mails da mesma conversa).
+    /// </summary>
+    Task<IReadOnlyList<UnreadNotificationRow>> ListUnreadToNotifyAsync(
+        DateTimeOffset unreadSince,
+        DateTimeOffset notifiedBefore,
+        int take,
+        CancellationToken cancellationToken);
+
+    /// <summary>Quantas denúncias esperam o admin (<c>pending</c>).</summary>
+    Task<int> CountPendingReportsAsync(CancellationToken cancellationToken);
+
+    /// <summary>Uma denúncia com a mensagem denunciada, ou <c>null</c>.</summary>
+    Task<ReportRow?> GetReportAsync(MessageReportId id, CancellationToken cancellationToken);
 }

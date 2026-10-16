@@ -90,6 +90,21 @@ public static class ConversationAccess
     }
 
     /// <summary>
+    /// Conversa bloqueada não recebe mensagem nova: pela moderação,
+    /// <c>422 CONVERSATION_BLOCKED_BY_MODERATION</c>; por um dos lados, <c>422 CONVERSATION_BLOCKED</c>. Conferido antes de gravar (na foto, antes de enviar ao
+    /// bucket) e de novo dentro da trava da conversa, sobre a conversa relida.
+    /// </summary>
+    public static Result EnsureNotBlocked(Conversation conversation)
+    {
+        ArgumentNullException.ThrowIfNull(conversation);
+
+        if (conversation.IsBlockedByModeration)
+            return Result.Failure(ConversationsErrors.BlockedByModeration);
+
+        return conversation.IsBlocked ? Result.Failure(ConversationsErrors.Blocked) : Result.Success();
+    }
+
+    /// <summary>
     /// Quem foi suspenso pelo admin não recebe mensagens, nos dois sentidos: o tutor não escreve
     /// para anfitrião suspenso, nem o anfitrião para tutor suspenso
     /// (<c>403 CONVERSATION_RECIPIENT_SUSPENDED</c>). Inativo continua recebendo: ele reativa sozinho

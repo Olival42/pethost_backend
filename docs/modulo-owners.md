@@ -196,7 +196,7 @@ Formato da 3.1 (a lista é um array dele). `{ownerId}` é o **id do tutor**, nã
 - `DELETE /api/v1/owners/{ownerId}/suspension`: tira a suspensão; o tutor volta ao status que tinha (ativo ou inativo), recebe um e-mail avisando e entra de novo. Tutor cujo CPF foi liberado **não** volta: `422 OWNER_CPF_RELEASED`.
 - `POST /api/v1/owners/{ownerId}/cpf-release` com `{ "reason": "..." }`: tira o CPF do tutor, para o dono de verdade poder se cadastrar. Só de tutor suspenso (`422 OWNER_SUSPENSION_REQUIRED`). A trilha guarda o CPF mascarado.
 
-**Disputa de CPF, passo a passo:** a pessoa recebe `409 OWNER_CPF_ALREADY_REGISTERED` e procura o suporte → o admin confere o documento → suspende o tutor indevido → libera o CPF → a pessoa se cadastra normalmente. Cada passo fica na trilha com o motivo e quem fez.
+**Disputa de CPF, passo a passo:** a pessoa recebe `409 OWNER_CPF_ALREADY_REGISTERED` e o app mostra o e-mail do suporte (`GET /api/v1/support`, pública, vem de `SUPPORT_EMAIL`) → a pessoa manda o documento por e-mail → o admin confere o documento → suspende o tutor indevido → libera o CPF → a pessoa se cadastra normalmente. Cada passo fica na trilha com o motivo e quem fez.
 
 Por dentro, perfil e conta mudam juntos, com compensação: o perfil é gravado primeiro e volta ao estado anterior se a conta não puder mudar. O admin não pode ser suspenso (`403 AUTH_ADMIN_SUSPENSION_FORBIDDEN`).
 
@@ -322,9 +322,9 @@ O `cus_...` volta para `owners.stripe_customer_id` (`Owner.LinkStripeCustomer`) 
 | Suspensão separada da inativação | Pedido seu: o admin precisa tirar uma conta do ar sem que a pessoa a reative com a senha. |
 | Liberar o CPF só de tutor suspenso, sem volta | Na disputa, o CPF vai para o dono de verdade; a conta indevida não pode voltar ao ar sem CPF. |
 | Toda ação do admin exige motivo | Vai para a trilha: quem fez, por quê, quando. |
+| Disputa de CPF pelo e-mail do suporte | Decisão do MVP: o app mostra o e-mail (`GET /api/v1/support`) e o admin resolve com as rotas da seção 3.7. Um pedido pela API teria de ser anônimo (quem disputa não tem conta), com foto de documento — spam e LGPD sem ganho para um caso raro. A tela do admin fica no front, que é um projeto separado. |
 | Não inativa com reserva em aberto (`422`) | Mesmo critério do pet. A conta inativa perde as sessões e não entra nem para cancelar: a reserva ficaria sem ninguém do lado do tutor. A suspensão (admin) não é barrada. |
 
 | # | Pendência | Impacto |
 |---|---|---|
 | 1 | Troca de e-mail. | Precisa da verificação de e-mail: código para o e-mail novo, troca só depois de confirmado, aviso para o antigo. |
-| 2 | Disputa de CPF sem tela. | As rotas existem (seção 3.7) e tudo fica na trilha; falta a tela no admin e o canal de suporte por onde a pessoa abre o pedido. |

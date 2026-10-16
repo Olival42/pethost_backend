@@ -60,9 +60,35 @@ internal sealed partial class SignalRConversationRealtime(
         }
     }
 
+    public async Task BlockChangedAsync(IReadOnlyCollection<Guid> userIds, ConversationBlockResponse change, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(userIds);
+        ArgumentNullException.ThrowIfNull(change);
+
+        if (userIds.Count == 0)
+            return;
+
+        try
+        {
+            await hubContext.Clients
+                .Users([.. userIds.Select(id => id.ToString())])
+                .SendAsync(ConversationEvents.ConversationBlockChanged, change, CancellationToken.None)
+                .ConfigureAwait(false);
+        }
+#pragma warning disable CA1031 // Aviso em tempo real é best-effort: o bloqueio já foi gravado.
+        catch (Exception exception)
+#pragma warning restore CA1031
+        {
+            LogBlockChangedFailed(logger, change.ConversationId, exception);
+        }
+    }
+
     [LoggerMessage(EventId = 9100, Level = LogLevel.Warning, Message = "Realtime: message of conversation {ConversationId} was saved but could not be pushed.")]
     private static partial void LogMessageCreatedFailed(ILogger logger, Guid conversationId, Exception exception);
 
     [LoggerMessage(EventId = 9101, Level = LogLevel.Warning, Message = "Realtime: unread count could not be pushed.")]
     private static partial void LogUnreadCountFailed(ILogger logger, Exception exception);
+
+    [LoggerMessage(EventId = 9102, Level = LogLevel.Warning, Message = "Realtime: block change of conversation {ConversationId} was saved but could not be pushed.")]
+    private static partial void LogBlockChangedFailed(ILogger logger, Guid conversationId, Exception exception);
 }

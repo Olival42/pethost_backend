@@ -11,7 +11,9 @@ namespace PetHost.Modules.Conversations.Application.Conversations.PurgeInactiveC
 /// <summary>
 /// Apaga as conversas sem atividade desde o prazo (a última mensagem ou, sem nenhuma, a abertura),
 /// com as mensagens e as fotos do bucket. Conversa de dupla com reserva em aberto fica: o combinado
-/// de uma estadia marcada para daqui a meses não some.
+/// de uma estadia marcada para daqui a meses não some. Conversa bloqueada ou com denúncia esperando o
+/// admin também fica (o repositório nem a devolve): o bloqueio não pode sumir com ela, e o admin
+/// precisa ver a mensagem denunciada.
 /// </summary>
 /// <remarks>
 /// <list type="bullet">

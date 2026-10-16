@@ -13,13 +13,21 @@ namespace PetHost.Modules.Conversations.Infrastructure.Persistence.Configuration
 /// <remarks>
 /// Uma conversa por dupla: índice único em (<c>owner_id</c>, <c>host_id</c>). Sem <c>xmin</c>: a
 /// conversa só muda o instante da última mensagem, que só avança; com a concorrência otimista, duas
-/// mensagens enviadas ao mesmo tempo virariam um <c>409</c> para uma delas.
+/// mensagens enviadas ao mesmo tempo virariam um <c>409</c> para uma delas. O bloqueio
+/// de um dos lados (<c>blocked_by</c>, <c>blocked_at</c>) e o da moderação (<c>moderation_blocked_at</c>)
+/// gravam dentro da mesma trava do envio.
 /// </remarks>
 internal sealed class ConversationConfiguration : IEntityTypeConfiguration<Conversation>
 {
     public void Configure(EntityTypeBuilder<Conversation> builder)
     {
-        builder.ToTable("conversations");
+        builder.ToTable("conversations", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_conversations_blocked_by",
+                $"blocked_by IS NULL OR blocked_by IN ({string.Join(", ", ConversationPartyValues.All.Select(v => $"'{v}'"))})");
+            table.HasCheckConstraint("ck_conversations_block", "(blocked_by IS NULL) = (blocked_at IS NULL)");
+        });
 
         builder.HasKey(c => c.Id);
 
@@ -32,6 +40,16 @@ internal sealed class ConversationConfiguration : IEntityTypeConfiguration<Conve
         builder.Property(c => c.HostId).HasColumnName("host_id").IsRequired();
 
         builder.Property(c => c.LastMessageAt).HasColumnName("last_message_at").HasColumnType("timestamptz");
+        builder.Property(c => c.BlockedBy)
+            .HasColumnName("blocked_by")
+            .HasConversion<ConversationPartyConverter>()
+            .HasMaxLength(10);
+
+        builder.Property(c => c.BlockedAt).HasColumnName("blocked_at").HasColumnType("timestamptz");
+        builder.Property(c => c.ModerationBlockedAt).HasColumnName("moderation_blocked_at").HasColumnType("timestamptz");
+        builder.Property(c => c.OwnerUnreadNotifiedAt).HasColumnName("owner_unread_notified_at").HasColumnType("timestamptz");
+        builder.Property(c => c.HostUnreadNotifiedAt).HasColumnName("host_unread_notified_at").HasColumnType("timestamptz");
+
         builder.Property(c => c.CreatedAt).HasColumnName("created_at").HasColumnType("timestamptz").IsRequired();
         builder.Property(c => c.UpdatedAt).HasColumnName("updated_at").HasColumnType("timestamptz").IsRequired();
 
@@ -44,6 +62,8 @@ internal sealed class ConversationConfiguration : IEntityTypeConfiguration<Conve
         builder.HasIndex(c => new { c.HostId, c.LastMessageAt }).HasDatabaseName("ix_conversations_host_id_last_message_at");
 
         builder.Ignore(c => c.LastActivityAt);
+        builder.Ignore(c => c.IsBlocked);
+        builder.Ignore(c => c.IsBlockedByModeration);
         builder.Ignore(c => c.DomainEvents);
     }
 }

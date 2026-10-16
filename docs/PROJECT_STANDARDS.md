@@ -53,7 +53,7 @@ pethost_backend/
 │   ├── Shared/
 │   │   ├── PetHost.Shared.Kernel/            ← Result, Error, Entity, ValueObject, abstrações
 │   │   ├── PetHost.Shared.Contracts/         ← ApiResponse, ErrorResponse, integration events, IImageStorage
-│   │   └── PetHost.Shared.Infrastructure/    ← cross-cutting: EF base, outbox, decorators, storage S3, conexão Redis (`AddRedis`), Stripe (`AddStripe`: cliente + webhook), tempo real (`AddRealtime`: SignalR)
+│   │   └── PetHost.Shared.Infrastructure/    ← cross-cutting: EF base, outbox, decorators, storage S3, conexão Redis (`AddRedis`), Stripe (`AddStripe`: cliente + webhook), tempo real (`AddRealtime`: SignalR + backplane Redis)
 │   └── Modules/<Module>/
 │       ├── PetHost.Modules.<Module>.Domain/
 │       ├── PetHost.Modules.<Module>.Application/
@@ -724,7 +724,7 @@ Aviso em tempo real usa **SignalR** (já vem no ASP.NET Core), registrado uma ve
 - **Hub em `/hubs/...`**, com `[Authorize(Roles = ...)]`. O token vem na query `access_token` (o WebSocket do navegador não manda header) — **só** em `/hubs`. A revogação é conferida na conexão; a conexão fecha quando o access token expira (`CloseOnAuthenticationExpiration`).
 - **Usuário = conta do token (`sub`)**: `Clients.User(userId)`. A outra conta da mesma pessoa é outro usuário.
 - **Mesmo JSON da API** no hub (camelCase, nulo omitido, enum como texto). Nome de evento em camelCase, constante na Presentation (`<M>Events`); renomear quebra o front.
-- **Uma instância**: as conexões vivem na memória do processo. Para escalar, backplane Redis (`Microsoft.AspNetCore.SignalR.StackExchangeRedis`) — decisão a tomar junto com o rate limit em memória.
+- **Várias instâncias: backplane no Redis** (`Microsoft.AspNetCore.SignalR.StackExchangeRedis`, canais `pethost:signalr`, registrado no `AddRealtime`). As conexões vivem na memória da instância que as aceitou; o `Clients.User(...)` publica no Redis e cada instância entrega às suas. Conexão própria (o SignalR a descarta ao desligar), com a connection string `Redis`. Teste de hub novo que dependa de entrega entre instâncias usa uma segunda instância da fixture (`WithSettings`). O rate limit continua em memória por instância (§13, Rate limit).
 
 ## 14. Testes
 
@@ -837,6 +837,7 @@ Um `IExceptionHandler` global no host é o **único** lugar que captura exceçã
 | Dado sensível | **Nunca** logar senha, token, hash, CPF, cartão. Mascarar e-mail. URL com segredo na query (o `access_token` do hub) também é token: `Microsoft.AspNetCore.Hosting.Diagnostics`, que loga a URL inteira, fica em `Warning` nos `appsettings`; o log de requisição do Serilog grava só o caminho |
 | Tracing / métricas | OpenTelemetry (ASP.NET Core, `HttpClient`, Npgsql); contador de caso de uso por resultado |
 | Health checks | `/health/live` e `/health/ready` (inclui Postgres) |
+| Contato do suporte | `GET /api/v1/support` (pública, no host): `{ "email": "..." }` de `Support:Email` (`SUPPORT_EMAIL`). O app mostra quando um erro manda falar com o suporte (`*_CPF_ALREADY_REGISTERED`, identidade travada, recusa do Stripe). |
 
 ### Trilha de auditoria
 

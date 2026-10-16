@@ -157,6 +157,22 @@ internal sealed class ConversationsScenario(ConversationsApiFixture fixture, Htt
         return data.GetProperty("accessToken").GetString()!;
     }
 
+    /// <summary>Entra como o admin do seed.</summary>
+    public async Task<string> AdminTokenAsync()
+    {
+        var response = await client.PostAsJsonAsync(
+            "/api/v1/auth/sessions/login",
+            new { email = ConversationsApiFixture.AdminEmail, password = ConversationsApiFixture.AdminPassword, role = "admin" },
+            Ct);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        return Data(await ReadAsync(response)).GetProperty("accessToken").GetString()!;
+    }
+
+    /// <summary>Denuncia a mensagem e devolve a resposta (o teste confere o status).</summary>
+    public Task<HttpResponseMessage> ReportAsync(string token, Guid conversationId, Guid messageId, string reason, string? description = null) =>
+        SendAsync(HttpMethod.Post, $"{ConversationsRoute}/{conversationId}/messages/{messageId}/report", token, new { reason, description });
+
     /// <summary>Suspende a Camila direto em <c>owner.owners</c> (o chat só olha o perfil de tutor).</summary>
     public async Task SuspendTheOwnerAsync()
     {

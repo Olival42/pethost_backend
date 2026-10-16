@@ -9,7 +9,7 @@ namespace PetHost.Modules.Conversations.Infrastructure.Parties;
 /// <summary>
 /// Adaptador da porta <see cref="IConversationParties"/> sobre os contratos públicos:
 /// <see cref="IOwnerDirectory"/> (tutor), <see cref="IHostDirectory"/> (anfitrião) e
-/// <see cref="IUserDirectory"/> (nome e foto da conta).
+/// <see cref="IUserDirectory"/> (nome, foto e, para os avisos por e-mail, o e-mail da conta).
 /// </summary>
 internal sealed class ConversationParties(
     IOwnerDirectory ownerDirectory,
@@ -40,6 +40,36 @@ internal sealed class ConversationParties(
 
         var hosts = await hostDirectory.GetByIdsAsync([profileId], cancellationToken).ConfigureAwait(false);
         return hosts.Any(host => host.Id == profileId && host.IsSuspended);
+    }
+
+    public async Task<IReadOnlyDictionary<Guid, PartyContact>> GetContactsAsync(
+        ConversationParty side,
+        IReadOnlyCollection<Guid> profileIds,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(profileIds);
+
+        if (profileIds.Count == 0)
+            return new Dictionary<Guid, PartyContact>();
+
+        // (perfil, conta, perfil disponível) do lado pedido.
+        List<(Guid Id, Guid UserId, bool IsAvailable)> profiles = side == ConversationParty.Owner
+            ? [.. (await ownerDirectory.GetByIdsAsync(profileIds, cancellationToken).ConfigureAwait(false)).Select(o => (o.Id, o.UserId, o.IsAvailable))]
+            : [.. (await hostDirectory.GetByIdsAsync(profileIds, cancellationToken).ConfigureAwait(false)).Select(h => (h.Id, h.UserId, h.IsAvailable))];
+
+        var accounts = await AccountsAsync([.. profiles.Select(p => p.UserId)], cancellationToken).ConfigureAwait(false);
+
+        return profiles
+            .Where(profile => accounts.ContainsKey(profile.UserId))
+            .ToDictionary(
+                profile => profile.Id,
+                profile =>
+                {
+                    var account = accounts[profile.UserId];
+                    var reachable = profile.IsAvailable && account.IsActive && account.SuspendedAt is null;
+
+                    return new PartyContact(profile.Id, profile.UserId, account.FullName, account.Email, reachable);
+                });
     }
 
     public async Task<IReadOnlyDictionary<Guid, PartyInfo>> GetOwnersAsync(

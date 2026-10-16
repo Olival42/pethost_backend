@@ -16,6 +16,9 @@ public interface IMessageRepository
         DateTimeOffset now,
         CancellationToken cancellationToken);
 
+    /// <summary>A mensagem <paramref name="id"/> da conversa <paramref name="conversationId"/>, ou <c>null</c>. Sem rastreamento.</summary>
+    Task<Message?> FindInConversationAsync(ConversationId conversationId, MessageId id, CancellationToken cancellationToken);
+
     /// <summary>As URLs de todas as fotos da conversa, para apagar do bucket.</summary>
     Task<IReadOnlyList<string>> ListImageUrlsAsync(ConversationId conversationId, CancellationToken cancellationToken);
 

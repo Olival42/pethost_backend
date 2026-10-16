@@ -1,3 +1,4 @@
+using PetHost.Modules.Conversations.Application.Conversations.Responses;
 using PetHost.Modules.Conversations.Application.Messages.Responses;
 
 namespace PetHost.Modules.Conversations.Application.Abstractions;
@@ -14,4 +15,7 @@ public interface IConversationRealtime
 
     /// <summary>O total de mensagens não lidas da conta <paramref name="userId"/> mudou.</summary>
     Task UnreadCountChangedAsync(Guid userId, int total, CancellationToken cancellationToken);
+
+    /// <summary>A conversa foi bloqueada ou desbloqueada, para as contas <paramref name="userIds"/> (os dois lados).</summary>
+    Task BlockChangedAsync(IReadOnlyCollection<Guid> userIds, ConversationBlockResponse change, CancellationToken cancellationToken);
 }
