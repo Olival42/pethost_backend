@@ -168,10 +168,11 @@ public sealed class ExpireOverdueBookingsCommandHandlerTests
     private readonly Mock<IBookingRepository> _repository = BookingsTestData.Repository();
     private readonly Mock<IBookingsUnitOfWork> _unitOfWork = BookingsTestData.UnitOfWork();
     private readonly Mock<IAuditTrail> _auditTrail = new();
+    private readonly Mock<IBookingPayments> _payments = BookingsTestData.Payments();
     private readonly ExpireOverdueBookingsCommandHandler _sut;
 
     public ExpireOverdueBookingsCommandHandlerTests() =>
-        _sut = new ExpireOverdueBookingsCommandHandler(_repository.Object, _unitOfWork.Object, _auditTrail.Object, new FakeTimeProvider(Later));
+        _sut = new ExpireOverdueBookingsCommandHandler(_repository.Object, _unitOfWork.Object, _payments.Object, _auditTrail.Object, new FakeTimeProvider(Later));
 
     [Fact]
     public async Task HandleAsync_Should_ExpireOverdueRequestsAndRecordEach()
@@ -180,7 +181,7 @@ public sealed class ExpireOverdueBookingsCommandHandlerTests
         var first = new BookingBuilder().Build();
         var second = new BookingBuilder().WithPets(BookingBuilder.Thor()).Build();
         _repository
-            .Setup(r => r.ListOverdueRequestsAsync(Later - Booking.ResponseWindow, BookingClock.Today(Later), ExpireOverdueBookingsCommand.BatchSize, It.IsAny<CancellationToken>()))
+            .Setup(r => r.ListOverdueAsync(Later - Booking.ResponseWindow, Booking.LastCheckInClosedToAcceptance(Later), Later - Booking.PaymentWindow, BookingClock.Today(Later), ExpireOverdueBookingsCommand.BatchSize, It.IsAny<CancellationToken>()))
             .ReturnsAsync([first, second]);
 
         // Act
@@ -191,6 +192,25 @@ public sealed class ExpireOverdueBookingsCommandHandlerTests
         first.Status.Should().Be(BookingStatus.Expired);
         _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
         _auditTrail.Verify(a => a.RecordAsync(It.Is<AuditRecord>(r => r.Action == AuditActions.BookingExpired), It.IsAny<CancellationToken>()), Times.Exactly(2));
+        _payments.Verify(p => p.BookingChangedAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task HandleAsync_Should_ExpireUnpaidAcceptedBookingAndNotifyPayments_When_PaymentWindowIsOver()
+    {
+        // Arrange
+        var accepted = new BookingBuilder().BuildAccepted();
+        _repository
+            .Setup(r => r.ListOverdueAsync(It.IsAny<DateTimeOffset>(), It.IsAny<DateOnly>(), It.IsAny<DateTimeOffset>(), It.IsAny<DateOnly>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([accepted]);
+
+        // Act
+        var result = await _sut.HandleAsync(new ExpireOverdueBookingsCommand(), CancellationToken.None);
+
+        // Assert
+        result.Value!.Expired.Should().Be(1);
+        accepted.Status.Should().Be(BookingStatus.Expired);
+        _payments.Verify(p => p.BookingChangedAsync(accepted.Id.Value, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -198,7 +218,7 @@ public sealed class ExpireOverdueBookingsCommandHandlerTests
     {
         // Arrange
         _repository
-            .Setup(r => r.ListOverdueRequestsAsync(It.IsAny<DateTimeOffset>(), It.IsAny<DateOnly>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .Setup(r => r.ListOverdueAsync(It.IsAny<DateTimeOffset>(), It.IsAny<DateOnly>(), It.IsAny<DateTimeOffset>(), It.IsAny<DateOnly>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync([]);
 
         // Act

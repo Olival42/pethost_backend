@@ -19,6 +19,7 @@ public sealed class DeactivateListingCommandHandlerTests
     private readonly Mock<IListingRepository> _repository = new();
     private readonly Mock<IListingsUnitOfWork> _unitOfWork = new();
     private readonly Mock<IAuditTrail> _auditTrail = new();
+    private readonly Mock<IListingBookings> _bookings = new();
     private readonly Listing _listing = ListingsTestData.IndividualListing();
     private readonly DeactivateListingCommandHandler _sut;
 
@@ -27,7 +28,37 @@ public sealed class DeactivateListingCommandHandlerTests
         _repository.Setup(r => r.GetByIdAsync(_listing.Id, It.IsAny<CancellationToken>())).ReturnsAsync(_listing);
 
         _sut = new DeactivateListingCommandHandler(
-            _repository.Object, _unitOfWork.Object, ListingsTestData.Hosts().Object, _auditTrail.Object, new FakeTimeProvider(Later));
+            _repository.Object, _unitOfWork.Object, ListingsTestData.Hosts().Object, _bookings.Object, _auditTrail.Object, new FakeTimeProvider(Later));
+    }
+
+    [Fact]
+    public async Task HandleAsync_Should_RefuseWithoutSaving_When_TheListingHasAnOpenBooking()
+    {
+        // Arrange
+        _bookings.Setup(b => b.HasOpenBookingAsync(_listing.Id.Value, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+
+        // Act
+        var result = await _sut.HandleAsync(new DeactivateListingCommand(ListingsTestData.IndividualUserId, _listing.Id.Value), CancellationToken.None);
+
+        // Assert
+        result.FirstError.Should().Be(ListingsErrors.HasOpenBooking);
+        _listing.IsActive.Should().BeTrue();
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+        _auditTrail.Verify(a => a.RecordAsync(It.IsAny<AuditRecord>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task HandleAsync_Should_NotAskTheBookings_When_TheListingIsAlreadyInactive()
+    {
+        // Arrange
+        _listing.Deactivate(ListingBuilder.DefaultNow);
+
+        // Act
+        var result = await _sut.HandleAsync(new DeactivateListingCommand(ListingsTestData.IndividualUserId, _listing.Id.Value), CancellationToken.None);
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        _bookings.Verify(b => b.HasOpenBookingAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]

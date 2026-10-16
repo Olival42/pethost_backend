@@ -8,13 +8,18 @@ namespace PetHost.Modules.Listings.Domain.Listings;
 /// <param name="ExcludedHostIds">Anfitriões que não aparecem (inativos ou suspensos).</param>
 /// <param name="Page">Começa em 1.</param>
 /// <param name="ExcludedListingIds">Cantinhos que não aparecem (sem vaga nas datas da busca).</param>
+/// <param name="Stay">
+/// As datas da busca: cantinho com algum dia do período (da chegada à saída, inclusive) bloqueado
+/// na agenda (<see cref="AvailabilityBlock"/>) não aparece.
+/// </param>
 public sealed record ListingSearch(
     SearchArea? Area,
     ListingFilters Filters,
     IReadOnlyCollection<Guid> ExcludedHostIds,
     int Page,
     int PageSize,
-    IReadOnlyCollection<ListingId>? ExcludedListingIds = null);
+    IReadOnlyCollection<ListingId>? ExcludedListingIds = null,
+    StayWindow? Stay = null);
 
 /// <summary>Os cantinhos a até <paramref name="RadiusKm"/> de <paramref name="Origin"/>.</summary>
 public sealed record SearchArea(GeoPoint Origin, int RadiusKm);

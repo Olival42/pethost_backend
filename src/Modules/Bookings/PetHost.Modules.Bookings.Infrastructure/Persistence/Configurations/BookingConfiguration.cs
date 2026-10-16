@@ -65,6 +65,8 @@ internal sealed class BookingConfiguration : IEntityTypeConfiguration<Booking>
         builder.Property(b => b.CheckedInAt).HasColumnName("checked_in_at").HasColumnType("timestamptz");
         builder.Property(b => b.CheckedOutAt).HasColumnName("checked_out_at").HasColumnType("timestamptz");
         builder.Property(b => b.ExpiredAt).HasColumnName("expired_at").HasColumnType("timestamptz");
+        builder.Property(b => b.CheckInRemindedAt).HasColumnName("check_in_reminded_at").HasColumnType("timestamptz");
+        builder.Property(b => b.CheckOutRemindedAt).HasColumnName("check_out_reminded_at").HasColumnType("timestamptz");
         builder.Property(b => b.CancelledAt).HasColumnName("cancelled_at").HasColumnType("timestamptz");
 
         builder.Property(b => b.CancelledBy)

@@ -78,11 +78,31 @@ public sealed class TestImageBucket : IAsyncDisposable
         await _container.StartAsync().ConfigureAwait(false);
 
         using var s3 = CreateClient();
-        await s3.PutBucketAsync(BucketName).ConfigureAwait(false);
-        await s3.PutBucketPolicyAsync(BucketName, PublicReadPolicy).ConfigureAwait(false);
+        await WhenReadyAsync(() => s3.PutBucketAsync(BucketName)).ConfigureAwait(false);
+        await WhenReadyAsync(() => s3.PutBucketPolicyAsync(BucketName, PublicReadPolicy)).ConfigureAwait(false);
 
         // Sem política: só quem tem a chave lê, como no bucket de produção.
-        await s3.PutBucketAsync(PrivateBucketName).ConfigureAwait(false);
+        await WhenReadyAsync(() => s3.PutBucketAsync(PrivateBucketName)).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Com vários projetos de integração subindo containers ao mesmo tempo, o RustFS responde o
+    /// <c>/health</c> antes de aceitar as primeiras requisições S3 (503). Tenta de novo por até ~15s.
+    /// </summary>
+    private static async Task WhenReadyAsync(Func<Task> request)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                await request().ConfigureAwait(false);
+                return;
+            }
+            catch (AmazonS3Exception exception) when (exception.StatusCode == System.Net.HttpStatusCode.ServiceUnavailable && attempt < 30)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(500)).ConfigureAwait(false);
+            }
+        }
     }
 
     /// <summary>Quantos arquivos há no bucket privado.</summary>

@@ -30,6 +30,7 @@ public sealed class StripeOnboardingTests
     private readonly Mock<IHostAccounts> _accounts = Accounts();
     private readonly Mock<IStripeConnect> _stripe = new();
     private readonly Mock<IHostPayoutsNotifier> _notifier = new();
+    private readonly Mock<IHostBookings> _bookings = new();
     private readonly Mock<IAuditTrail> _auditTrail = new();
     private readonly FakeTimeProvider _time = new(Now.AddDays(1));
     private readonly Host _individual = Host.CreateIndividual(UserId, AnyCpf, Guid.CreateVersion7(), AdminId, Now);
@@ -46,6 +47,7 @@ public sealed class StripeOnboardingTests
 
     public StripeOnboardingTests()
     {
+        _bookings.Setup(b => b.ListOpenBookingIdsAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync([]);
         _stripe.Setup(s => s.CreateAccountAsync(It.IsAny<StripeAccountDraft>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Result<string>.Success(AccountId));
         _stripe.Setup(s => s.GetAccountAsync(AccountId, It.IsAny<CancellationToken>()))
@@ -63,7 +65,7 @@ public sealed class StripeOnboardingTests
     }
 
     private HostPayoutSetup Setup() =>
-        new(_hosts.Object, _unitOfWork.Object, _accounts.Object, _stripe.Object, _notifier.Object, _auditTrail.Object, _time);
+        new(_hosts.Object, _unitOfWork.Object, _accounts.Object, _stripe.Object, _notifier.Object, _bookings.Object, _auditTrail.Object, _time);
 
     private StartMyStripeOnboardingCommandHandler Start() => new(Setup(), _stripe.Object);
 
@@ -340,6 +342,33 @@ public sealed class StripeOnboardingTests
                 It.IsAny<CancellationToken>()),
             Times.Once);
         _notifier.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task SyncFromWebhook_Should_AlertTheAdminWithTheOpenBookings_When_StripeBlocksAHostWithBookings()
+    {
+        // Arrange
+        var first = Guid.CreateVersion7();
+        var second = Guid.CreateVersion7();
+        _individual.LinkStripeAccount(AccountId, Now);
+        _individual.ApplyStripeSnapshot(Enabled, Now);
+        Is(_individual);
+        _bookings.Setup(b => b.ListOpenBookingIdsAsync(_individual.Id.Value, It.IsAny<CancellationToken>())).ReturnsAsync([first, second]);
+        _stripe.Setup(s => s.GetAccountAsync(AccountId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<StripeAccountSnapshot>.Success(new StripeAccountSnapshot(true, false, false, "requirements.past_due")));
+
+        // Act
+        await SyncFromWebhook().HandleAsync(new SyncStripeAccountCommand(AccountId), CancellationToken.None);
+        await SyncFromWebhook().HandleAsync(new SyncStripeAccountCommand(AccountId), CancellationToken.None);
+
+        // Assert — uma vez só: o segundo aviso do Stripe não muda nada.
+        _notifier.Verify(
+            n => n.NotifyAdminPayoutsBlockedAsync(
+                It.Is<HostPayoutsBlocked>(b => b.HostId == _individual.Id.Value
+                    && b.Reason == "requirements.past_due"
+                    && b.OpenBookingIds.SequenceEqual(new[] { first, second })),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
     }
 
     [Fact]

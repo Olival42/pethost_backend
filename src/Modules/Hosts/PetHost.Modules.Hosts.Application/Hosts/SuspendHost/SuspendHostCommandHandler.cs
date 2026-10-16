@@ -10,12 +10,16 @@ namespace PetHost.Modules.Hosts.Application.Hosts.SuspendHost;
 
 /// <summary>
 /// Suspende perfil e conta (as sessões caem na hora). O perfil vai primeiro; se a conta não
-/// puder ser suspensa, ele volta (compensação). Idempotente.
+/// puder ser suspensa, ele volta (compensação). Suspenso, as reservas dos cantinhos dele que
+/// ainda não começaram (solicitada, aceita, confirmada) são canceladas pela plataforma, com 100%
+/// de reembolso ao tutor; a estadia em andamento o admin encerra pelo check-out. Idempotente:
+/// suspender de novo cancela o que tiver sobrado.
 /// </summary>
 public sealed class SuspendHostCommandHandler(
     IHostRepository hostRepository,
     IHostsUnitOfWork unitOfWork,
     IHostAccounts accounts,
+    IHostBookings hostBookings,
     IAuditTrail auditTrail,
     TimeProvider timeProvider) : ICommandHandler<SuspendHostCommand, HostResponse>
 {
@@ -58,6 +62,9 @@ public sealed class SuspendHostCommandHandler(
                 .RecordAsync(new AuditRecord(AuditActions.HostSuspended, AuditTargets.Host, host.Id.Value, command.Reason), cancellationToken)
                 .ConfigureAwait(false);
         }
+
+        // Depois de gravar: anfitrião suspenso não entra mais nem para cancelar ou receber o pet.
+        await hostBookings.CancelForSuspensionAsync(host.Id.Value, cancellationToken).ConfigureAwait(false);
 
         return Result<HostResponse>.Success(await HostResponse.LoadAsync(host, accounts, cancellationToken).ConfigureAwait(false));
     }

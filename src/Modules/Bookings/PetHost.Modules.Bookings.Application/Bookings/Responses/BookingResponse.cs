@@ -17,7 +17,11 @@ namespace PetHost.Modules.Bookings.Application.Bookings.Responses;
 /// <param name="NightlyRate">Diária por pet copiada no pedido.</param>
 /// <param name="TotalPrice">Diária × noites × pets: o que o tutor paga.</param>
 /// <param name="ResponseDeadline">Até quando o anfitrião pode responder. Só enquanto <c>requested</c>.</param>
-/// <param name="CancelledBy"><c>owner</c> ou <c>host</c>.</param>
+/// <param name="PaymentDeadline">
+/// Até quando o tutor pode pagar a 1ª parcela (24h depois do aceite, sem passar do dia de
+/// chegada). Só enquanto <c>accepted</c>; sem pagar, a reserva expira.
+/// </param>
+/// <param name="CancelledBy"><c>owner</c>, <c>host</c> ou <c>platform</c> (parcela não paga antes do check-in).</param>
 /// <param name="RefundPercentage">Quanto volta para o tutor no cancelamento de reserva paga (100 ou 50).</param>
 /// <param name="Contact">
 /// O contato do outro lado, liberado só depois da confirmação (escopo, regra 7): para o tutor, o
@@ -42,6 +46,7 @@ public sealed record BookingResponse(
     decimal TotalPrice,
     DateTimeOffset RequestedAt,
     DateTimeOffset? ResponseDeadline,
+    DateTimeOffset? PaymentDeadline,
     DateTimeOffset? RespondedAt,
     DateTimeOffset? ConfirmedAt,
     DateTimeOffset? CheckedInAt,

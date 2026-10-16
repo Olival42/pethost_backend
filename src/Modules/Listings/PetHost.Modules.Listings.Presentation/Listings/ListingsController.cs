@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using PetHost.Modules.Listings.Application.Listings.AddListingPhoto;
+using PetHost.Modules.Listings.Application.Listings.AvailabilityBlocks;
 using PetHost.Modules.Listings.Application.Listings.CreateListing;
 using PetHost.Modules.Listings.Application.Listings.DeactivateListing;
 using PetHost.Modules.Listings.Application.Listings.GetListingById;
@@ -38,7 +39,10 @@ public sealed class ListingsController(
     ICommandHandler<ReorderListingPhotosCommand, ListingResponse> reorderListingPhotos,
     IQueryHandler<GetListingByIdQuery, ListingResponse> getListingById,
     IQueryHandler<ListMyListingsQuery, MyListingsResponse> listMyListings,
-    IQueryHandler<SearchListingsQuery, PagedResult<ListingSummaryResponse>> searchListings) : ControllerBase
+    IQueryHandler<SearchListingsQuery, PagedResult<ListingSummaryResponse>> searchListings,
+    ICommandHandler<BlockListingDatesCommand, AvailabilityBlockResponse> blockListingDates,
+    ICommandHandler<UnblockListingDatesCommand, IReadOnlyList<AvailabilityBlockResponse>> unblockListingDates,
+    IQueryHandler<ListAvailabilityBlocksQuery, IReadOnlyList<AvailabilityBlockResponse>> listAvailabilityBlocks) : ControllerBase
 {
     /// <summary>Cadastra um cantinho do anfitrião logado.</summary>
     /// <remarks>
@@ -115,7 +119,9 @@ public sealed class ListingsController(
     /// </para>
     /// Só aparecem cantinhos ativos de anfitrião ativo. Cada item traz bairro, cidade e distância —
     /// nunca o endereço nem a coordenada. Paginado: <c>page</c> a partir de 1, <c>pageSize</c> até
-    /// 100. Busca por raio com conta sem endereço: 422 <c>LISTING_SEARCH_ADDRESS_REQUIRED</c>.
+    /// 100. Sem coordenada, a origem é o endereço de quem busca: o da empresa para o anfitrião
+    /// empresa, senão o da conta (também é a base do selo <c>neighbor</c>). Busca por raio sem
+    /// endereço: 422 <c>LISTING_SEARCH_ADDRESS_REQUIRED</c>.
     /// </remarks>
     [HttpGet]
     [Authorize]
@@ -154,7 +160,8 @@ public sealed class ListingsController(
                 request.PageSize,
                 request.CheckIn,
                 request.CheckOut,
-                request.Pets),
+                request.Pets,
+                CurrentRole()),
             cancellationToken);
 
         return result.ToActionResult();
@@ -245,7 +252,9 @@ public sealed class ListingsController(
     /// <summary>Inativa um cantinho do anfitrião logado. Idempotente.</summary>
     /// <remarks>
     /// Inativo, some da busca e de quem não é o dono, e pode voltar com <c>DELETE</c> nesta rota.
-    /// Cantinho de outro anfitrião: 404 <c>LISTING_NOT_FOUND</c>.
+    /// Cantinho de outro anfitrião: 404 <c>LISTING_NOT_FOUND</c>. Com reserva em aberto
+    /// (solicitada, aceita, confirmada ou em andamento): 422 <c>LISTING_HAS_OPEN_BOOKING</c> —
+    /// responda, cancele ou faça o check-out antes.
     /// </remarks>
     [HttpPost("{listingId:guid}/deactivation")]
     [Authorize(Roles = Roles.Host)]
@@ -253,6 +262,7 @@ public sealed class ListingsController(
     [ProducesResponseType<ApiResponse<ListingResponse>>(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType<ApiResponse<ListingResponse>>(StatusCodes.Status403Forbidden)]
     [ProducesResponseType<ApiResponse<ListingResponse>>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ApiResponse<ListingResponse>>(StatusCodes.Status422UnprocessableEntity)]
     public async Task<IActionResult> DeactivateAsync(Guid listingId, CancellationToken cancellationToken)
     {
         var result = await deactivateListing.HandleAsync(new DeactivateListingCommand(User.GetUserId(), listingId), cancellationToken);
@@ -374,6 +384,79 @@ public sealed class ListingsController(
     {
         var result = await removeListingPhoto.HandleAsync(
             new RemoveListingPhotoCommand(User.GetUserId(), listingId, photoId),
+            cancellationToken);
+
+        return result.ToActionResult();
+    }
+
+    /// <summary>A agenda do cantinho: os períodos fechados pelo anfitrião que ainda não acabaram.</summary>
+    /// <remarks>
+    /// Por padrão tudo está disponível; cada item fecha os dias de <c>startDate</c> a
+    /// <c>endDate</c> (inclusive). Quem vê é quem vê o cantinho: o dono e o admin, com o
+    /// <c>reason</c>; qualquer outra conta, só as datas, de cantinho ativo e disponível. Fora isso:
+    /// 404 <c>LISTING_NOT_FOUND</c>.
+    /// </remarks>
+    [HttpGet("{listingId:guid}/availability-blocks")]
+    [Authorize]
+    [ProducesResponseType<ApiResponse<IReadOnlyList<AvailabilityBlockResponse>>>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ApiResponse<IReadOnlyList<AvailabilityBlockResponse>>>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ApiResponse<IReadOnlyList<AvailabilityBlockResponse>>>(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> ListAvailabilityBlocksAsync(Guid listingId, CancellationToken cancellationToken)
+    {
+        var result = await listAvailabilityBlocks.HandleAsync(
+            new ListAvailabilityBlocksQuery(User.GetUserId(), CurrentRole(), listingId),
+            cancellationToken);
+
+        return result.ToActionResult();
+    }
+
+    /// <summary>Fecha datas na agenda do cantinho do anfitrião logado.</summary>
+    /// <remarks>
+    /// Corpo: <c>{ "startDate": "2026-12-20", "endDate": "2026-12-26", "reason": "Viagem" }</c>
+    /// (<c>reason</c> opcional, até 120 caracteres, só para o anfitrião). Início a partir de hoje
+    /// (Brasília), fim não antes do início, até 365 dias à frente — todos os erros num só 400.
+    /// Nenhum pedido de reserva passa por esses dias (422 <c>BOOKING_DATES_BLOCKED</c>) e o
+    /// cantinho some da busca com essas datas. Reservas já pedidas ou aceitas continuam. Período
+    /// que sobrepõe outro bloqueio: 422 <c>LISTING_AVAILABILITY_BLOCK_OVERLAP</c>; mais de 50 em
+    /// aberto: 422 <c>LISTING_AVAILABILITY_BLOCK_LIMIT_REACHED</c>. Cantinho de outro anfitrião:
+    /// 404 <c>LISTING_NOT_FOUND</c>.
+    /// </remarks>
+    [HttpPost("{listingId:guid}/availability-blocks")]
+    [Authorize(Roles = Roles.Host)]
+    [ProducesResponseType<ApiResponse<AvailabilityBlockResponse>>(StatusCodes.Status201Created)]
+    [ProducesResponseType<ApiResponse<AvailabilityBlockResponse>>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ApiResponse<AvailabilityBlockResponse>>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ApiResponse<AvailabilityBlockResponse>>(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType<ApiResponse<AvailabilityBlockResponse>>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ApiResponse<AvailabilityBlockResponse>>(StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> BlockDatesAsync(
+        Guid listingId,
+        [FromBody] AvailabilityBlockRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var result = await blockListingDates.HandleAsync(
+            new BlockListingDatesCommand(User.GetUserId(), listingId, request.StartDate, request.EndDate, request.Reason),
+            cancellationToken);
+
+        return result.IsSuccess
+            ? result.ToCreatedResult($"/api/v1/listings/{listingId}/availability-blocks")
+            : result.ToActionResult();
+    }
+
+    /// <summary>Reabre as datas de um bloqueio da agenda. Devolve a agenda como ficou.</summary>
+    /// <remarks>Bloqueio que não é do cantinho: 404 <c>LISTING_AVAILABILITY_BLOCK_NOT_FOUND</c>.</remarks>
+    [HttpDelete("{listingId:guid}/availability-blocks/{blockId:guid}")]
+    [Authorize(Roles = Roles.Host)]
+    [ProducesResponseType<ApiResponse<IReadOnlyList<AvailabilityBlockResponse>>>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ApiResponse<IReadOnlyList<AvailabilityBlockResponse>>>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ApiResponse<IReadOnlyList<AvailabilityBlockResponse>>>(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType<ApiResponse<IReadOnlyList<AvailabilityBlockResponse>>>(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> UnblockDatesAsync(Guid listingId, Guid blockId, CancellationToken cancellationToken)
+    {
+        var result = await unblockListingDates.HandleAsync(
+            new UnblockListingDatesCommand(User.GetUserId(), listingId, blockId),
             cancellationToken);
 
         return result.ToActionResult();

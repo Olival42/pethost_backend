@@ -113,6 +113,9 @@ services:
       HostPayouts__MaintenanceIntervalMinutes: ${HOST_PAYOUTS_MAINTENANCE_INTERVAL_MINUTES:-60}
       HostPayouts__ReminderDays: ${HOST_PAYOUTS_REMINDER_DAYS:-3,7}
       HostPayouts__AdminAlertEmail: ${HOST_PAYOUTS_ADMIN_ALERT_EMAIL:-}
+      # --- Pagamentos ---
+      Payments__MaintenanceIntervalMinutes: ${PAYMENTS_MAINTENANCE_INTERVAL_MINUTES:-15}
+      Payments__AdminAlertEmail: ${PAYMENTS_ADMIN_ALERT_EMAIL:-}
 
       # --- ngrok ---
       # PublicUrl e a base usada para montar callbacks (ex.: webhook do Stripe).

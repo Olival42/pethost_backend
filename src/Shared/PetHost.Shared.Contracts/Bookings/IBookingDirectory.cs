@@ -3,7 +3,8 @@ namespace PetHost.Shared.Contracts.Bookings;
 /// <summary>
 /// Contrato público de leitura do módulo Bookings (§5). Outros módulos perguntam por aqui o que
 /// depende das reservas — o Pets (pet com estadia em aberto; anfitrião que recebeu o pet), o
-/// Listings (vaga no período; selos) — sem referenciar o Bookings nem fazer JOIN entre schemas.
+/// Listings (vaga no período; selos), o Payments (status, valor e prazo da reserva) — sem
+/// referenciar o Bookings nem fazer JOIN entre schemas.
 /// </summary>
 public interface IBookingDirectory
 {
@@ -26,6 +27,19 @@ public interface IBookingDirectory
     Task<bool> HasOpenBookingForHostAsync(Guid hostId, CancellationToken cancellationToken);
 
     /// <summary>
+    /// O cantinho <paramref name="listingId"/> (<c>listing.listings.id</c>) tem alguma reserva em aberto
+    /// (solicitada, aceita, confirmada ou em andamento)? Cantinho assim não pode ser inativado.
+    /// </summary>
+    Task<bool> HasOpenBookingForListingAsync(Guid listingId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Ids das reservas em aberto (solicitada, aceita, confirmada ou em andamento) dos cantinhos do
+    /// anfitrião <paramref name="hostId"/>, da chegada mais próxima para a mais distante. É o que o
+    /// admin precisa conferir quando o Stripe bloqueia os repasses do anfitrião.
+    /// </summary>
+    Task<IReadOnlyList<Guid>> ListOpenBookingIdsForHostAsync(Guid hostId, CancellationToken cancellationToken);
+
+    /// <summary>
     /// O pet foi pedido para um cantinho do anfitrião <paramref name="hostId"/> numa reserva
     /// ainda válida ou já concluída (solicitada, aceita, confirmada, em andamento ou concluída)?
     /// É o que deixa o anfitrião ler a ficha completa do pet. Recusada, expirada ou cancelada não conta.
@@ -33,7 +47,7 @@ public interface IBookingDirectory
     Task<bool> IsPetBookedWithHostAsync(Guid petId, Guid hostId, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Para cada cantinho com reservas que ocupam vaga (confirmada ou em andamento) entre
+    /// Para cada cantinho com reservas que ocupam vaga (aceita, confirmada ou em andamento) entre
     /// <paramref name="checkIn"/> e <paramref name="checkOut"/>: o maior número de pets numa mesma
     /// noite do período. Cantinho vazio no período não aparece.
     /// </summary>
@@ -46,6 +60,12 @@ public interface IBookingDirectory
     Task<IReadOnlyDictionary<Guid, HostBookingStats>> GetHostStatsAsync(
         IReadOnlyCollection<Guid> hostIds,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// A reserva como o módulo de pagamento precisa vê-la (status, valor, datas, prazo para pagar e
+    /// reembolso), ou <c>null</c> se ela não existe. Sem nome, endereço nem outro dado pessoal.
+    /// </summary>
+    Task<BookingPaymentView?> GetForPaymentAsync(Guid bookingId, CancellationToken cancellationToken);
 }
 
 /// <summary>Números do anfitrião nas reservas.</summary>

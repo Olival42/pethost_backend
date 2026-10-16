@@ -18,6 +18,8 @@ public sealed class CreateBookingCommandHandlerTests
     private readonly Mock<IBookingsUnitOfWork> _unitOfWork = BookingsTestData.UnitOfWork();
     private readonly Mock<IAuditTrail> _auditTrail = new();
     private Mock<IBookingListings> _listings = BookingsTestData.Listings();
+    private Mock<IBookingPayments> _payments = BookingsTestData.Payments();
+    private readonly Mock<IBookingNotifier> _notifier = new();
 
     private CreateBookingCommandHandler Sut() => new(
         _repository.Object,
@@ -25,7 +27,9 @@ public sealed class CreateBookingCommandHandlerTests
         BookingsTestData.Parties().Object,
         _listings.Object,
         BookingsTestData.Pets().Object,
+        _payments.Object,
         BookingsTestData.ResponseBuilder(),
+        BookingsTestData.Notifications(_notifier.Object),
         _auditTrail.Object,
         new FakeTimeProvider(BookingBuilder.DefaultNow));
 
@@ -35,6 +39,36 @@ public sealed class CreateBookingCommandHandlerTests
         petIds.Length == 0 ? [BookingBuilder.PipocaId] : petIds,
         "2026-10-20",
         "2026-10-25");
+
+    [Fact]
+    public async Task HandleAsync_Should_EmailOnlyTheHostWithTheDeadlineAndNoContact_When_TheRequestIsSaved()
+    {
+        // Act
+        await Sut().HandleAsync(Command(), CancellationToken.None);
+
+        // Assert
+        _notifier.Verify(
+            n => n.NotifyRequestedAsync(
+                It.Is<BookingNotice>(x => x.Recipient == BookingParty.Host
+                    && x.Email == BookingsTestData.HostEmail
+                    && x.OtherPartyName == "Camila Souza"
+                    && x.OtherPartyPhone == null
+                    && x.Address == null
+                    && x.Booking.ResponseDeadline == BookingBuilder.DefaultNow + Booking.ResponseWindow),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+        _notifier.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task HandleAsync_Should_SendNoEmail_When_TheRequestIsRefused()
+    {
+        // Act — pet de outro tutor.
+        await Sut().HandleAsync(Command(petIds: [Guid.CreateVersion7()]), CancellationToken.None);
+
+        // Assert
+        _notifier.VerifyNoOtherCalls();
+    }
 
     [Fact]
     public async Task HandleAsync_Should_SaveRequestedBookingAndRecord_When_EverythingIsValid()
@@ -204,6 +238,28 @@ public sealed class CreateBookingCommandValidatorTests
 
         // Assert
         messages.Should().ContainSingle().Which.Should().Be(BookingsErrors.CheckInInThePast.Message);
+    }
+
+    [Theory]
+    [InlineData("2026-10-11")] // hoje
+    [InlineData("2026-10-14")] // 63h depois do pedido (11/10 09h)
+    public void Validate_Should_ReportCheckInTooSoon_When_CheckInIsLessThan72HoursAway(string checkIn)
+    {
+        // Act
+        var messages = Messages(Valid() with { CheckIn = checkIn, CheckOut = "2026-10-17" });
+
+        // Assert
+        messages.Should().ContainSingle().Which.Should().Be(BookingsErrors.CheckInTooSoon.Message);
+    }
+
+    [Fact]
+    public void Validate_Should_Pass_When_CheckInIsMoreThan72HoursAway()
+    {
+        // Act: 87h depois do pedido.
+        var result = _sut.Validate(Valid() with { CheckIn = "2026-10-15", CheckOut = "2026-10-17" });
+
+        // Assert
+        result.IsValid.Should().BeTrue();
     }
 
     [Fact]

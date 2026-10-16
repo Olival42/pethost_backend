@@ -33,12 +33,14 @@ public sealed class PayoutsMaintenanceTests
     private readonly Mock<IHostAccounts> _accounts = Accounts();
     private readonly Mock<IStripeConnect> _stripe = new();
     private readonly Mock<IHostPayoutsNotifier> _notifier = new();
+    private readonly Mock<IHostBookings> _bookings = new();
     private readonly Mock<IHostPayoutsPolicy> _policy = new();
     private readonly Mock<IAuditTrail> _auditTrail = new();
     private readonly FakeTimeProvider _time = new(Now);
 
     public PayoutsMaintenanceTests()
     {
+        _bookings.Setup(b => b.ListOpenBookingIdsAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync([]);
         _policy.Setup(p => p.ReminderSchedule).Returns([TimeSpan.FromDays(3), TimeSpan.FromDays(7)]);
         _policy.Setup(p => p.EnabledResyncInterval).Returns(TimeSpan.FromHours(24));
         _stripe.Setup(s => s.GetAccountAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
@@ -60,7 +62,7 @@ public sealed class PayoutsMaintenanceTests
             .ReturnsAsync(hosts);
 
     private HostPayoutSetup Setup() =>
-        new(_hosts.Object, _unitOfWork.Object, _accounts.Object, _stripe.Object, _notifier.Object, _auditTrail.Object, _time);
+        new(_hosts.Object, _unitOfWork.Object, _accounts.Object, _stripe.Object, _notifier.Object, _bookings.Object, _auditTrail.Object, _time);
 
     private RunPayoutsMaintenanceCommandHandler Maintenance() =>
         new(_hosts.Object, _unitOfWork.Object, _accounts.Object, Setup(), _notifier.Object, _policy.Object, _auditTrail.Object, _time);

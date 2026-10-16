@@ -165,6 +165,43 @@ public sealed class PetPhotoTests(PetsApiFixture fixture) : IAsyncLifetime
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
+    // ----- reordenar -----
+
+    [Fact]
+    public async Task ReorderPhotos_Should_SwapTheCoverInTheDatabase_When_OwnerSendsEveryPhoto()
+    {
+        var token = await RegisterOwnerAsync("camila@exemplo.com", "529.982.247-25");
+        var petId = await CreatePetAsync(token);
+        for (var i = 1; i <= 3; i++)
+            await SendFileAsync(HttpMethod.Post, $"{PetsRoute}/{petId}/photos", token, TestImages.PngVariant(i));
+        var before = Photos(await ReadAsync(await SendAsync(HttpMethod.Get, $"{PetsRoute}/{petId}", token)));
+
+        // A terceira vira a capa: as vagas 1, 2 e 3 trocam de dono na mesma gravação (constraint deferrable).
+        var response = await SendAsync(HttpMethod.Put, $"{PetsRoute}/{petId}/photos/order", token,
+            new { photoIds = new[] { before[2].Id, before[0].Id, before[1].Id } });
+        var reread = Photos(await ReadAsync(await SendAsync(HttpMethod.Get, $"{PetsRoute}/{petId}", token)));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        Photos(await ReadAsync(response)).Should().Equal(before[2], before[0], before[1]);
+        reread.Should().Equal(before[2], before[0], before[1]);
+    }
+
+    [Fact]
+    public async Task ReorderPhotos_Should_Return400Or404_When_TheListIsIncompleteOrHasAForeignPhoto()
+    {
+        var token = await RegisterOwnerAsync("camila@exemplo.com", "529.982.247-25");
+        var petId = await CreatePetAsync(token);
+        await SendFileAsync(HttpMethod.Post, $"{PetsRoute}/{petId}/photos", token, TestImages.PngVariant(1));
+        var photos = Photos(await ReadAsync(await SendFileAsync(HttpMethod.Post, $"{PetsRoute}/{petId}/photos", token, TestImages.PngVariant(2))));
+
+        var incomplete = await SendAsync(HttpMethod.Put, $"{PetsRoute}/{petId}/photos/order", token, new { photoIds = new[] { photos[1].Id } });
+        var foreign = await SendAsync(HttpMethod.Put, $"{PetsRoute}/{petId}/photos/order", token, new { photoIds = new[] { photos[1].Id, Guid.CreateVersion7() } });
+
+        incomplete.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        foreign.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        Code(await ReadAsync(foreign)).Should().Be("PET_PHOTO_NOT_FOUND");
+    }
+
     // ----- substituir -----
 
     [Fact]

@@ -11,12 +11,15 @@ namespace PetHost.Modules.Owners.Application.Owners.SuspendOwner;
 /// <summary>
 /// Suspende o perfil de tutor e a conta (que derruba as sessões na hora). O perfil vai
 /// primeiro; se a conta não puder ser suspensa, ele volta (compensação), para os dois
-/// nunca ficarem diferentes.
+/// nunca ficarem diferentes. Suspenso, as reservas dele que ainda não começaram (solicitada,
+/// aceita, confirmada) são canceladas pela plataforma — a paga sem reembolso, o que ele pagou
+/// segue para o anfitrião. Idempotente: suspender de novo cancela o que tiver sobrado.
 /// </summary>
 public sealed class SuspendOwnerCommandHandler(
     IOwnerRepository ownerRepository,
     IOwnersUnitOfWork unitOfWork,
     IOwnerAccounts ownerAccounts,
+    IOwnerBookings ownerBookings,
     IAuditTrail auditTrail,
     TimeProvider timeProvider) : ICommandHandler<SuspendOwnerCommand, OwnerResponse>
 {
@@ -56,6 +59,9 @@ public sealed class SuspendOwnerCommandHandler(
                 .RecordAsync(new AuditRecord(AuditActions.OwnerSuspended, AuditTargets.Owner, owner.Id.Value, command.Reason), cancellationToken)
                 .ConfigureAwait(false);
         }
+
+        // Depois de gravar: tutor suspenso não entra mais nem para cancelar.
+        await ownerBookings.CancelForSuspensionAsync(owner.Id.Value, cancellationToken).ConfigureAwait(false);
 
         return Result<OwnerResponse>.Success(
             await OwnerResponse.LoadAsync(owner, ownerAccounts, cancellationToken).ConfigureAwait(false));

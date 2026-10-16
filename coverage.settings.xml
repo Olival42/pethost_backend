@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Configuracao da cobertura (Microsoft.Testing.Extensions.CodeCoverage), ligada a todo projeto
+  de teste pelo Directory.Build.props. Mede so o codigo da aplicacao: fora os proprios testes,
+  o TestKit, as migrations geradas pelo EF Core e o que tiver [ExcludeFromCodeCoverage]
+  (PROJECT_STANDARDS, secao 14).
+-->
+<Configuration>
+  <CodeCoverage>
+    <ModulePaths>
+      <Include>
+        <ModulePath>.*[\\/]PetHost\.[^\\/]*\.dll$</ModulePath>
+      </Include>
+      <Exclude>
+        <ModulePath>.*Tests\.dll$</ModulePath>
+        <ModulePath>.*[\\/]PetHost\.TestKit\.dll$</ModulePath>
+      </Exclude>
+    </ModulePaths>
+    <Sources>
+      <Exclude>
+        <Source>.*[\\/]Migrations[\\/].*</Source>
+      </Exclude>
+    </Sources>
+    <Attributes>
+      <Exclude>
+        <Attribute>^System\.Diagnostics\.CodeAnalysis\.ExcludeFromCodeCoverageAttribute$</Attribute>
+        <Attribute>^System\.CodeDom\.Compiler\.GeneratedCodeAttribute$</Attribute>
+      </Exclude>
+    </Attributes>
+  </CodeCoverage>
+</Configuration>

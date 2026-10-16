@@ -3,6 +3,7 @@ using Microsoft.Extensions.Time.Testing;
 using Moq;
 using PetHost.Modules.Pets.Application.Pets.AddPetPhoto;
 using PetHost.Modules.Pets.Application.Pets.RemovePetPhoto;
+using PetHost.Modules.Pets.Application.Pets.ReorderPetPhotos;
 using PetHost.Modules.Pets.Application.Pets.ReplacePetPhoto;
 using PetHost.Modules.Pets.Domain.Pets;
 using PetHost.Shared.Contracts.Audit;
@@ -208,5 +209,85 @@ public sealed class RemovePetPhotoCommandHandlerTests : PetPhotoHandlerTests
         result.FirstError!.Code.Should().Be("PET_PHOTO_NOT_FOUND");
         UnitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
         Storage.Verify(s => s.DeleteAsync(It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+}
+
+public sealed class ReorderPetPhotosCommandHandlerTests : PetPhotoHandlerTests
+{
+    private readonly ReorderPetPhotosCommandHandler _sut;
+
+    public ReorderPetPhotosCommandHandlerTests()
+    {
+        _sut = new ReorderPetPhotosCommandHandler(
+            PetRepository.Object, UnitOfWork.Object, PetsTestData.Keepers().Object, AuditTrail.Object, Time);
+    }
+
+    [Fact]
+    public async Task HandleAsync_Should_SaveTheNewOrderAndRecordIt_When_TheOwnerPicksAnotherCover()
+    {
+        // Arrange
+        var pet = new PetProfileBuilder().BuildPet(PetsTestData.Owner, photos: 2);
+        Arrange(pet);
+
+        // Act
+        var result = await _sut.HandleAsync(
+            new ReorderPetPhotosCommand(PetsTestData.OwnerUserId, Roles.Owner, pet.Id.Value, [pet.Photos[1].Id.Value, pet.Photos[0].Id.Value]),
+            CancellationToken.None);
+
+        // Assert
+        result.Value!.Photos.Select(p => p.Url).Should().Equal(PetProfileBuilder.PhotoUrl(2), PetProfileBuilder.PhotoUrl(1));
+        UnitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+        AuditTrail.Verify(
+            a => a.RecordAsync(It.Is<AuditRecord>(r => r.Action == AuditActions.PetUpdated && r.Details!["fields"] == "photos.reordered"), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task HandleAsync_Should_NotSave_When_TheOrderDoesNotChange()
+    {
+        // Arrange
+        var pet = new PetProfileBuilder().BuildPet(PetsTestData.Owner, photos: 2);
+        Arrange(pet);
+
+        // Act
+        var result = await _sut.HandleAsync(
+            new ReorderPetPhotosCommand(PetsTestData.OwnerUserId, Roles.Owner, pet.Id.Value, [.. pet.Photos.Select(p => p.Id.Value)]),
+            CancellationToken.None);
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        UnitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+        AuditTrail.Verify(a => a.RecordAsync(It.IsAny<AuditRecord>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task HandleAsync_Should_ReturnPetNotFound_When_ThePetIsFromAnotherAccount()
+    {
+        // Arrange
+        var pet = new PetProfileBuilder().BuildPet(PetsTestData.Owner, photos: 2);
+        Arrange(pet);
+
+        // Act
+        var result = await _sut.HandleAsync(
+            new ReorderPetPhotosCommand(PetsTestData.StrangerUserId, Roles.Owner, pet.Id.Value, [.. pet.Photos.Select(p => p.Id.Value)]),
+            CancellationToken.None);
+
+        // Assert
+        result.FirstError!.Code.Should().Be("PET_NOT_FOUND");
+    }
+
+    [Fact]
+    public void Validator_Should_RejectTheList_When_ItIsMissingRepeatedOrTooLong()
+    {
+        // Arrange
+        var validator = new ReorderPetPhotosCommandValidator();
+        var id = Guid.CreateVersion7();
+
+        // Act + Assert
+        validator.Validate(new ReorderPetPhotosCommand(PetsTestData.OwnerUserId, Roles.Owner, Guid.CreateVersion7(), null)).IsValid.Should().BeFalse();
+        validator.Validate(new ReorderPetPhotosCommand(PetsTestData.OwnerUserId, Roles.Owner, Guid.CreateVersion7(), [id, id])).IsValid.Should().BeFalse();
+        validator.Validate(new ReorderPetPhotosCommand(PetsTestData.OwnerUserId, Roles.Owner, Guid.CreateVersion7(), [Guid.Empty])).IsValid.Should().BeFalse();
+        validator.Validate(new ReorderPetPhotosCommand(PetsTestData.OwnerUserId, Roles.Owner, Guid.CreateVersion7(), [.. Enumerable.Range(0, Pet.MaxPhotos + 1).Select(_ => Guid.CreateVersion7())])).IsValid.Should().BeFalse();
+        validator.Validate(new ReorderPetPhotosCommand(PetsTestData.OwnerUserId, Roles.Owner, Guid.CreateVersion7(), [id])).IsValid.Should().BeTrue();
     }
 }

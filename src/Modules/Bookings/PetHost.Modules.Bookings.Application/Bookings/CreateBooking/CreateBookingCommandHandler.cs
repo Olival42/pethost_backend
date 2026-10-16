@@ -14,7 +14,9 @@ namespace PetHost.Modules.Bookings.Application.Bookings.CreateBooking;
 /// </summary>
 /// <remarks>
 /// A capacidade é conferida aqui só para não deixar o tutor pedir o impossível: o pedido não
-/// ocupa vaga. Quem decide é o aceite, que confere de novo com o cantinho travado.
+/// ocupa vaga. Quem decide é o aceite, que confere de novo com o cantinho travado. Tutor com
+/// parcela em atraso não pede: <c>422 BOOKING_OWNER_PAYMENT_OVERDUE</c>. Gravado o pedido, o
+/// anfitrião recebe um e-mail com o prazo para responder.
 /// </remarks>
 public sealed class CreateBookingCommandHandler(
     IBookingRepository bookingRepository,
@@ -22,7 +24,9 @@ public sealed class CreateBookingCommandHandler(
     IBookingParties bookingParties,
     IBookingListings bookingListings,
     IBookingPets bookingPets,
+    IBookingPayments bookingPayments,
     BookingResponseBuilder responseBuilder,
+    BookingNotifications notifications,
     IAuditTrail auditTrail,
     TimeProvider timeProvider) : ICommandHandler<CreateBookingCommand, BookingResponse>
 {
@@ -34,6 +38,10 @@ public sealed class CreateBookingCommandHandler(
 
         if (owner.IsFailure)
             return Result<BookingResponse>.FromFailure(owner);
+
+        // Estadia já feita e parcela vencida sem pagar: paga antes de pedir outra.
+        if (await bookingPayments.HasOverduePaymentAsync(owner.Value!.Id, cancellationToken).ConfigureAwait(false))
+            return Result<BookingResponse>.Failure(BookingsErrors.OwnerPaymentOverdue);
 
         // O validador já garantiu o formato; a regra do período é conferida de novo (a data de
         // hoje pode ter virado entre a validação e aqui).
@@ -76,7 +84,11 @@ public sealed class CreateBookingCommandHandler(
 
         await BookingTrail.RecordAsync(auditTrail, AuditActions.BookingRequested, booking.Value!, cancellationToken).ConfigureAwait(false);
 
-        return Result<BookingResponse>.Success(
-            await responseBuilder.BuildAsync(booking.Value!, BookingParty.Owner, cancellationToken).ConfigureAwait(false));
+        var response = await responseBuilder.BuildAsync(booking.Value!, BookingParty.Owner, cancellationToken).ConfigureAwait(false);
+
+        // O anfitrião tem 24h para responder: avisa por e-mail, sem contato do tutor (só depois do pagamento).
+        await notifications.RequestedAsync(booking.Value!, response, cancellationToken).ConfigureAwait(false);
+
+        return Result<BookingResponse>.Success(response);
     }
 }

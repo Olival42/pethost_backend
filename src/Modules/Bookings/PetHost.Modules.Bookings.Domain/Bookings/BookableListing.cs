@@ -15,6 +15,7 @@ namespace PetHost.Modules.Bookings.Domain.Bookings;
 /// <param name="NightlyRate">Diária por pet, em reais.</param>
 /// <param name="AcceptedSpecies">Valores de <c>pets.species</c> aceitos.</param>
 /// <param name="AvailableWeekdays">Dias da semana em que recebe pets.</param>
+/// <param name="ClosedPeriods">Períodos que o anfitrião fechou na agenda (e que ainda não acabaram).</param>
 public sealed record BookableListing(
     Guid Id,
     Guid HostId,
@@ -25,7 +26,8 @@ public sealed record BookableListing(
     bool AcceptsSmall,
     bool AcceptsMedium,
     bool AcceptsLarge,
-    IReadOnlyCollection<DayOfWeek> AvailableWeekdays)
+    IReadOnlyCollection<DayOfWeek> AvailableWeekdays,
+    IReadOnlyCollection<ClosedPeriod>? ClosedPeriods = null)
 {
     /// <summary>Porte pequeno (valor de <c>pets.size</c>).</summary>
     public const string Small = "small";
@@ -65,4 +67,30 @@ public sealed record BookableListing(
 
         return null;
     }
+
+    /// <summary>
+    /// O primeiro dia do período (da chegada à saída, inclusive) fechado na agenda pelo
+    /// anfitrião, ou <c>null</c> se nenhum está. Mesma regra dos dias da semana.
+    /// </summary>
+    public DateOnly? FirstBlockedDay(StayPeriod period)
+    {
+        ArgumentNullException.ThrowIfNull(period);
+
+        if (ClosedPeriods is not { Count: > 0 } closed)
+            return null;
+
+        foreach (var day in period.EachDay())
+        {
+            if (closed.Any(block => block.Contains(day)))
+                return day;
+        }
+
+        return null;
+    }
+}
+
+/// <summary>Um período fechado na agenda do cantinho, de <paramref name="StartDate"/> a <paramref name="EndDate"/> (inclusive).</summary>
+public sealed record ClosedPeriod(DateOnly StartDate, DateOnly EndDate)
+{
+    public bool Contains(DateOnly day) => day >= StartDate && day <= EndDate;
 }

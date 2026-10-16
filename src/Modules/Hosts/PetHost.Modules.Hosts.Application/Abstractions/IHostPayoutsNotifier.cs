@@ -14,7 +14,18 @@ public interface IHostPayoutsNotifier
 
     /// <summary>Ao admin (endereço da configuração): o Stripe recusou a conta de um anfitrião.</summary>
     Task NotifyAdminPayoutsRejectedAsync(HostPayoutsRejection rejection, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Ao admin: o Stripe bloqueou (ou recusou) os repasses de um anfitrião que tem reservas em
+    /// aberto — os repasses ficam retidos e o admin decide se reembolsa os tutores.
+    /// </summary>
+    Task NotifyAdminPayoutsBlockedAsync(HostPayoutsBlocked blocked, CancellationToken cancellationToken);
 }
+
+/// <summary>Alerta ao admin: repasses bloqueados com reservas em aberto. Sem CPF.</summary>
+/// <param name="Reason">O <c>disabled_reason</c> do Stripe.</param>
+/// <param name="OpenBookingIds">As reservas em aberto do anfitrião (solicitada, aceita, confirmada, em andamento).</param>
+public sealed record HostPayoutsBlocked(Guid HostId, string HostName, string? Reason, IReadOnlyList<Guid> OpenBookingIds);
 
 /// <summary>Para quem vai o aviso.</summary>
 public sealed record HostPayoutsNotice(string Email, string FullName);

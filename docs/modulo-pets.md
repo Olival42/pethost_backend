@@ -67,6 +67,7 @@ tests/Modules/Hosts/ Domain.UnitTests
 | `POST` | `/api/v1/pets/{petId}/photos` | dono do pet | Adiciona uma foto (até 3; upload `multipart/form-data`, parte `file`) | `200` |
 | `PATCH` | `/api/v1/pets/{petId}/photos/{photoId}` | dono do pet | Substitui a imagem de uma foto (mesmo id e posição) | `200` |
 | `DELETE` | `/api/v1/pets/{petId}/photos/{photoId}` | dono do pet | Tira uma foto | `200` |
+| `PUT` | `/api/v1/pets/{petId}/photos/order` | dono do pet | Reordena (e escolhe a capa): `{ "photoIds": [...] }` com todas as fotos | `200` |
 | `GET` | `/api/v1/hosts/{hostId}/pets` | qualquer token | Pets **ativos** da casa do anfitrião | `200` |
 
 As listas não têm paginação nem filtro (pedido do produto; exceção registrada no §13 dos padrões). Ordem: do mais novo para o mais antigo.
@@ -178,6 +179,7 @@ As fotos ficam na tabela `pet.pet_photos`. As três rotas recebem e devolvem o p
 | `POST /pets/{petId}/photos` | Adiciona uma foto na **primeira vaga livre** (1 a 3). A vaga 1 é a capa; se a capa for tirada, a próxima foto adicionada vira a capa. Com 3 fotos: `422 PET_PHOTO_LIMIT_REACHED`. |
 | `PATCH /pets/{petId}/photos/{photoId}` | **Só substitui**: troca a imagem daquela foto, mantendo o `id` e a posição, e apaga a imagem antiga do bucket. |
 | `DELETE /pets/{petId}/photos/{photoId}` | Tira a foto e apaga a imagem. As outras ficam onde estavam. Tirar de novo: `404 PET_PHOTO_NOT_FOUND`. |
+| `PUT /pets/{petId}/photos/order` | **Reordena e escolhe a capa**: `{ "photoIds": [...] }` com **todas** as fotos do pet, cada uma uma vez, na ordem nova — a primeira vira a capa (vaga 1) e as outras ocupam as vagas seguintes, **sem buraco** (fecha a vaga que um `DELETE` tinha deixado). Para só trocar a capa, mande a escolhida primeiro. Id que não é foto deste pet: `404 PET_PHOTO_NOT_FOUND`; lista faltando foto, com repetição, id vazio ou mais de 3: `400` em `photoIds`. Mesma ordem (já sem buraco) não grava. Trilha: `pet.updated` com `photos.reordered`. |
 
 A posse do pet, a vaga (no `POST`) e a existência da foto (no `PATCH`) são conferidas **antes** do envio: uma recusa não deixa arquivo no bucket.
 
@@ -239,7 +241,7 @@ Texto é aparado; texto vazio em campo opcional vira nulo.
 
 ## 5. Banco
 
-Schema `pet`, histórico em `pet.__ef_migrations_history`. Migrations: `CreatePetsTable`, `AddHealthDetailsToPets`, `AllowSizeForCats`, `AddUniqueMicrochipToPets`, `AddPetPhotos` (cria `pet_photos`, copia a `photo_url` de cada pet como a foto 1 e remove a coluna), `AddContentHashToPetPhotos`.
+Schema `pet`, histórico em `pet.__ef_migrations_history`. Migrations: `CreatePetsTable`, `AddHealthDetailsToPets`, `AllowSizeForCats`, `AddUniqueMicrochipToPets`, `AddPetPhotos` (cria `pet_photos`, copia a `photo_url` de cada pet como a foto 1 e remove a coluna), `AddContentHashToPetPhotos`, `MakePetPhotoPositionDeferrable` (a vaga única por pet vira constraint deferrable, para reordenar).
 
 ```sql
 CREATE TABLE pet.pets (
@@ -293,7 +295,9 @@ CREATE TABLE pet.pet_photos (
     CONSTRAINT ck_pet_photos_position CHECK (position BETWEEN 1 AND 3)
 );
 -- Limite de 3 também no banco: dois uploads ao mesmo tempo não criam a quarta foto.
-CREATE UNIQUE INDEX uq_pet_photos_pet_id_position ON pet.pet_photos (pet_id, position);
+-- conferida no commit: reordenar troca vagas entre fotos na mesma transação
+ALTER TABLE pet.pet_photos ADD CONSTRAINT uq_pet_photos_pet_id_position
+    UNIQUE (pet_id, position) DEFERRABLE INITIALLY DEFERRED;
 -- A mesma imagem não entra duas vezes no mesmo pet.
 CREATE UNIQUE INDEX uq_pet_photos_pet_id_content_hash ON pet.pet_photos (pet_id, content_hash) WHERE content_hash IS NOT NULL;
 ```
@@ -339,9 +343,9 @@ O que o Stripe pede de uma empresa e **não** guardamos (cargo do representante,
 | Projeto | O que cobre | Resultado |
 |---|---|---|
 | `Hosts.Domain.UnitTests` | `Cnpj` (numérico e alfanumérico, máscara, dígitos), `Cpf`, `CompanyAddress` (todos os erros juntos), `Host` (PF sem dados de empresa, PJ com tudo, nomes obrigatórios) | 36 ✅ |
-| `Pets.Domain.UnitTests` | `PetProfile` (cada regra e cada erro, porte obrigatório no cachorro e opcional no gato, descrição só em exótico, peso/microchip/alergias, texto vazio vira nulo, ida e volta), `Pet` (fotos: vagas em ordem, limite de 3, vaga liberada reaproveitada, substituir mantém id e posição, imagem repetida ao adicionar e ao substituir, URL inválida, foto de outro pet; um dono só, tutor ≠ anfitrião com o mesmo id, ficha igual não mexe no `updatedAt`, desativar/reativar idempotentes), enums | 73 ✅ |
-| `Pets.Application.UnitTests` | Cadastro (tutor, anfitrião, sem perfil, trilha, microchip repetido), validador, PATCH (parcial, limpar com `""`, troca de espécie, nada mudou, pet inativo, todos os erros, pet de outra conta = 404, mesma pessoa em outro papel, microchip repetido), `PetPatch`, desativar/reativar (reativar com microchip já em uso), quem vê o quê, listas com o dono uma vez no topo, fotos: adicionar (limite e posse conferidos antes do upload, compensação se gravar falhar), substituir (imagem antiga apagada, foto de outro pet sem upload), tirar | 60 ✅ |
-| `Pets.IntegrationTests` | Pela API com Postgres e Redis em container: cadastro (`201` + `Location`, `400` com todos os campos, exótico, anfitrião sem perfil `404`, anfitrião com perfil, `401`, admin `403`), PATCH (inclusive de pet inativo), pet de outra conta `404`, desativar/reativar, `/pets/me` e a lista do anfitrião com o dono uma vez no topo, rota inexistente/id fora do formato `404` e método errado `405` no envelope, visibilidade entre tutores, pets da casa do anfitrião vistos pelo tutor, peso e microchip, gato com e sem porte, microchip repetido (`409` no cadastro, PATCH e reativação; liberado quando o pet antigo é desativado), CHECK de dono único e índice do microchip no banco. `PetPhotoTests`: adicionar (bucket e link público, `422` na quarta foto sem upload, `404` sem upload para pet de outra conta, `400` de arquivo grande ou que não é imagem, `413` acima do teto), imagem repetida (`409` sem deixar arquivo; liberada em outro pet), substituir (mesmo id e posição, imagem antiga apagada, `404` de foto de outro pet, `409` com imagem de outra foto), tirar (só aquela foto; de novo `404`), `photoUrl` do JSON ignorado, limite de 3 no banco (vaga única, CHECK) | 44 ✅ |
+| `Pets.Domain.UnitTests` | `PetProfile` (cada regra e cada erro, porte obrigatório no cachorro e opcional no gato, descrição só em exótico, peso/microchip/alergias, texto vazio vira nulo, ida e volta), `Pet` (fotos: vagas em ordem, limite de 3, vaga liberada reaproveitada, substituir mantém id e posição, imagem repetida ao adicionar e ao substituir, URL inválida, foto de outro pet, reordenar — capa nova, fecha o buraco, mesma ordem não muda, foto de outro pet `404`, lista incompleta `400` sem mexer nas vagas; um dono só, tutor ≠ anfitrião com o mesmo id, ficha igual não mexe no `updatedAt`, desativar/reativar idempotentes), enums | 78 ✅ |
+| `Pets.Application.UnitTests` | Cadastro (tutor, anfitrião, sem perfil, trilha, microchip repetido), validador, PATCH (parcial, limpar com `""`, troca de espécie, nada mudou, pet inativo, todos os erros, pet de outra conta = 404, mesma pessoa em outro papel, microchip repetido), `PetPatch`, desativar/reativar (reativar com microchip já em uso), quem vê o quê, listas com o dono uma vez no topo, fotos: adicionar (limite e posse conferidos antes do upload, compensação se gravar falhar), substituir (imagem antiga apagada, foto de outro pet sem upload), tirar ; reordenar as fotos (grava e registra `photos.reordered`, mesma ordem não grava, pet de outra conta `404`, validador da lista) | 72 ✅ |
+| `Pets.IntegrationTests` | Pela API com Postgres e Redis em container: cadastro (`201` + `Location`, `400` com todos os campos, exótico, anfitrião sem perfil `404`, anfitrião com perfil, `401`, admin `403`), PATCH (inclusive de pet inativo), pet de outra conta `404`, desativar/reativar, `/pets/me` e a lista do anfitrião com o dono uma vez no topo, rota inexistente/id fora do formato `404` e método errado `405` no envelope, visibilidade entre tutores, pets da casa do anfitrião vistos pelo tutor, peso e microchip, gato com e sem porte, microchip repetido (`409` no cadastro, PATCH e reativação; liberado quando o pet antigo é desativado), CHECK de dono único e índice do microchip no banco. `PetPhotoTests`: adicionar (bucket e link público, `422` na quarta foto sem upload, `404` sem upload para pet de outra conta, `400` de arquivo grande ou que não é imagem, `413` acima do teto), imagem repetida (`409` sem deixar arquivo; liberada em outro pet), substituir (mesmo id e posição, imagem antiga apagada, `404` de foto de outro pet, `409` com imagem de outra foto), tirar (só aquela foto; de novo `404`), `photoUrl` do JSON ignorado, limite de 3 no banco (vaga única, CHECK) ; reordenar as fotos trocando a capa no Postgres (constraint deferrable) e `400`/`404` da lista | 46 ✅ |
 
 ## 9. Decisões e pendências
 
@@ -359,7 +363,3 @@ O que o Stripe pede de uma empresa e **não** guardamos (cargo do representante,
 | Listas sem paginação | Pedido seu; uma pessoa ou casa tem poucos pets. Exceção registrada no §13. |
 | Pet de outro tutor é `404` no GET e `403` no PATCH | Quem não pode ver não descobre que existe; quem tenta alterar algo que vê (pet de anfitrião) recebe o motivo. |
 | Pet da casa só para anfitrião verificado | O perfil de anfitrião só existe depois da aprovação da verificação ([`modulo-hosts.md`](modulo-hosts.md)). |
-
-| # | Pendência | Impacto |
-|---|---|---|
-| 1 | Fotos do pet: resolvido. | Até 3 por pet, em `pet.pet_photos` (seção 3.5). Reordenar ou escolher a capa ainda não tem rota: a capa é a foto da menor vaga. |

@@ -41,14 +41,15 @@ public sealed class AcceptBookingCommandHandlerTests
         Sut().HandleAsync(new AcceptBookingCommand(userId ?? BookingsTestData.HostUserId, _booking.Id.Value), CancellationToken.None);
 
     [Fact]
-    public async Task HandleAsync_Should_ConfirmUnderTheListingLockAndRecord_When_HostAccepts()
+    public async Task HandleAsync_Should_AcceptUnderTheListingLockAndRecord_When_HostAccepts()
     {
         // Act
         var result = await AcceptAsync();
 
         // Assert
-        result.Value!.Status.Should().Be("confirmed");
-        result.Value.ConfirmedAt.Should().Be(_now);
+        result.Value!.Status.Should().Be("accepted");
+        result.Value.ConfirmedAt.Should().BeNull();
+        result.Value.PaymentDeadline.Should().Be(_now + Booking.PaymentWindow);
         result.Value.ResponseDeadline.Should().BeNull();
         _unitOfWork.Verify(u => u.RunLockedOnListingAsync(BookingBuilder.ListingId, It.IsAny<Func<CancellationToken, Task<Result>>>(), It.IsAny<CancellationToken>()), Times.Once);
         _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
@@ -56,18 +57,16 @@ public sealed class AcceptBookingCommandHandlerTests
     }
 
     [Fact]
-    public async Task HandleAsync_Should_EmailOwnerAcceptedAndHostConfirmed_When_HostAccepts()
+    public async Task HandleAsync_Should_EmailOnlyTheOwnerWithoutContact_When_HostAccepts()
     {
         // Act
         await AcceptAsync();
 
         // Assert
         _notifier.Verify(n => n.NotifyAcceptedAsync(
-            It.Is<BookingNotice>(x => x.Email == BookingsTestData.OwnerEmail && x.Recipient == BookingParty.Owner && x.OtherPartyPhone == BookingsTestData.HostPhone && x.Address == BookingsTestData.ListingAddress),
+            It.Is<BookingNotice>(x => x.Email == BookingsTestData.OwnerEmail && x.Recipient == BookingParty.Owner && x.OtherPartyPhone == null && x.Address == null && x.Booking.PaymentDeadline != null),
             It.IsAny<CancellationToken>()), Times.Once);
-        _notifier.Verify(n => n.NotifyConfirmedAsync(
-            It.Is<BookingNotice>(x => x.Email == BookingsTestData.HostEmail && x.Recipient == BookingParty.Host && x.OtherPartyPhone == BookingsTestData.OwnerPhone && x.Address == null),
-            It.IsAny<CancellationToken>()), Times.Once);
+        _notifier.Verify(n => n.NotifyConfirmedAsync(It.IsAny<BookingNotice>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]

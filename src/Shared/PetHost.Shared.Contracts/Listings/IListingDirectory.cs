@@ -23,7 +23,19 @@ public interface IListingDirectory
     Task<IReadOnlyDictionary<Guid, ListingAddressReference>> GetAddressesAsync(
         IReadOnlyCollection<Guid> listingIds,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Os períodos que o anfitrião fechou na agenda do cantinho e que ainda não acabaram em
+    /// <paramref name="from"/> (terminam nesse dia ou depois), do mais próximo para o mais distante.
+    /// </summary>
+    Task<IReadOnlyList<BlockedPeriod>> GetBlockedPeriodsAsync(
+        Guid listingId,
+        DateOnly from,
+        CancellationToken cancellationToken);
 }
+
+/// <summary>Um período fechado na agenda do cantinho, de <paramref name="StartDate"/> a <paramref name="EndDate"/> (inclusive).</summary>
+public sealed record BlockedPeriod(DateOnly StartDate, DateOnly EndDate);
 
 /// <summary>Endereço exato do cantinho. CEP só com os 8 dígitos.</summary>
 public sealed record ListingAddressReference(

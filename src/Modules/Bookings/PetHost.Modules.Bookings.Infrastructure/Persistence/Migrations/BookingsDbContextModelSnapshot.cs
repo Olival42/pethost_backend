@@ -44,6 +44,14 @@ namespace PetHost.Modules.Bookings.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(10)")
                         .HasColumnName("cancelled_by");
 
+                    b.Property<DateTimeOffset?>("CheckInRemindedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("check_in_reminded_at");
+
+                    b.Property<DateTimeOffset?>("CheckOutRemindedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("check_out_reminded_at");
+
                     b.Property<DateTimeOffset?>("CheckedInAt")
                         .HasColumnType("timestamptz")
                         .HasColumnName("checked_in_at");
@@ -146,7 +154,7 @@ namespace PetHost.Modules.Bookings.Infrastructure.Persistence.Migrations
                         {
                             t.HasCheckConstraint("ck_bookings_amounts", "nightly_rate >= 0 AND total_price >= 0");
 
-                            t.HasCheckConstraint("ck_bookings_cancelled_by", "cancelled_by IS NULL OR cancelled_by IN ('owner', 'host')");
+                            t.HasCheckConstraint("ck_bookings_cancelled_by", "cancelled_by IS NULL OR cancelled_by IN ('owner', 'host', 'platform')");
 
                             t.HasCheckConstraint("ck_bookings_period", "check_out_date > check_in_date");
 

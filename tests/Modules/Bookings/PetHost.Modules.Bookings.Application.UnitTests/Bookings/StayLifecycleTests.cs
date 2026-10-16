@@ -22,11 +22,13 @@ public sealed class CancelBookingCommandHandlerTests
     private readonly Mock<IBookingsUnitOfWork> _unitOfWork = BookingsTestData.UnitOfWork();
     private readonly Mock<IAuditTrail> _auditTrail = new();
     private readonly Mock<IBookingNotifier> _notifier = new();
+    private readonly Mock<IBookingPayments> _payments = BookingsTestData.Payments();
 
     private CancelBookingCommandHandler Sut(Booking booking, DateTimeOffset now) => new(
         BookingsTestData.Repository(booking).Object,
         _unitOfWork.Object,
         BookingsTestData.Parties().Object,
+        _payments.Object,
         BookingsTestData.ResponseBuilder(),
         BookingsTestData.Notifications(_notifier.Object),
         _auditTrail.Object,
@@ -246,11 +248,13 @@ public sealed class CheckOutBookingCommandHandlerTests
 
     private readonly Mock<IBookingsUnitOfWork> _unitOfWork = BookingsTestData.UnitOfWork();
     private readonly Mock<IAuditTrail> _auditTrail = new();
+    private readonly Mock<IBookingPayments> _payments = BookingsTestData.Payments();
 
     private CheckOutBookingCommandHandler Sut(Booking booking) => new(
         BookingsTestData.Repository(booking).Object,
         _unitOfWork.Object,
         BookingsTestData.Parties().Object,
+        _payments.Object,
         BookingsTestData.ResponseBuilder(),
         _auditTrail.Object,
         new FakeTimeProvider(CheckOutDay));

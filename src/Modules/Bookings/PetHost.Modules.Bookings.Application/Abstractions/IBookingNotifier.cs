@@ -6,17 +6,41 @@ namespace PetHost.Modules.Bookings.Application.Abstractions;
 /// <summary>Avisos da reserva (e-mail, em segundo plano).</summary>
 public interface IBookingNotifier
 {
-    /// <summary>Ao tutor: o anfitrião aceitou o pedido.</summary>
+    /// <summary>
+    /// Ao anfitrião: chegou um pedido de estadia; responda no prazo de 24h (senão o pedido expira).
+    /// Sem telefone nem endereço do tutor — o contato só sai depois do pagamento.
+    /// </summary>
+    Task NotifyRequestedAsync(BookingNotice notice, CancellationToken cancellationToken);
+
+    /// <summary>Ao tutor: o anfitrião aceitou o pedido; pague a 1ª parcela no prazo.</summary>
     Task NotifyAcceptedAsync(BookingNotice notice, CancellationToken cancellationToken);
 
     /// <summary>Ao tutor: o anfitrião recusou o pedido (com o motivo, se houver).</summary>
     Task NotifyDeclinedAsync(BookingNotice notice, CancellationToken cancellationToken);
 
-    /// <summary>Ao anfitrião: a reserva está confirmada — o pet vem na data combinada.</summary>
+    /// <summary>
+    /// A reserva está confirmada (1ª parcela paga). Ao tutor, com o endereço exato e o telefone do
+    /// anfitrião; ao anfitrião, com o telefone do tutor — o pet vem na data combinada.
+    /// </summary>
     Task NotifyConfirmedAsync(BookingNotice notice, CancellationToken cancellationToken);
 
-    /// <summary>Ao tutor e ao anfitrião, cada um no seu e-mail: a reserva foi cancelada.</summary>
+    /// <summary>Ao tutor e ao anfitrião, cada um no seu e-mail: a reserva foi cancelada (por um deles ou pela plataforma).</summary>
     Task NotifyCancelledAsync(BookingNotice notice, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Véspera do check-in. Ao tutor, com a data, o endereço exato e o telefone do anfitrião; ao
+    /// anfitrião, com a data, os pets e o telefone do tutor.
+    /// </summary>
+    Task NotifyCheckInReminderAsync(BookingNotice notice, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Ao anfitrião: chegou o dia de saída e o check-out não foi feito. Marque "voltou pra casa" — sem
+    /// isso, a plataforma conclui a estadia sozinha alguns dias depois.
+    /// </summary>
+    Task NotifyCheckOutReminderAsync(BookingNotice notice, CancellationToken cancellationToken);
+
+    /// <summary>Ao tutor e ao anfitrião: a plataforma concluiu a estadia (o check-out não foi feito a tempo).</summary>
+    Task NotifyAutoCheckedOutAsync(BookingNotice notice, CancellationToken cancellationToken);
 }
 
 /// <summary>Um aviso da reserva para um dos lados.</summary>

@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using PetHost.Modules.Hosts.Domain.Hosts;
 using PetHost.Modules.Hosts.Infrastructure.Persistence;
+using PetHost.Shared.Contracts.Accounts;
 using PetHost.Shared.Contracts.Hosts;
 
 namespace PetHost.Modules.Hosts.Infrastructure.Contracts;
@@ -16,6 +17,18 @@ internal sealed class HostDirectory(HostsDbContext dbContext) : IHostDirectory
             .ConfigureAwait(false);
 
         return host is null ? null : ToReference(host);
+    }
+
+    public async Task<AddressData?> GetCompanyAddressByUserIdAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        var host = await dbContext.Hosts
+            .AsNoTracking()
+            .FirstOrDefaultAsync(h => h.UserId == userId, cancellationToken)
+            .ConfigureAwait(false);
+
+        return host?.CompanyAddress is { } address
+            ? new AddressData(address.ZipCode, address.Street, address.Number, address.Complement, address.Neighborhood, address.City, address.State)
+            : null;
     }
 
     public async Task<IReadOnlyList<HostReference>> GetByIdsAsync(
@@ -51,5 +64,5 @@ internal sealed class HostDirectory(HostsDbContext dbContext) : IHostDirectory
     }
 
     private static HostReference ToReference(Host host) =>
-        new(host.Id.Value, host.UserId, PersonTypeValues.ToWire(host.PersonType), host.TradeName, host.IsActive, host.IsSuspended, host.StripePayoutsEnabled);
+        new(host.Id.Value, host.UserId, PersonTypeValues.ToWire(host.PersonType), host.TradeName, host.IsActive, host.IsSuspended, host.StripePayoutsEnabled, host.StripeAccountId);
 }
