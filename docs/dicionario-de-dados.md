@@ -115,9 +115,10 @@ erDiagram
     bookings ||--o| payments : "paid by"
     bookings ||--o{ reviews : "reviewed in"
     users ||--o{ reviews : "writes / receives"
-    users ||--o{ conversations : "participates"
+    owners ||--o{ conversations : "talks"
+    hosts ||--o{ conversations : "talks"
     conversations ||--o{ messages : "contains"
-    users ||--o{ messages : "sends"
+    bookings ||--o{ messages : "during"
     users {
         uuid id PK
         varchar full_name
@@ -367,17 +368,19 @@ erDiagram
         uuid id PK
         uuid owner_id FK, UK
         uuid host_id FK, UK
-        timestamp last_message_at "nullable"
-        timestamp created_at
+        timestamptz last_message_at "nullable"
+        timestamptz created_at
+        timestamptz updated_at
     }
     messages {
         uuid id PK
         uuid conversation_id FK
-        uuid sender_id FK
-        text body "nullable"
+        varchar sent_by
+        varchar body "nullable"
         varchar image_url "nullable"
-        timestamp read_at "nullable"
-        timestamp created_at
+        uuid booking_id FK "nullable"
+        timestamptz read_at "nullable"
+        timestamptz created_at
     }
     reviews {
         uuid id PK
@@ -743,17 +746,18 @@ Registro dos webhooks recebidos. O Stripe pode mandar o mesmo evento mais de uma
 
 ### `conversations` · Conversas
 
-O chat entre um tutor e um anfitrião. Uma conversa por dupla, que serve antes, durante e depois das reservas.
+O chat entre um tutor e um anfitrião. Uma conversa por dupla, que serve antes, durante e depois das reservas. Fica no schema `conversation` (módulo Conversations, [`modulo-conversations.md`](modulo-conversations.md)); `owner_id` e `host_id` são **FKs lógicas, sem constraint física** — o id do perfil, como em `bookings`, nunca o da conta.
 
 | Coluna | Tipo | Chave | Nulo | Descrição |
 |---|---|---|---|---|
-| `id` | `uuid` | `PK` | não | Identificador da conversa. |
-| `owner_id` | `uuid` | `FK UK²` | não | Tutor → users.id. |
-| `host_id` | `uuid` | `FK UK²` | não | Anfitrião → users.id. |
-| `last_message_at` | `timestamp` |  | sim | Data da última mensagem, para ordenar a lista. |
-| `created_at` | `timestamp` |  | não | Quando o registro foi criado (UTC). |
+| `id` | `uuid` | `PK` | não | Identificador da conversa (UUID v7). |
+| `owner_id` | `uuid` | `FK UK²` | não | Tutor que puxou a conversa → owner.owners.id. |
+| `host_id` | `uuid` | `FK UK²` | não | Anfitrião do cantinho → host.hosts.id. |
+| `last_message_at` | `timestamptz` |  | sim | Quando chegou a última mensagem (só avança). Ordena a lista e é a base da retenção. Nulo enquanto ninguém escreveu. |
+| `created_at` | `timestamptz` |  | não | Quando a conversa foi aberta (UTC). Base da retenção se ninguém escreveu. |
+| `updated_at` | `timestamptz` |  | não | Última alteração (UTC). |
 
-> Índice único (`owner_id, host_id`).
+> Índice único (`owner_id, host_id`): `uq_conversations_owner_id_host_id`. Índices (`owner_id, last_message_at`) e (`host_id, last_message_at`) para as listas. **Retenção (LGPD):** apagada, com as mensagens e as fotos, 90 dias depois da última atividade — a não ser que a dupla tenha reserva em aberto.
 
 ### `messages` · Mensagens
 
@@ -761,15 +765,16 @@ Cada mensagem do chat. Pode ter texto, foto ou os dois. Durante a estadia, as fo
 
 | Coluna | Tipo | Chave | Nulo | Descrição |
 |---|---|---|---|---|
-| `id` | `uuid` | `PK` | não | Identificador da mensagem. |
-| `conversation_id` | `uuid` | `FK` | não | Conversa → conversations.id. |
-| `sender_id` | `uuid` | `FK` | não | Quem enviou → users.id (o tutor ou o anfitrião da conversa). |
-| `body` | `text` |  | sim | Texto. Pelo menos body ou image_url precisa existir. |
-| `image_url` | `varchar(500)` |  | sim | Foto anexada. |
-| `read_at` | `timestamp` |  | sim | Quando o destinatário leu. Nulo = não lida (contador). |
-| `created_at` | `timestamp` |  | não | Quando o registro foi criado (UTC). |
+| `id` | `uuid` | `PK` | não | Identificador da mensagem (UUID v7). |
+| `conversation_id` | `uuid` | `FK` | não | Conversa → conversations.id. FK física, `ON DELETE CASCADE`. |
+| `sent_by` | `enum` |  | não | Quem enviou: `owner` (tutor) ou `host` (anfitrião) da conversa. Substitui o antigo `sender_id → users.id`: a conversa tem exatamente dois lados. |
+| `body` | `varchar(2000)` |  | sim | Texto (ou legenda da foto), sem espaços nas pontas. Pelo menos body ou image_url precisa existir (CHECK). |
+| `image_url` | `varchar(500)` |  | sim | Foto no bucket público (pasta `conversations`). URL gerada pela API, nunca vinda do cliente. |
+| `booking_id` | `uuid` | `FK` | sim | Reserva em andamento da dupla no envio → booking.bookings.id (FK lógica). É o histórico da estadia. |
+| `read_at` | `timestamptz` |  | sim | Quando quem recebeu leu. Nulo = não lida (contador). O remetente não vê. |
+| `created_at` | `timestamptz` |  | não | Quando a mensagem foi enviada (UTC). |
 
-> Índice em (`conversation_id, created_at`).
+> Índice em (`conversation_id, created_at`) para a página de mensagens (cursor por `created_at, id`). Índice parcial (`conversation_id, sent_by`) `WHERE read_at IS NULL` para o contador. Índice parcial em `booking_id` `WHERE booking_id IS NOT NULL`.
 
 ### `audit_entries` · Trilha de auditoria
 
@@ -847,9 +852,9 @@ Avaliação feita depois da reserva concluída. Cada lado avalia o outro uma vez
 | `bookings` | `payments` | 1 : 0..1 | Criado quando o tutor vai pagar. |
 | `bookings` | `reviews` | 1 : 0..2 | Uma por lado. |
 | `users` | `reviews` | 1 : N | author_id e reviewee_id. |
-| `users` | `conversations` | 1 : N | owner_id e host_id; uma por dupla. |
-| `conversations` | `messages` | 1 : N |  |
-| `users` | `messages` | 1 : N | sender_id. |
+| `owners` / `hosts` | `conversations` | 1 : N | owner_id → owners.id e host_id → hosts.id, sem FK física; uma por dupla. |
+| `conversations` | `messages` | 1 : N | FK física, `ON DELETE CASCADE` (a retenção apaga a conversa inteira). |
+| `bookings` | `messages` | 1 : N | booking_id, sem FK física: as mensagens enviadas durante a estadia. |
 
 ## 7. Valores dos enums
 
@@ -869,6 +874,7 @@ Avaliação feita depois da reserva concluída. Cada lado avalia o outro uma vez
 | `listings.available_weekdays` | bits `1 << dia` (domingo = 1, segunda = 2 … sábado = 64); no JSON, `monday` … `sunday` | Dias em que recebe |
 | `bookings.status` | `requested` · `accepted` · `confirmed` · `in_progress` · `completed` · `declined` · `expired` · `cancelled` | Solicitada · Aceita · Confirmada · Em andamento · Concluída · Recusada · Expirada · Cancelada |
 | `bookings.cancelled_by` | `owner` · `host` | Tutor · Anfitrião |
+| `messages.sent_by` | `owner` · `host` | Tutor · Anfitrião |
 | `payments.method` | `card` · `pix` | Cartão · Pix |
 | `payments.status` | `pending` · `succeeded` · `failed` · `refunded` · `partially_refunded` | Pendente · Pago · Falhou · Estornado · Estornado parcial |
 | `payments.payout_status` | `held` · `transferred` · `canceled` | Retido · Repassado · Sem repasse |

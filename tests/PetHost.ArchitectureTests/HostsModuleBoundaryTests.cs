@@ -30,7 +30,7 @@ public sealed class HostsModuleBoundaryTests
         {
             Types.InAssembly(assembly)
                 .Should()
-                .NotHaveDependencyOnAny("PetHost.Modules.Auth", "PetHost.Modules.Owners", "PetHost.Modules.Pets", "PetHost.Modules.Audit")
+                .NotHaveDependencyOnAny("PetHost.Modules.Auth", "PetHost.Modules.Owners", "PetHost.Modules.Pets", "PetHost.Modules.Audit", "PetHost.Modules.Conversations")
                 .GetResult().IsSuccessful.Should().BeTrue($"{assembly.GetName().Name} só fala com outro módulo por Shared.Contracts (§5)");
         }
     }

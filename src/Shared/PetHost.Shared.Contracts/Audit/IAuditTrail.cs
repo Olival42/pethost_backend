@@ -57,6 +57,9 @@ public static class AuditTargets
     /// <summary>Reserva (módulo Bookings). O id é o da reserva.</summary>
     public const string Booking = "booking";
 
+    /// <summary>Conversa do chat (módulo Conversations). O id é o da conversa.</summary>
+    public const string Conversation = "conversation";
+
     /// <summary>A própria trilha (consulta do admin).</summary>
     public const string Audit = "audit";
 }
@@ -190,6 +193,17 @@ public static class AuditActions
 
     /// <summary>O anfitrião marcou "voltou pra casa".</summary>
     public const string BookingCheckedOut = "booking.checked_out";
+
+    // --- Conversa (Conversations) ---
+
+    /// <summary>O tutor puxou conversa com o anfitrião (a dupla não tinha conversa).</summary>
+    public const string ConversationStarted = "conversation.started";
+
+    /// <summary>Mensagem enviada. Nos detalhes, só ids e se tinha foto: nunca o texto nem a URL.</summary>
+    public const string ConversationMessageSent = "conversation.message_sent";
+
+    /// <summary>Conversa apagada pela retenção (sem atividade no prazo), com as mensagens e as fotos.</summary>
+    public const string ConversationPurged = "conversation.purged";
 
     // --- Auditoria ---
     public const string AuditSearched = "audit.searched";

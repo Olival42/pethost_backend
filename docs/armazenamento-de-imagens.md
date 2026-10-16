@@ -54,7 +54,7 @@ As peças genéricas, que servem a qualquer módulo:
 | `IImageStorage` | `Shared.Contracts/Storage` | Enviar (`SaveAsync`) e apagar (`DeleteAsync`) uma imagem. |
 | `IPrivateImageStorage` | `Shared.Contracts/Storage` | O mesmo no bucket **privado**, mais ler (`OpenAsync`). Guarda e devolve a **chave**, nunca URL (seção 8). |
 | `ImageReplacement` | `Shared.Contracts/Storage` | O fluxo inteiro de trocar/remover: enviar → gravar → apagar a anterior, ou desfazer. |
-| `ImageFolders` | `Shared.Contracts/Storage` | Pastas: `avatars`, `pets`, `listings` (fotos do cantinho) e `hosts` (reservada). |
+| `ImageFolders` | `Shared.Contracts/Storage` | Pastas: `avatars`, `pets`, `listings` (fotos do cantinho), `conversations` (fotos do chat, apagadas pela retenção da conversa — [`modulo-conversations.md`](modulo-conversations.md)) e `hosts` (reservada). |
 | `ImageRules` / `ImageErrors` | `Shared.Contracts/Storage` | Limites e erros do arquivo, iguais em todo endpoint. |
 | `S3ImageStorage` | `Shared.Infrastructure/Storage` | Implementação S3 (AWS SDK), com a checagem do formato pelo conteúdo. |
 | `ImageMetadataStripper` | `Shared.Infrastructure/Storage` | Tira EXIF/XMP/IPTC e afins antes de gravar (seção 3.1). Usado pelos dois buckets. |

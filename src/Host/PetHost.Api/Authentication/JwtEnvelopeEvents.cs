@@ -4,6 +4,7 @@ using PetHost.Modules.Auth.Application.Abstractions;
 using PetHost.Modules.Auth.Domain.Users;
 using PetHost.Modules.Auth.Infrastructure.Security;
 using PetHost.Shared.Contracts.Responses;
+using PetHost.Shared.Infrastructure.Realtime;
 using PetHost.Shared.Kernel.Errors;
 using PetHost.Shared.Kernel.Primitives;
 
@@ -21,11 +22,22 @@ namespace PetHost.Api.Authentication;
 /// Também confere a revogação: token de conta inativada ou com senha trocada depois
 /// da emissão é recusado com o mesmo 401, mesmo antes de expirar.
 /// </para>
+/// <para>
+/// Nos hubs (<c>/hubs/...</c>), o token também é lido da query <c>access_token</c>: o WebSocket do
+/// navegador não manda o header <c>Authorization</c>. A revogação é conferida na conexão; depois, a
+/// conexão fecha quando o token expira.
+/// </para>
 /// </remarks>
 internal static class JwtEnvelopeEvents
 {
     public static JwtBearerEvents Create() => new()
     {
+        OnMessageReceived = context =>
+        {
+            context.Token ??= RealtimeServiceCollectionExtensions.ReadHubAccessToken(context.Request);
+            return Task.CompletedTask;
+        },
+
         OnTokenValidated = async context =>
         {
             var principal = context.Principal;

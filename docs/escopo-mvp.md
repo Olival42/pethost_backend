@@ -90,7 +90,7 @@ A ideia é que o produto não pareça um sistema genérico. Ele tem quatro princ
 | **Agenda**                  | Tudo disponível por padrão. O anfitrião bloqueia datas. Estadias pagas bloqueiam sozinhas.                                                                                                                                             |
 | **Verificação**             | **Solicitação de cadastro de anfitrião:** CPF, tipo de documento (RG, CNH ou CIN), frente, verso e selfie segurando o documento, num bucket privado. O admin confere e aprova (aí nasce o perfil de anfitrião) ou recusa com motivo (pode tentar de novo até 3 vezes; fraude é definitiva). As fotos são apagadas depois da decisão. Depois da aprovação, o cadastro de recebimento no Stripe. Sem os dois, o cantinho não aparece na busca. Detalhes em [`modulo-hosts.md`](modulo-hosts.md). |
 | **Busca**                   | **Por raio** (5 a 50 km) a partir do endereço do tutor ou de um ponto enviado (latitude e longitude); depois, datas + qual pet vai. Resultado em lista com foto, bairro, distância, preço, nota e selos. (Feito: raio, distância e ordem; filtros somados por estado, cidade, bairro, espécie, porte, dias da semana, faixa de diária, capacidade, quintal, tipo da casa e quem mora nela (cachorro, gato, criança) — com ou sem raio; datas com vaga para todos os pets (pelas reservas); selos Vizinho, Responde rápido, Casa com quintal e Experiente. Falta: datas bloqueadas na agenda e o selo Bem avaliado, que dependem da agenda e das avaliações.) |
-| **Chat**                    | Botão "Puxar conversa" no cantinho. Texto e foto. Uma conversa por dupla tutor–anfitrião. Durante a estadia, é ali que chegam as fotos.                                                                                                |
+| **Chat**                    | Botão "Puxar conversa" no cantinho. Texto e foto. Uma conversa por dupla tutor–anfitrião. Durante a estadia, é ali que chegam as fotos. (Feito, só o backend: o tutor puxa conversa no cantinho; texto e foto (bucket público); contador de não lidas e marcar como lida; mensagem enviada durante a estadia em andamento fica ligada à reserva; mensagens e contador chegam em tempo real pelo hub SignalR; retenção de 90 dias sem atividade, salvo reserva em aberto. Detalhes em [`modulo-conversations.md`](modulo-conversations.md).)                                                                                                |
 | **Reserva**                 | Pedir → anfitrião aceita ou recusa (24h) → tutor paga (24h) → confirmada → "chegou" → "voltou pra casa". (Feito: pedido com período, pets, dias da semana e capacidade; aceite/recusa com expiração em 24h; cancelamento até a chegada com reembolso 100/50; check-in e check-out; listagens do tutor e do anfitrião. Sem o pagamento, o aceite já confirma. Detalhes em [`modulo-bookings.md`](modulo-bookings.md).) |
 | **Pagamento**               | Stripe Connect com checkout transparente: cartão e Pix dentro do PetHost. Detalhes na seção 6.                                                                                                                                         |
 | **Avaliação**               | Depois do check-out, cada lado avalia o outro: nota de 1 a 5 e comentário, em até 7 dias.                                                                                                                                              |
@@ -220,9 +220,10 @@ erDiagram
     bookings ||--o| payments : "paid by"
     bookings ||--o{ reviews : "reviewed in"
     users ||--o{ reviews : "writes / receives"
-    users ||--o{ conversations : "participates"
+    owners ||--o{ conversations : "talks"
+    hosts ||--o{ conversations : "talks"
     conversations ||--o{ messages : "contains"
-    users ||--o{ messages : "sends"
+    bookings ||--o{ messages : "during"
     users {
         uuid id PK
         varchar email UK
@@ -301,7 +302,8 @@ erDiagram
     messages {
         uuid id PK
         uuid conversation_id FK
-        uuid sender_id FK
+        varchar sent_by
+        uuid booking_id FK "nullable"
     }
     reviews {
         uuid id PK
@@ -333,13 +335,13 @@ _Aqui só as chaves. Todas as colunas estão no dicionário de dados e na versã
 | **bookings → payments**            | 1 : 0..1          | Criado quando o tutor vai pagar.                 |
 | **bookings → reviews**             | 1 : 0..2          | Uma por lado.                                    |
 | **users → reviews**                | 1 : N             | author_id e reviewee_id.                         |
-| **users → conversations**          | 1 : N             | owner_id e host_id; uma por dupla.               |
+| **owners / hosts → conversations** | 1 : N             | owner_id e host_id; uma por dupla.               |
 | **conversations → messages**       | 1 : N             |                                                  |
-| **users → messages**               | 1 : N             | sender_id.                                       |
+| **bookings → messages**            | 1 : N             | booking_id: as mensagens da estadia.             |
 
 ### Restrições que o modelo precisa garantir
 1. users: (email, role) único. O mesmo e-mail pode existir uma vez como owner e uma vez como host. owners: cpf único; só pode ser trocado até o primeiro pagamento.
-2. pets.owner_id aponta para owners.id e pets.host_id para hosts.id — exatamente um dos dois (CHECK). bookings.owner_id aponta para owners.id (como nos pets) e conversations.owner_id para users com role = owner; listings.host_id e bookings.host_id para hosts.id; conversations.host_id para role = host. FKs lógicas, validadas na aplicação.
+2. pets.owner_id aponta para owners.id e pets.host_id para hosts.id — exatamente um dos dois (CHECK). bookings.owner_id e conversations.owner_id apontam para owners.id (como nos pets); listings.host_id, bookings.host_id e conversations.host_id para hosts.id. FKs lógicas, validadas na aplicação.
 3. booking_pets: todo pet precisa ser do mesmo tutor da reserva (pet de anfitrião não se hospeda), e de tipo e porte aceitos pelo cantinho.
 4. bookings: check_out_date \> check_in_date; pet_count = linhas em booking_pets; nightly_rate é cópia do preço no momento do pedido.
 5. Capacidade: em nenhum dia, a soma de pet_count das reservas confirmed ou in_progress do cantinho passa de listings.capacity.
@@ -375,7 +377,7 @@ O protótipo HTML atual serve como **mapa de telas**, não como visual final. O 
 ### Decisões em aberto
 - **Front-end.** Recomendação: React, porque o Payment Element e o cadastro embutido do Stripe têm versão oficial para React. Blazor ou Razor funcionam, mas precisam de ponte com JavaScript.
 - **Banco.** PostgreSQL ou SQL Server. Escolher o que mais gente do grupo já conhece.
-- **Chat em tempo real.** SignalR (já vem no ASP.NET Core) ou consulta a cada poucos segundos. Começar pela consulta e trocar se der tempo.
+- **Chat em tempo real.** ~~SignalR ou consulta a cada poucos segundos.~~ Decidido: **SignalR** (já vem no ASP.NET Core). O hub só avisa (mensagem nova e contador); enviar e ler é pela API REST. Ver [`modulo-conversations.md`](modulo-conversations.md).
 - **Fotos.** ~~Pasta local no servidor no MVP.~~ Decidido: bucket S3 compatível (RustFS no compose; R2 ou Supabase em produção, ver [`armazenamento-de-imagens.md`](armazenamento-de-imagens.md)). Documentos e selfies da verificação ficam num **bucket privado** separado.
 
 ### O que muda em relação à versão anterior

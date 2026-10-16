@@ -43,6 +43,10 @@
     <ProjectReference Include="..\..\src\Modules\Bookings\PetHost.Modules.Bookings.Application\PetHost.Modules.Bookings.Application.csproj" />
     <ProjectReference Include="..\..\src\Modules\Bookings\PetHost.Modules.Bookings.Infrastructure\PetHost.Modules.Bookings.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Modules\Bookings\PetHost.Modules.Bookings.Presentation\PetHost.Modules.Bookings.Presentation.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Conversations\PetHost.Modules.Conversations.Domain\PetHost.Modules.Conversations.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Conversations\PetHost.Modules.Conversations.Application\PetHost.Modules.Conversations.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Conversations\PetHost.Modules.Conversations.Infrastructure\PetHost.Modules.Conversations.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Conversations\PetHost.Modules.Conversations.Presentation\PetHost.Modules.Conversations.Presentation.csproj" />
   </ItemGroup>
 
 </Project>

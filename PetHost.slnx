@@ -48,6 +48,12 @@
     <Project Path="src/Modules/Bookings/PetHost.Modules.Bookings.Infrastructure/PetHost.Modules.Bookings.Infrastructure.csproj" />
     <Project Path="src/Modules/Bookings/PetHost.Modules.Bookings.Presentation/PetHost.Modules.Bookings.Presentation.csproj" />
   </Folder>
+  <Folder Name="/src/Modules/Conversations/">
+    <Project Path="src/Modules/Conversations/PetHost.Modules.Conversations.Application/PetHost.Modules.Conversations.Application.csproj" />
+    <Project Path="src/Modules/Conversations/PetHost.Modules.Conversations.Domain/PetHost.Modules.Conversations.Domain.csproj" />
+    <Project Path="src/Modules/Conversations/PetHost.Modules.Conversations.Infrastructure/PetHost.Modules.Conversations.Infrastructure.csproj" />
+    <Project Path="src/Modules/Conversations/PetHost.Modules.Conversations.Presentation/PetHost.Modules.Conversations.Presentation.csproj" />
+  </Folder>
   <Folder Name="/src/Shared/" />
   <Folder Name="/tests/">
     <Project Path="tests/PetHost.ArchitectureTests/PetHost.ArchitectureTests.csproj" />
@@ -88,6 +94,11 @@
     <Project Path="tests/Modules/Bookings/PetHost.Modules.Bookings.Application.UnitTests/PetHost.Modules.Bookings.Application.UnitTests.csproj" />
     <Project Path="tests/Modules/Bookings/PetHost.Modules.Bookings.Domain.UnitTests/PetHost.Modules.Bookings.Domain.UnitTests.csproj" />
     <Project Path="tests/Modules/Bookings/PetHost.Modules.Bookings.IntegrationTests/PetHost.Modules.Bookings.IntegrationTests.csproj" />
+  </Folder>
+  <Folder Name="/tests/Modules/Conversations/">
+    <Project Path="tests/Modules/Conversations/PetHost.Modules.Conversations.Application.UnitTests/PetHost.Modules.Conversations.Application.UnitTests.csproj" />
+    <Project Path="tests/Modules/Conversations/PetHost.Modules.Conversations.Domain.UnitTests/PetHost.Modules.Conversations.Domain.UnitTests.csproj" />
+    <Project Path="tests/Modules/Conversations/PetHost.Modules.Conversations.IntegrationTests/PetHost.Modules.Conversations.IntegrationTests.csproj" />
   </Folder>
   <Folder Name="/tests/Shared/">
     <Project Path="tests/Shared/PetHost.Shared.Contracts.UnitTests/PetHost.Shared.Contracts.UnitTests.csproj" />

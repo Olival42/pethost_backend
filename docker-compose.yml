@@ -159,6 +159,11 @@ services:
       HostVerification__DocumentRetentionDays: ${HOST_VERIFICATION_DOCUMENT_RETENTION_DAYS:-0}
       HostVerification__DraftLifetimeDays: ${HOST_VERIFICATION_DRAFT_LIFETIME_DAYS:-7}
 
+      # --- chat: retencao das conversas (LGPD) ---
+      # Conversa parada ha este numero de dias some, com mensagens e fotos (salvo reserva em aberto).
+      ConversationRetention__InactivityDays: ${CONVERSATION_RETENTION_INACTIVITY_DAYS:-90}
+      ConversationRetention__IntervalMinutes: ${CONVERSATION_RETENTION_INTERVAL_MINUTES:-1440}
+
       # --- anfitriao de demonstracao (apresentacao) ---
       # Cria na subida um anfitriao ja verificado, opcionalmente ligado a uma conta do Stripe.
       Seed__DemoHost__Enabled: ${SEED_DEMO_HOST_ENABLED:-false}

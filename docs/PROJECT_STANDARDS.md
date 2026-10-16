@@ -3,7 +3,7 @@
 > Documento normativo. Tudo é obrigatório salvo onde marcado como *recomendado*.
 > Em conflito com o código existente, este documento vence.
 
-**Atualizado:** 2026-10-12 · **Escopo:** backend (API)
+**Atualizado:** 2026-10-16 · **Escopo:** backend (API)
 
 ---
 
@@ -36,7 +36,7 @@
 4. **Erro esperado não usa exceção.** Fluxo de negócio previsível retorna `Result`. Exceção só para bug ou infraestrutura fora.
 5. **Toda regra de negócio tem teste unitário.** Sem exceção.
 
-**Módulos** (bounded contexts): `Auth` (conta, sessão, perfil comum), `Owners` (perfil de tutor), `Hosts` (anfitrião: verificação de identidade aprovada pelo admin e perfil verificado, PF/PJ), `Audit` (trilha de auditoria de todos os módulos), `Pets` (ficha do pet, do tutor ou do anfitrião), `Listings` (cantinho: o espaço do anfitrião, com fotos e busca com filtros e raio — [`modulo-listings.md`](modulo-listings.md)), `Bookings` (reserva: pedido, aceite/recusa, cancelamento, check-in e check-out — [`modulo-bookings.md`](modulo-bookings.md)), `Availability`, `Payments`, `Reviews`, `Notifications`. Criar módulo novo é decisão de arquitetura — discutir antes do PR.
+**Módulos** (bounded contexts): `Auth` (conta, sessão, perfil comum), `Owners` (perfil de tutor), `Hosts` (anfitrião: verificação de identidade aprovada pelo admin e perfil verificado, PF/PJ), `Audit` (trilha de auditoria de todos os módulos), `Pets` (ficha do pet, do tutor ou do anfitrião), `Listings` (cantinho: o espaço do anfitrião, com fotos e busca com filtros e raio — [`modulo-listings.md`](modulo-listings.md)), `Bookings` (reserva: pedido, aceite/recusa, cancelamento, check-in e check-out — [`modulo-bookings.md`](modulo-bookings.md)), `Conversations` (chat: uma conversa por dupla tutor–anfitrião, texto e foto, não lidas e aviso em tempo real pelo hub — [`modulo-conversations.md`](modulo-conversations.md)), `Availability`, `Payments`, `Reviews`, `Notifications`. Criar módulo novo é decisão de arquitetura — discutir antes do PR.
 
 ---
 
@@ -53,7 +53,7 @@ pethost_backend/
 │   ├── Shared/
 │   │   ├── PetHost.Shared.Kernel/            ← Result, Error, Entity, ValueObject, abstrações
 │   │   ├── PetHost.Shared.Contracts/         ← ApiResponse, ErrorResponse, integration events, IImageStorage
-│   │   └── PetHost.Shared.Infrastructure/    ← cross-cutting: EF base, outbox, decorators, storage S3, conexão Redis (`AddRedis`), Stripe (`AddStripe`: cliente + webhook)
+│   │   └── PetHost.Shared.Infrastructure/    ← cross-cutting: EF base, outbox, decorators, storage S3, conexão Redis (`AddRedis`), Stripe (`AddStripe`: cliente + webhook), tempo real (`AddRealtime`: SignalR)
 │   └── Modules/<Module>/
 │       ├── PetHost.Modules.<Module>.Domain/
 │       ├── PetHost.Modules.<Module>.Application/
@@ -510,7 +510,7 @@ public sealed class BookingsController(
 | Regra | Detalhe |
 |-------|---------|
 | Um `DbContext` por módulo | `BookingsDbContext`, `AuthDbContext` |
-| Um schema por módulo | `auth`, `owner`, `host`, `pet`, `listing`, `booking`, `audit` (singular). Infraestrutura compartilhada que precisa de tabela também ganha schema e `DbContext` próprios em `Shared.Infrastructure`: `email` (caixa de saída de e-mails) |
+| Um schema por módulo | `auth`, `owner`, `host`, `pet`, `listing`, `booking`, `conversation`, `audit` (singular). Infraestrutura compartilhada que precisa de tabela também ganha schema e `DbContext` próprios em `Shared.Infrastructure`: `email` (caixa de saída de e-mails) |
 | Migrations e histórico isolados | `Persistence/Migrations`, `__ef_migrations_history` no schema do módulo |
 | Sem `JOIN` entre schemas | Cruzar dado só pelo §5 |
 | `DbContext` nunca sai da `Infrastructure` | `Application` só conhece interfaces |
@@ -586,6 +586,10 @@ O time pensa em português, o código fala inglês. Esta é a tradução oficial
 | Ocupação do cantinho (pets por noite) | `ListingOccupancy` | Valor total da estadia | `TotalPrice` |
 | Selo (automático) | `Badge` (`ListingBadges`: `neighbor`, `fast_responder`, `yard`, `experienced`) | Datas da busca | `StayWindow` (`checkIn`/`checkOut`) |
 | Contato liberado (endereço exato e telefone) | `Contact` (`RevealsContact`) | Histórico do anfitrião (estadias, tempo de resposta) | `HostTrackRecord` / `HostBookingStats` |
+| Conversa (chat da dupla tutor–anfitrião) | `Conversation` *(❌ Chat, Thread)* | Mensagem | `Message` |
+| Puxar conversa (no cantinho) | `StartConversation` | Quem enviou (tutor ou anfitrião) | `SentBy` (`ConversationParty`: `owner`/`host`) |
+| Não lidas / marcar como lida | `Unread` (`UnreadCount`) / `ReadMarker` (`MarkConversationRead`) | Mensagens mais antigas (cursor) | `Before` |
+| Aviso em tempo real (hub) | `Realtime` (`ConversationsHub`, `IConversationRealtime`) | Apagar conversas paradas (LGPD) | `Retention` (`PurgeInactiveConversations`) |
 
 ---
 
@@ -638,6 +642,8 @@ PUT    /api/v1/listings/{listingId:guid}/photos/order
 POST   /api/v1/bookings               ·  GET  /api/v1/bookings/me  ·  GET /api/v1/bookings/{bookingId:guid}
 POST   /api/v1/bookings/{bookingId:guid}/acceptance  ·  POST /api/v1/bookings/{bookingId:guid}/refusal
 POST   /api/v1/bookings/{bookingId:guid}/cancellation  ·  POST /api/v1/bookings/{bookingId:guid}/check-in  ·  /check-out
+POST   /api/v1/conversations  ·  GET /api/v1/conversations/me  ·  GET /api/v1/conversations/me/unread-count  ·  GET /api/v1/conversations/{conversationId:guid}
+GET    /api/v1/conversations/{conversationId:guid}/messages?before=&pageSize=  ·  POST .../messages  ·  POST .../messages/photo  ·  PUT .../read-marker
 GET    /api/v1/hosts/{hostId:guid}/availability?from=2026-11-01&to=2026-11-30
 ```
 
@@ -649,6 +655,8 @@ Exceções, sem paginação nem filtro enquanto o volume for pequeno:
 - **Pets de uma pessoa** — `GET /pets/me` e `GET /hosts/{hostId}/pets`: poucos itens por definição (os pets de um tutor ou de uma casa). Idem **cantinhos de um anfitrião** — `GET /listings/me` (um para pessoa física; um por filial para empresa). Pedido do produto. Como todos os itens são do mesmo dono, a resposta traz o dono **uma vez** no topo (`{ keeper, pets }`) em vez de repeti-lo em cada item — regra para qualquer lista "de uma pessoa".
 
 Fora isso, lista que o usuário final vê é sempre paginada.
+
+**Exceção de formato — mensagens do chat:** paginação por **cursor**, não por número de página (`GET /conversations/{id}/messages?before={messageId}&pageSize=50`). Da mais nova para a mais antiga; `before` = id da mensagem mais antiga já carregada; a resposta traz `items`, `pageSize` e `hasMore`. Motivo: mensagem nova chegando no meio da leitura faria as páginas numeradas "andarem" (repetir ou pular mensagem). O cursor compara `(created_at, id)`. Decisão do produto (2026-10-15); detalhes em [`modulo-conversations.md`](modulo-conversations.md).
 
 Todo endpoint tem `/// <summary>`, `[ProducesResponseType<ApiResponse<T>>]` para **cada** status possível e `[Authorize]`/`[AllowAnonymous]` explícito — é o que aparece no Swagger (`/swagger`, só em Development, documento do `Microsoft.AspNetCore.OpenApi` em `/openapi/v1.json`, com o JWT declarado para o botão Authorize). O `429` do limite geral vale para todos e não é repetido em cada um; endpoint com política própria declara o `429`.
 
@@ -667,11 +675,12 @@ Rate limiting nativo do ASP.NET Core (`AddPetHostRateLimiting`, em `Shared.Infra
 | `session` | Refresh e logout | IP | 30 / 1 min |
 | `account-sensitive` | Logado, pede a senha ou derruba a conta: trocar senha, inativar | usuário | 5 / 15 min |
 | `account-update` | `PATCH` de perfil (inclui troca de CPF) | usuário | 20 / 15 min |
+| `chat-messages` | Mensagem do chat, texto ou foto (contam juntos) | usuário | 30 / 1 min |
 | geral | Todo endpoint | usuário ou IP | 120 / 1 min |
 
 - Estourou: `429 TOO_MANY_REQUESTS` no envelope + `Retry-After`. Log `Warning` com rota e IP.
 - Health checks ficam fora (`DisableRateLimiting`). Webhook de serviço externo também: é anônimo, a origem é provada pela assinatura (`Stripe-Signature`), e o serviço manda rajadas e reenvia com espera própria.
-- Endpoint novo que confere senha, cria conta ou manda e-mail **precisa** de política própria.
+- Endpoint novo que confere senha, cria conta, manda e-mail ou deixa a pessoa escrever para outra em volume (mensagem do chat) **precisa** de política própria.
 - Atrás de proxy, o IP vem do `X-Forwarded-For` (`ForwardedHeaders:Enabled`), confiando só em proxy de rede privada e loopback.
 - Os contadores ficam em memória: valem por instância. Com mais de uma instância, mover para o Redis.
 
@@ -704,11 +713,24 @@ Toda foto (avatar, pet, anfitrião, cantinho) vai para o **bucket S3 compatível
 - Só o admin lê: uma rota da API confere a permissão e devolve uma **URL assinada** (S3 pre-signed, `IPrivateImageStorage.GetSignedUrlAsync`) que **vence** em `Storage:SignedUrlLifetimeMinutes` (padrão 5, no máximo 60), com `Cache-Control: no-store` na resposta. **Cada link emitido vai para a trilha** (`<alvo>.document_viewed`). Nunca devolva URL assinada em listagem ou em resposta de quem enviou.
 - Tem **prazo de guarda**: apagar quando a finalidade acabar (padrão: na decisão), com uma tarefa de limpeza para o que ficar. Detalhes em [`modulo-hosts.md`](modulo-hosts.md) seção 5.
 
+---
+
+### Tempo real
+
+Aviso em tempo real usa **SignalR** (já vem no ASP.NET Core), registrado uma vez pelo `Shared.Infrastructure` (`AddRealtime`). Hoje o único hub é o do chat ([`modulo-conversations.md`](modulo-conversations.md)).
+
+- **O hub só empurra.** Escrever (criar, enviar, marcar) é sempre rota REST: validação, envelope, `Result`, rate limit e trilha ficam num lugar só. Hub sem método que o cliente chame.
+- **Depois de gravar, best-effort.** O handler chama uma porta da Application (`I<M>Realtime`) depois do `SaveChanges`; a implementação com `IHubContext` fica na **Presentation** (é ela quem conhece o hub). Falha no envio vai para o log e nunca derruba o request; o cliente recupera pelo REST ao reconectar.
+- **Hub em `/hubs/...`**, com `[Authorize(Roles = ...)]`. O token vem na query `access_token` (o WebSocket do navegador não manda header) — **só** em `/hubs`. A revogação é conferida na conexão; a conexão fecha quando o access token expira (`CloseOnAuthenticationExpiration`).
+- **Usuário = conta do token (`sub`)**: `Clients.User(userId)`. A outra conta da mesma pessoa é outro usuário.
+- **Mesmo JSON da API** no hub (camelCase, nulo omitido, enum como texto). Nome de evento em camelCase, constante na Presentation (`<M>Events`); renomear quebra o front.
+- **Uma instância**: as conexões vivem na memória do processo. Para escalar, backplane Redis (`Microsoft.AspNetCore.SignalR.StackExchangeRedis`) — decisão a tomar junto com o rate limit em memória.
+
 ## 14. Testes
 
 > **Nenhum PR é aprovado sem teste.** Todo arquivo com lógica tem teste unitário; todo arquivo que cruza fronteira de processo tem teste de integração.
 
-**Stack:** `xunit.v3` · `Moq` · `FluentAssertions 7.x` · `Microsoft.Extensions.TimeProvider.Testing` · `Testcontainers.PostgreSql` · `Testcontainers` (RustFS, em `TestImageBucket` do TestKit) · `Microsoft.AspNetCore.Mvc.Testing` · `Bogus` · `NetArchTest` · `coverlet.collector`.
+**Stack:** `xunit.v3` · `Moq` · `FluentAssertions 7.x` · `Microsoft.Extensions.TimeProvider.Testing` · `Testcontainers.PostgreSql` · `Testcontainers` (RustFS, em `TestImageBucket` do TestKit) · `Microsoft.AspNetCore.Mvc.Testing` · `Microsoft.AspNetCore.SignalR.Client` (testes de hub, com WebSocket do `TestServer`) · `Bogus` · `NetArchTest` · `coverlet.collector`.
 
 ### Exige teste unitário
 
@@ -812,7 +834,7 @@ Um `IExceptionHandler` global no host é o **único** lugar que captura exceçã
 | Logging | Serilog, JSON, *message template* — `logger.LogInformation("Booking {BookingId} created.", id)`, nunca interpolação |
 | Nível | `Information` para caso de uso concluído, `Warning` para falha de negócio relevante, `Error` só para exceção |
 | Correlação | `TraceId` em toda requisição e log; devolvido no erro 500 |
-| Dado sensível | **Nunca** logar senha, token, hash, CPF, cartão. Mascarar e-mail |
+| Dado sensível | **Nunca** logar senha, token, hash, CPF, cartão. Mascarar e-mail. URL com segredo na query (o `access_token` do hub) também é token: `Microsoft.AspNetCore.Hosting.Diagnostics`, que loga a URL inteira, fica em `Warning` nos `appsettings`; o log de requisição do Serilog grava só o caminho |
 | Tracing / métricas | OpenTelemetry (ASP.NET Core, `HttpClient`, Npgsql); contador de caso de uso por resultado |
 | Health checks | `/health/live` e `/health/ready` (inclui Postgres) |
 

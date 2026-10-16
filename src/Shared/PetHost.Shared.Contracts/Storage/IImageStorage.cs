@@ -57,6 +57,9 @@ public static class ImageFolders
 
     /// <summary>Reservada: fotos do cantinho (anúncio).</summary>
     public const string Listings = "listings";
+
+    /// <summary>Fotos enviadas no chat (módulo Conversations). Apagadas pela retenção da conversa.</summary>
+    public const string Conversations = "conversations";
 }
 
 /// <summary>O que é aceito como imagem.</summary>

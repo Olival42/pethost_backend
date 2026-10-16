@@ -6,8 +6,8 @@ using PetHost.Shared.Contracts.Bookings;
 namespace PetHost.Modules.Bookings.Infrastructure.Directory;
 
 /// <summary>
-/// Adaptador do contrato <see cref="IBookingDirectory"/> (§5): a porta pela qual o Pets e o
-/// Listings consultam as reservas. Leitura direta das tabelas do schema <c>booking</c>.
+/// Adaptador do contrato <see cref="IBookingDirectory"/> (§5): a porta pela qual o Pets, o
+/// Listings e o Conversations consultam as reservas. Leitura direta das tabelas do schema <c>booking</c>.
 /// </summary>
 internal sealed class BookingDirectory(BookingsDbContext dbContext) : IBookingDirectory
 {
@@ -33,6 +33,26 @@ internal sealed class BookingDirectory(BookingsDbContext dbContext) : IBookingDi
         dbContext.Bookings
             .AsNoTracking()
             .AnyAsync(b => b.HostId == hostId && Open.Contains(b.Status), cancellationToken);
+
+    public async Task<Guid?> GetInProgressBookingIdAsync(Guid ownerId, Guid hostId, CancellationToken cancellationToken)
+    {
+        var ids = await dbContext.Bookings
+            .AsNoTracking()
+            .Where(b => b.OwnerId == ownerId && b.HostId == hostId && b.Status == BookingStatus.InProgress)
+            .OrderByDescending(b => b.Period.CheckIn)
+            .ThenByDescending(b => b.RequestedAt)
+            .Select(b => b.Id)
+            .Take(1)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return ids.Count == 0 ? null : ids[0].Value;
+    }
+
+    public Task<bool> HasOpenBookingBetweenAsync(Guid ownerId, Guid hostId, CancellationToken cancellationToken) =>
+        dbContext.Bookings
+            .AsNoTracking()
+            .AnyAsync(b => b.OwnerId == ownerId && b.HostId == hostId && Open.Contains(b.Status), cancellationToken);
 
     public Task<bool> IsPetBookedWithHostAsync(Guid petId, Guid hostId, CancellationToken cancellationToken) =>
         dbContext.Bookings

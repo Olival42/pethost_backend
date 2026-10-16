@@ -3,7 +3,8 @@ namespace PetHost.Shared.Contracts.Bookings;
 /// <summary>
 /// Contrato público de leitura do módulo Bookings (§5). Outros módulos perguntam por aqui o que
 /// depende das reservas — o Pets (pet com estadia em aberto; anfitrião que recebeu o pet), o
-/// Listings (vaga no período; selos) — sem referenciar o Bookings nem fazer JOIN entre schemas.
+/// Listings (vaga no período; selos), o Conversations (estadia em andamento da dupla; reserva em
+/// aberto que segura a retenção) — sem referenciar o Bookings nem fazer JOIN entre schemas.
 /// </summary>
 public interface IBookingDirectory
 {
@@ -41,6 +42,20 @@ public interface IBookingDirectory
         DateOnly checkIn,
         DateOnly checkOut,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// A reserva em andamento (check-in feito, ainda sem check-out) entre o tutor
+    /// <paramref name="ownerId"/> e o anfitrião <paramref name="hostId"/>, ou <c>null</c>. Com mais
+    /// de uma, a de chegada mais recente. O Conversations liga a ela as mensagens da estadia.
+    /// </summary>
+    Task<Guid?> GetInProgressBookingIdAsync(Guid ownerId, Guid hostId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// O tutor <paramref name="ownerId"/> e o anfitrião <paramref name="hostId"/> têm alguma reserva
+    /// em aberto entre eles (solicitada, aceita, confirmada ou em andamento)? A conversa dessa dupla
+    /// não é apagada pela retenção.
+    /// </summary>
+    Task<bool> HasOpenBookingBetweenAsync(Guid ownerId, Guid hostId, CancellationToken cancellationToken);
 
     /// <summary>Números de cada anfitrião para os selos. Anfitrião sem nenhuma reserva não aparece.</summary>
     Task<IReadOnlyDictionary<Guid, HostBookingStats>> GetHostStatsAsync(

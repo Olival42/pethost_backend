@@ -34,6 +34,9 @@ public sealed class RateLimitingOptions
 
         // Troca de CPF (que pede a senha) passa por aqui também.
         [RateLimitPolicies.AccountUpdate] = new() { PermitLimit = 20, WindowSeconds = 900 },
+        // Chat: uma conversa animada fica em 10 a 15 mensagens por minuto, e 30 ainda cabe uma
+        // sequência de fotos do pet. Acima disso é robô ou spam (uma mensagem a cada 2 s, sem parar).
+        [RateLimitPolicies.ChatMessages] = new() { PermitLimit = 30, WindowSeconds = 60 },
     };
 }
 

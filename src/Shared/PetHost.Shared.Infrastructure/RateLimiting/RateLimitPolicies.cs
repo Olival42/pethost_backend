@@ -24,6 +24,9 @@ public static class RateLimitPolicies
     /// <summary>Alteração de perfil (PATCH). Por usuário.</summary>
     public const string AccountUpdate = "account-update";
 
+    /// <summary>Mensagem do chat (texto e foto contam juntos): segura spam e robô. Por usuário.</summary>
+    public const string ChatMessages = "chat-messages";
+
     public static readonly IReadOnlyList<string> All =
-        [Credentials, Registration, PasswordReset, Session, AccountSensitive, AccountUpdate];
+        [Credentials, Registration, PasswordReset, Session, AccountSensitive, AccountUpdate, ChatMessages];
 }

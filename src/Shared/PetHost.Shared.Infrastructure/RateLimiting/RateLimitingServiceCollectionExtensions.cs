@@ -29,7 +29,7 @@ namespace PetHost.Shared.Infrastructure.RateLimiting;
 public static class RateLimitingServiceCollectionExtensions
 {
     private static readonly HashSet<string> PerUserPolicies =
-        [RateLimitPolicies.AccountSensitive, RateLimitPolicies.AccountUpdate];
+        [RateLimitPolicies.AccountSensitive, RateLimitPolicies.AccountUpdate, RateLimitPolicies.ChatMessages];
 
     public static IServiceCollection AddPetHostRateLimiting(this IServiceCollection services, IConfiguration configuration)
     {

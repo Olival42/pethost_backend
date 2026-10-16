@@ -38,6 +38,8 @@ public sealed class ListingsModuleBoundaryTests
         typeof(Modules.Audit.Infrastructure.DependencyInjection).Assembly,
         typeof(Modules.Bookings.Domain.Bookings.Booking).Assembly,
         typeof(Modules.Bookings.Infrastructure.DependencyInjection).Assembly,
+        typeof(Modules.Conversations.Domain.Conversations.Conversation).Assembly,
+        typeof(Modules.Conversations.Infrastructure.DependencyInjection).Assembly,
     ];
 
     private const string EntityFramework = "Microsoft.EntityFrameworkCore";
@@ -51,7 +53,7 @@ public sealed class ListingsModuleBoundaryTests
         {
             Types.InAssembly(assembly)
                 .Should()
-                .NotHaveDependencyOnAny("PetHost.Modules.Auth", "PetHost.Modules.Owners", "PetHost.Modules.Hosts", "PetHost.Modules.Pets", "PetHost.Modules.Audit", "PetHost.Modules.Bookings")
+                .NotHaveDependencyOnAny("PetHost.Modules.Auth", "PetHost.Modules.Owners", "PetHost.Modules.Hosts", "PetHost.Modules.Pets", "PetHost.Modules.Audit", "PetHost.Modules.Bookings", "PetHost.Modules.Conversations")
                 .GetResult().IsSuccessful.Should().BeTrue($"{assembly.GetName().Name} só fala com outro módulo por Shared.Contracts (§5)");
         }
     }

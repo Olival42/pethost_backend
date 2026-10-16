@@ -30,10 +30,14 @@ using PetHost.Modules.Listings.Presentation;
 using PetHost.Modules.Bookings.Application;
 using PetHost.Modules.Bookings.Infrastructure;
 using PetHost.Modules.Bookings.Presentation;
+using PetHost.Modules.Conversations.Application;
+using PetHost.Modules.Conversations.Infrastructure;
+using PetHost.Modules.Conversations.Presentation;
 using PetHost.Shared.Infrastructure.Email;
 using PetHost.Shared.Infrastructure.Http;
 using PetHost.Shared.Infrastructure.Identity;
 using PetHost.Shared.Infrastructure.RateLimiting;
+using PetHost.Shared.Infrastructure.Realtime;
 using PetHost.Shared.Infrastructure.Storage;
 using PetHost.Shared.Infrastructure.Stripe;
 using Serilog;
@@ -73,12 +77,16 @@ builder.Services
     .AddPetsPresentation()
     .AddListingsPresentation()
     .AddBookingsPresentation()
+    .AddConversationsPresentation()
     .AddAuditPresentation()
     .AddStripeWebhooks();
 
 // O mesmo serializador vale para o que não passa pelo MVC — o handler global de
 // exceção e o 401 do JWT escrevem com WriteAsJsonAsync, que usa estas opções.
 builder.Services.ConfigureHttpJsonOptions(json => ConfigureJson(json.SerializerOptions));
+
+// --- Tempo real (SignalR): o hub só empurra eventos, com o mesmo JSON da API ---
+builder.Services.AddRealtime(ConfigureJson);
 
 // Documento OpenAPI (/openapi/v1.json) com o JWT declarado, para o Swagger UI.
 builder.Services.AddOpenApi(openApi => openApi.AddDocumentTransformer<BearerSecuritySchemeTransformer>());
@@ -126,6 +134,10 @@ builder.Services.AddListingsInfrastructure(builder.Configuration);
 // --- Módulo Bookings (reservas): pedido, aceite/recusa, cancelamento, check-in e check-out ---
 builder.Services.AddBookingsApplication();
 builder.Services.AddBookingsInfrastructure(builder.Configuration);
+
+// --- Módulo Conversations (chat): conversa por dupla tutor–anfitrião, texto e foto, hub em tempo real ---
+builder.Services.AddConversationsApplication();
+builder.Services.AddConversationsInfrastructure(builder.Configuration);
 
 // --- Autenticação ---
 var jwtOptions = builder.Configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>()
@@ -226,6 +238,7 @@ app.UseRateLimiter();
 app.UseAuthorization();
 
 app.MapControllers();
+app.MapConversationsHub();
 
 // Liveness: o processo responde. Readiness: as dependências respondem.
 // Fora do rate limit: o healthcheck do Docker e o balanceador chamam toda hora.
@@ -256,6 +269,9 @@ await app.Services.InitializeListingsModuleAsync(
     applyMigrations: app.Environment.IsDevelopment());
 
 await app.Services.InitializeBookingsModuleAsync(
+    applyMigrations: app.Environment.IsDevelopment());
+
+await app.Services.InitializeConversationsModuleAsync(
     applyMigrations: app.Environment.IsDevelopment());
 
 await app.RunAsync();
