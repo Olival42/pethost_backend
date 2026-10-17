@@ -24,7 +24,7 @@
 
 > ⚠️ `FluentAssertions` 8+ exige licença paga. Fixado em **7.x** (Apache-2.0) via `Directory.Packages.props`. Subir de versão exige decisão de licenciamento.
 
-**Raiz obrigatória:** `Directory.Build.props` (propriedades comuns), `Directory.Packages.props` (Central Package Management — nenhum `.csproj` declara `Version`), `.editorconfig`, `PetHost.sln`.
+**Raiz obrigatória:** `Directory.Build.props` (propriedades comuns), `Directory.Packages.props` (Central Package Management — nenhum `.csproj` declara `Version`), `.editorconfig`, `PetHost.slnx` (formato de solution do SDK 10).
 
 ---
 
@@ -46,14 +46,14 @@ Um **`.csproj` por camada por módulo** — o compilador vira o guardião do Cle
 
 ```
 pethost_backend/
-├── PetHost.sln · Directory.Build.props · Directory.Packages.props · .editorconfig
+├── PetHost.slnx · Directory.Build.props · Directory.Packages.props · .editorconfig
 ├── docs/PROJECT_STANDARDS.md
 ├── src/
 │   ├── Host/PetHost.Api/                     ← único executável (composition root)
 │   ├── Shared/
 │   │   ├── PetHost.Shared.Kernel/            ← Result, Error, Entity, ValueObject, abstrações
 │   │   ├── PetHost.Shared.Contracts/         ← ApiResponse, ErrorResponse, integration events, IImageStorage
-│   │   └── PetHost.Shared.Infrastructure/    ← cross-cutting: EF base, outbox, decorators, storage S3, conexão Redis (`AddRedis`), Stripe (`AddStripe`: cliente + webhook), tempo real (`AddRealtime`: SignalR + backplane Redis)
+│   │   └── PetHost.Shared.Infrastructure/    ← cross-cutting: EF base, outbox, decorators, storage S3, conexão Redis (`AddRedis`), Stripe (`AddStripe`: cliente + webhook), tempo real (`AddRealtime`: SignalR + backplane Redis), CORS do front (`AddFrontendCors`)
 │   └── Modules/<Module>/
 │       ├── PetHost.Modules.<Module>.Domain/
 │       ├── PetHost.Modules.<Module>.Application/
@@ -515,7 +515,7 @@ public sealed class BookingsController(
 | Sem `JOIN` entre schemas | Cruzar dado só pelo §5 |
 | `DbContext` nunca sai da `Infrastructure` | `Application` só conhece interfaces |
 
-**Convenções de banco:** schema `snake_case` singular · tabela `snake_case` **plural** · coluna `snake_case` · PK `id` do tipo `uuid` (v7, gerado pela aplicação com `Guid.CreateVersion7()`, **nunca** auto-incremento/identity) · FK `<singular>_id` também `uuid` · índice `ix_<table>_<cols>` · unique `uq_<table>_<cols>` · timestamp `timestamptz` sempre UTC · dinheiro `numeric(18,2)` + coluna de moeda (**nunca** `float`/`double`).
+**Convenções de banco:** schema `snake_case` singular · tabela `snake_case` **plural** · coluna `snake_case` · PK `id` do tipo `uuid` (v7, gerado pela aplicação com `Guid.CreateVersion7()`, **nunca** auto-incremento/identity) · FK `<singular>_id` também `uuid` · índice `ix_<table>_<cols>` · unique `uq_<table>_<cols>` · timestamp `timestamptz` sempre UTC · dinheiro **nunca** em `float`/`double`: em reais, `numeric` com 2 casas (diária, total da reserva — `nightly_rate`, `total_price`); no Payments, em **centavos inteiros** (`bigint`, `*_cents`) + coluna `currency`, como o Stripe. A conversão reais → centavos acontece só no Payments.
 
 Mapeamento `PascalCase → snake_case` via `UseSnakeCaseNamingConvention()`; configuração explícita por entidade em `IEntityTypeConfiguration<T>`.
 
@@ -590,6 +590,7 @@ O time pensa em português, o código fala inglês. Esta é a tradução oficial
 | Puxar conversa (no cantinho) | `StartConversation` | Quem enviou (tutor ou anfitrião) | `SentBy` (`ConversationParty`: `owner`/`host`) |
 | Não lidas / marcar como lida | `Unread` (`UnreadCount`) / `ReadMarker` (`MarkConversationRead`) | Mensagens mais antigas (cursor) | `Before` |
 | Aviso em tempo real (hub) | `Realtime` (`ConversationsHub`, `IConversationRealtime`) | Apagar conversas paradas (LGPD) | `Retention` (`PurgeInactiveConversations`) |
+| "Combina com seu pet" (aviso, não bloqueia) | `PetCompatibility` (`CompatibilityWarning`, rota `/compatibility`) | Outros hóspedes do período | `Guests` (`StayingPet` / `ListingGuest`) |
 | Pagamento da reserva (o plano de parcelas) | `Payment` (`InstallmentCount`) | Parcela | `Installment` *(❌ Parcel, Quota)* |
 | Prazo para pagar a 1ª parcela (24h depois do aceite) | `PaymentDeadline` (`PaymentWindow`) | Checkout transparente (abrir o pagamento da parcela) | `PaymentSession` (rota `/payment-session`) |
 | Parcela em atraso / tolerância de 24h | `Overdue` / `OverdueGrace` | Lembrete de vencimento | `Reminder` (`TakeReminders`) |
@@ -646,6 +647,7 @@ POST   /api/v1/pets               ·  GET  /api/v1/pets/me  ·  PATCH /api/v1/pe
 POST   /api/v1/pets/{petId:guid}/deactivation  ·  DELETE /api/v1/pets/{petId:guid}/deactivation
 GET    /api/v1/hosts/{hostId:guid}/pets
 POST   /api/v1/listings           ·  GET  /api/v1/listings/me  ·  GET /api/v1/listings?radiusKm=10&city=Maringá&species=dog
+GET    /api/v1/listings/{listingId:guid}/compatibility?petId=&checkIn=&checkOut=
 PUT    /api/v1/listings/{listingId:guid}/photos/order
 POST   /api/v1/bookings               ·  GET  /api/v1/bookings/me  ·  GET /api/v1/bookings/{bookingId:guid}
 POST   /api/v1/bookings/{bookingId:guid}/acceptance  ·  POST /api/v1/bookings/{bookingId:guid}/refusal
@@ -694,6 +696,19 @@ Rate limiting nativo do ASP.NET Core (`AddPetHostRateLimiting`, em `Shared.Infra
 - Endpoint novo que confere senha, cria conta, manda e-mail ou deixa a pessoa escrever para outra em volume (mensagem do chat) **precisa** de política própria.
 - Atrás de proxy, o IP vem do `X-Forwarded-For` (`ForwardedHeaders:Enabled`), confiando só em proxy de rede privada e loopback.
 - Os contadores ficam em memória: valem por instância. Com mais de uma instância, mover para o Redis.
+
+### CORS
+
+O front é **Next.js** e chama a API (e o hub) pelo navegador, de outra origem. CORS nativo do ASP.NET Core (`AddFrontendCors`, em `Shared.Infrastructure/Cors`), uma política padrão para a API inteira, com `app.UseCors()` logo depois do `UseExceptionHandler` — antes do rate limit e da autenticação, para o preflight (`OPTIONS`) responder ali e os headers saírem também nos erros (`401`, `404`, `429`, `500`).
+
+| Chave (`Cors`) | Padrão | Para quê |
+|---|---|---|
+| `AllowedOrigins` | vazio (`appsettings.json`) · `http://localhost:3000` (`Development`) | Origens aceitas: só esquema, host e porta (`https://app.pethost.com.br`). No compose: `CORS_ALLOWED_ORIGIN` (`Cors__AllowedOrigins__0`; mais de uma, `__1`, `__2`...) |
+| `PreflightMaxAgeMinutes` | 10 (0 a 120) | Quanto tempo o navegador guarda o preflight |
+
+- **Lista explícita, nunca `*`:** a política manda credenciais (`AllowCredentials`), porque o cliente do SignalR negocia com `withCredentials`, e o navegador recusa credencial com origem `*`. Origem malformada (caminho, query, `*`, sem esquema) derruba a API no startup.
+- Qualquer método e header (o `Authorization` do JWT e o `Content-Type` do JSON e do upload). O JavaScript do front lê `Location` (recurso criado) e `Retry-After` (`429`), expostos.
+- A API não usa cookie: o token vai no header `Authorization` (e na query `access_token` só no hub). O bucket de imagens não precisa de CORS ([armazenamento-de-imagens.md](armazenamento-de-imagens.md)).
 
 ---
 
@@ -872,7 +887,7 @@ Exceção é **falha inesperada**, nunca controle de fluxo.
 | Nunca expor detalhe interno | A resposta leva só `code`, mensagem genérica e `traceId` |
 | `catch` específico na `Infrastructure` | Traduza para `Error`: `UniqueViolation` → código de módulo, `DbUpdateConcurrencyException` → `CONFLICT` |
 | Log no ponto de tratamento | Não logar e relançar |
-| Toda exceção 500 gera alerta | Monitoramento obrigatório |
+| Toda exceção 500 gera alerta | *Recomendado* (ainda não implementado): hoje a exceção vai para o log do Serilog com o `TraceId`; alerta depende de uma ferramenta de monitoramento |
 
 Um `IExceptionHandler` global no host é o **único** lugar que captura exceção não tratada: loga com `TraceId` e devolve `ApiResponse` com `UNEXPECTED_ERROR` + 500.
 
@@ -882,7 +897,7 @@ Um `IExceptionHandler` global no host é o **único** lugar que captura exceçã
 | Nível | `Information` para caso de uso concluído, `Warning` para falha de negócio relevante, `Error` só para exceção |
 | Correlação | `TraceId` em toda requisição e log; devolvido no erro 500 |
 | Dado sensível | **Nunca** logar senha, token, hash, CPF, cartão. Mascarar e-mail. URL com segredo na query (o `access_token` do hub) também é token: `Microsoft.AspNetCore.Hosting.Diagnostics`, que loga a URL inteira, fica em `Warning` nos `appsettings`; o log de requisição do Serilog grava só o caminho |
-| Tracing / métricas | OpenTelemetry (ASP.NET Core, `HttpClient`, Npgsql); contador de caso de uso por resultado |
+| Tracing / métricas | *Recomendado* (ainda não implementado): OpenTelemetry (ASP.NET Core, `HttpClient`, Npgsql); contador de caso de uso por resultado |
 | Health checks | `/health/live` e `/health/ready` (inclui Postgres) |
 | Contato do suporte | `GET /api/v1/support` (pública, no host): `{ "email": "..." }` de `Support:Email` (`SUPPORT_EMAIL`). O app mostra quando um erro manda falar com o suporte (`*_CPF_ALREADY_REGISTERED`, identidade travada, recusa do Stripe). |
 

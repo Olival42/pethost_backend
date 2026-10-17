@@ -922,6 +922,82 @@ public sealed class BookingEndpointsTests(BookingsApiFixture fixture) : IAsyncLi
         Fields(await ReadAsync(response)).Should().Equal("checkOut");
     }
 
+    // ----- "Combina com seu pet" (Listings, mas depende de Pets e das reservas) -----
+
+    [Fact]
+    public async Task Compatibility_Should_WarnAboutTheCatStayingInThePeriod_When_PetDoesNotGetAlongWithCats()
+    {
+        // Arrange: a Joana deixa a Mimi (gata) no período; a Pipoca não se dá com gatos.
+        var stay = await ArrangeAsync();
+        var joana = await RegisterOwnerAsync("joana@exemplo.com", "111.444.777-35", "Joana Lima");
+        var mimi = await RegisterPetAsync(joana, "Mimi", size: "small", species: "cat");
+        var booking = await CreateBookingAsync(joana, stay.ListingId, mimi);
+        (await SendAsync(HttpMethod.Post, $"{BookingsRoute}/{booking}/acceptance", stay.HostToken)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Act
+        var response = await SendAsync(
+            HttpMethod.Get,
+            $"/api/v1/listings/{stay.ListingId}/compatibility?petId={stay.PipocaId}&checkIn={Iso(Arrival)}&checkOut={Iso(Arrival.AddDays(2))}",
+            stay.OwnerToken);
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var data = Data(await ReadAsync(response));
+        data.GetProperty("petName").GetString().Should().Be("Pipoca");
+        data.GetProperty("matches").GetBoolean().Should().BeFalse();
+        data.GetProperty("guests").EnumerateArray().Select(g => g.GetProperty("name").GetString()).Should().Equal("Mimi");
+        var warning = data.GetProperty("warnings").EnumerateArray().Single();
+        warning.GetProperty("code").GetString().Should().Be("guest_is_cat");
+        warning.GetProperty("guest").GetProperty("species").GetString().Should().Be("cat");
+    }
+
+    [Fact]
+    public async Task Compatibility_Should_MatchWithoutGuests_When_NoDatesAreSentAndTheHomeSuitsThePet()
+    {
+        var stay = await ArrangeAsync();
+
+        var response = await SendAsync(HttpMethod.Get, $"/api/v1/listings/{stay.ListingId}/compatibility?petId={stay.PipocaId}", stay.OwnerToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var data = Data(await ReadAsync(response));
+        data.GetProperty("matches").GetBoolean().Should().BeTrue();
+        data.GetProperty("warnings").GetArrayLength().Should().Be(0);
+        data.TryGetProperty("guests", out _).Should().BeFalse("sem datas não há hóspedes, e nulo é omitido");
+    }
+
+    [Fact]
+    public async Task Compatibility_Should_Return404_When_PetIsFromAnotherOwner()
+    {
+        var stay = await ArrangeAsync();
+        var joana = await RegisterOwnerAsync("joana@exemplo.com", "111.444.777-35", "Joana Lima");
+
+        var response = await SendAsync(HttpMethod.Get, $"/api/v1/listings/{stay.ListingId}/compatibility?petId={stay.PipocaId}", joana);
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        Code(await ReadAsync(response)).Should().Be("LISTING_PET_NOT_FOUND");
+    }
+
+    [Fact]
+    public async Task Compatibility_Should_Return400_When_PetIdIsMissing()
+    {
+        var stay = await ArrangeAsync();
+
+        var response = await SendAsync(HttpMethod.Get, $"/api/v1/listings/{stay.ListingId}/compatibility", stay.OwnerToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        Fields(await ReadAsync(response)).Should().Equal("petId");
+    }
+
+    [Fact]
+    public async Task Compatibility_Should_Return403_When_CallerIsAHost()
+    {
+        var stay = await ArrangeAsync();
+
+        var response = await SendAsync(HttpMethod.Get, $"/api/v1/listings/{stay.ListingId}/compatibility?petId={stay.PipocaId}", stay.HostToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
     // ----- helpers -----
 
     private async Task<JsonElement> SearchAsync(string token, DateOnly checkIn, DateOnly checkOut)
@@ -1008,11 +1084,11 @@ public sealed class BookingEndpointsTests(BookingsApiFixture fixture) : IAsyncLi
         return data.GetProperty("accessToken").GetString()!;
     }
 
-    private async Task<Guid> RegisterPetAsync(string token, string name, string size = "medium")
+    private async Task<Guid> RegisterPetAsync(string token, string name, string size = "medium", string species = "dog")
     {
         var response = await SendAsync(HttpMethod.Post, "/api/v1/pets", token, new
         {
-            species = "dog",
+            species,
             name,
             breed = "SRD",
             size,

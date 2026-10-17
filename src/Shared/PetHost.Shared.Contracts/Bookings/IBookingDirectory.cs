@@ -58,6 +58,18 @@ public interface IBookingDirectory
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// Os pets das reservas que ocupam vaga (aceita, confirmada ou em andamento) no cantinho
+    /// <paramref name="listingId"/> e cruzam o período de <paramref name="checkIn"/> a
+    /// <paramref name="checkOut"/> (a saída não conta como noite). Um item por pet de cada reserva.
+    /// O Listings usa no "Combina com seu pet" (os outros hóspedes do período).
+    /// </summary>
+    Task<IReadOnlyList<StayingPet>> GetStayingPetsAsync(
+        Guid listingId,
+        DateOnly checkIn,
+        DateOnly checkOut,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// A reserva em andamento (check-in feito, ainda sem check-out) entre o tutor
     /// <paramref name="ownerId"/> e o anfitrião <paramref name="hostId"/>, ou <c>null</c>. Com mais
     /// de uma, a de chegada mais recente. O Conversations liga a ela as mensagens da estadia.
@@ -82,6 +94,11 @@ public interface IBookingDirectory
     /// </summary>
     Task<BookingPaymentView?> GetForPaymentAsync(Guid bookingId, CancellationToken cancellationToken);
 }
+
+/// <summary>Um pet hospedado no cantinho no período, com o tutor da reserva.</summary>
+/// <param name="OwnerId">Tutor da reserva (<c>owner.owners.id</c>).</param>
+/// <param name="PetId">Pet da reserva (<c>pet.pets.id</c>).</param>
+public sealed record StayingPet(Guid OwnerId, Guid PetId);
 
 /// <summary>Números do anfitrião nas reservas.</summary>
 /// <param name="CompletedStays">Estadias concluídas (check-out feito).</param>

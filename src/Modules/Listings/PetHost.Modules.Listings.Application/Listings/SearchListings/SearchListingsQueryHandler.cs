@@ -68,7 +68,10 @@ public sealed class SearchListingsQueryHandler(
         filters = WithStay(filters, stay, query.Pets);
 
         // Endereço de quem busca: origem da busca por raio e base do selo "Vizinho".
-        var viewerAddress = await accountAddresses.GetAsync(query.UserId, query.Role, cancellationToken).ConfigureAwait(false);
+        // Sem login não há endereço: sem coordenada nem lugar, a busca lista todos.
+        var viewerAddress = query.UserId is { } userId
+            ? await accountAddresses.GetAsync(userId, query.Role, cancellationToken).ConfigureAwait(false)
+            : null;
 
         SearchArea? area = null;
         if (IsRadiusSearch(query, filters))
@@ -140,11 +143,14 @@ public sealed class SearchListingsQueryHandler(
         return [.. capacities.Where(pair => peaks[pair.Key.Value] + pets > pair.Value).Select(pair => pair.Key)];
     }
 
-    /// <summary>Raio ou coordenada enviados, ou nenhum filtro de lugar: busca "perto de".</summary>
+    /// <summary>
+    /// Raio ou coordenada enviados, ou, para quem está logado, nenhum filtro de lugar: busca
+    /// "perto de". Anônimo sem coordenada nem lugar lista todos, do mais novo ao mais antigo.
+    /// </summary>
     private static bool IsRadiusSearch(SearchListingsQuery query, ListingFilters filters) =>
         query.RadiusKm is not null
         || query.Latitude is not null
-        || (filters.State is null && filters.City is null && filters.Neighborhood is null);
+        || (query.UserId is not null && filters.State is null && filters.City is null && filters.Neighborhood is null);
 
     private static ListingFilters ReadFilters(SearchListingsQuery query, List<Error> errors)
     {

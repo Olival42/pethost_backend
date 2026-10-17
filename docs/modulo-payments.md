@@ -295,7 +295,3 @@ No sentido contrário, o Payments **implementa** `IPaymentDirectory` (`HasOverdu
 | Suspensão do tutor: os 100% ficam com o anfitrião | Pedido seu ("100% para a outra parte"). Usa o mesmo caminho do cancelamento tardio: `refund_percentage = 0` e o retido é repassado 90/10 na hora. |
 | Webhook relê a cobrança; `stripe_events` sem corpo | Imune a evento repetido e fora de ordem; não guarda dado do tutor à toa. |
 | Cálculo no agregado, chamadas ao Stripe na Application | Toda regra de dinheiro testável sem rede; chave de idempotência por parcela torna qualquer retry seguro. |
-
-**Pendências**
-
-1. **Cobrança automática** das parcelas no cartão salvo (`setup_future_usage`), se o produto quiser no futuro.

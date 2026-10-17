@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using PetHost.Modules.Listings.Application.Listings.AddListingPhoto;
 using PetHost.Modules.Listings.Application.Listings.AvailabilityBlocks;
+using PetHost.Modules.Listings.Application.Listings.CheckPetCompatibility;
 using PetHost.Modules.Listings.Application.Listings.CreateListing;
 using PetHost.Modules.Listings.Application.Listings.DeactivateListing;
 using PetHost.Modules.Listings.Application.Listings.GetListingById;
@@ -38,6 +39,7 @@ public sealed class ListingsController(
     ICommandHandler<RemoveListingPhotoCommand, ListingResponse> removeListingPhoto,
     ICommandHandler<ReorderListingPhotosCommand, ListingResponse> reorderListingPhotos,
     IQueryHandler<GetListingByIdQuery, ListingResponse> getListingById,
+    IQueryHandler<CheckPetCompatibilityQuery, PetCompatibilityResponse> checkPetCompatibility,
     IQueryHandler<ListMyListingsQuery, MyListingsResponse> listMyListings,
     IQueryHandler<SearchListingsQuery, PagedResult<ListingSummaryResponse>> searchListings,
     ICommandHandler<BlockListingDatesCommand, AvailabilityBlockResponse> blockListingDates,
@@ -97,7 +99,7 @@ public sealed class ListingsController(
             : result.ToActionResult();
     }
 
-    /// <summary>Busca cantinhos com filtros que se somam. Qualquer conta logada.</summary>
+    /// <summary>Busca cantinhos com filtros que se somam. Aberta: qualquer pessoa, logada ou não.</summary>
     /// <remarks>
     /// Todos os filtros são opcionais e se somam (o cantinho atende a cada um): <c>state</c> (UF),
     /// <c>city</c> e <c>neighborhood</c> (nome exato, sem diferença de acento nem de maiúsculas); <c>species</c>,
@@ -122,12 +124,16 @@ public sealed class ListingsController(
     /// 100. Sem coordenada, a origem é o endereço de quem busca: o da empresa para o anfitrião
     /// empresa, senão o da conta (também é a base do selo <c>neighbor</c>). Busca por raio sem
     /// endereço: 422 <c>LISTING_SEARCH_ADDRESS_REQUIRED</c>.
+    /// <para>
+    /// Sem login: não há endereço, então sem coordenada nem estado/cidade/bairro lista todos os
+    /// cantinhos, do mais novo ao mais antigo (sem selo <c>neighbor</c>); <c>radiusKm</c> sem
+    /// coordenada dá 422 <c>LISTING_SEARCH_ADDRESS_REQUIRED</c>.
+    /// </para>
     /// </remarks>
     [HttpGet]
-    [Authorize]
+    [AllowAnonymous]
     [ProducesResponseType<ApiResponse<PagedResult<ListingSummaryResponse>>>(StatusCodes.Status200OK)]
     [ProducesResponseType<ApiResponse<PagedResult<ListingSummaryResponse>>>(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType<ApiResponse<PagedResult<ListingSummaryResponse>>>(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType<ApiResponse<PagedResult<ListingSummaryResponse>>>(StatusCodes.Status422UnprocessableEntity)]
     [ProducesResponseType<ApiResponse<PagedResult<ListingSummaryResponse>>>(StatusCodes.Status503ServiceUnavailable)]
     public async Task<IActionResult> SearchAsync(
@@ -138,7 +144,7 @@ public sealed class ListingsController(
 
         var result = await searchListings.HandleAsync(
             new SearchListingsQuery(
-                User.GetUserId(),
+                User.FindUserId(),
                 request.Latitude,
                 request.Longitude,
                 request.RadiusKm,
@@ -196,6 +202,41 @@ public sealed class ListingsController(
     public async Task<IActionResult> GetByIdAsync(Guid listingId, CancellationToken cancellationToken)
     {
         var result = await getListingById.HandleAsync(new GetListingByIdQuery(User.GetUserId(), CurrentRole(), listingId), cancellationToken);
+
+        return result.ToActionResult();
+    }
+
+    /// <summary>"Combina com seu pet": cruza um pet do tutor logado com o cantinho. Só avisa, não bloqueia.</summary>
+    /// <remarks>
+    /// <c>petId</c> obrigatório (pet ativo do tutor logado). Compara o que o pet aceita
+    /// (<c>goodWithDogs</c>, <c>goodWithCats</c>, <c>goodWithKids</c>) com quem mora na casa e o tipo
+    /// e o porte do pet com o que o cantinho aceita. Com <c>checkIn</c> e <c>checkOut</c>
+    /// (<c>yyyy-MM-dd</c>, juntos; mesmas regras da busca), cruza também com os pets de outros tutores
+    /// hospedados no período (estadias aceitas, confirmadas e em andamento), que vêm em <c>guests</c>
+    /// só com nome, tipo e porte. <c>matches</c> = nenhum aviso. Códigos dos avisos:
+    /// <c>species_not_accepted</c>, <c>size_not_accepted</c>, <c>home_has_dogs</c>,
+    /// <c>home_has_cats</c>, <c>home_has_kids</c>, <c>guest_is_dog</c>, <c>guest_is_cat</c>,
+    /// <c>guest_dislikes_dogs</c>, <c>guest_dislikes_cats</c>, <c>guest_large_dog</c> (os de hóspede
+    /// trazem o <c>guest</c>). Cantinho que o tutor não veria no detalhe: 404 <c>LISTING_NOT_FOUND</c>.
+    /// Pet inexistente, inativo ou de outro tutor: 404 <c>LISTING_PET_NOT_FOUND</c>.
+    /// </remarks>
+    [HttpGet("{listingId:guid}/compatibility")]
+    [Authorize(Roles = Roles.Owner)]
+    [ProducesResponseType<ApiResponse<PetCompatibilityResponse>>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ApiResponse<PetCompatibilityResponse>>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ApiResponse<PetCompatibilityResponse>>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ApiResponse<PetCompatibilityResponse>>(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType<ApiResponse<PetCompatibilityResponse>>(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> CheckCompatibilityAsync(
+        Guid listingId,
+        [FromQuery] Guid? petId,
+        [FromQuery] string? checkIn,
+        [FromQuery] string? checkOut,
+        CancellationToken cancellationToken)
+    {
+        var result = await checkPetCompatibility.HandleAsync(
+            new CheckPetCompatibilityQuery(User.GetUserId(), listingId, petId, checkIn, checkOut),
+            cancellationToken);
 
         return result.ToActionResult();
     }

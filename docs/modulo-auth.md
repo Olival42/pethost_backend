@@ -684,7 +684,7 @@ Bugs encontrados durante o desenvolvimento:
 | `CA1707` e `CA1711` desligadas só nos testes | Brigam com `MethodName_Should_X_When_Y` (§14) e com `[CollectionDefinition]` do xUnit. |
 | Pasta `Migrations` marcada como código gerado | O §11 proíbe editar migration à mão, e o código do EF não segue o `.editorconfig`. |
 
-**Conflito em aberto entre os documentos** (não afeta o Auth): o dicionário guarda dinheiro em centavos `int` (`*_cents`), o §11 do `PROJECT_STANDARDS.md` manda `numeric(18,2)` + moeda. Precisa ser decidido antes do módulo de pagamentos.
+~~**Conflito em aberto entre os documentos**: dinheiro em centavos (`*_cents`) no dicionário × `numeric(18,2)` no §11 do `PROJECT_STANDARDS.md`.~~ Resolvido com o módulo de pagamentos: reais em `numeric` no cantinho e na reserva; centavos `bigint` + `currency` no Payments, como o Stripe (§11).
 
 ---
 

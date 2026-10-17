@@ -7,7 +7,7 @@ namespace PetHost.Modules.Pets.Infrastructure.Directory;
 
 /// <summary>
 /// Adaptador do contrato <see cref="IPetDirectory"/> (§5): a porta pela qual outro módulo (o
-/// Bookings) confere os pets de uma reserva. Leitura direta da tabela, só o básico da ficha.
+/// Bookings) confere os pets de uma reserva, e o Listings cruza a ficha com o cantinho. Leitura direta da tabela, só o básico da ficha.
 /// </summary>
 internal sealed class PetDirectory(PetsDbContext dbContext) : IPetDirectory
 {
@@ -34,6 +34,9 @@ internal sealed class PetDirectory(PetsDbContext dbContext) : IPetDirectory
             pet.Profile.Name,
             PetSpeciesValues.ToWire(pet.Profile.Species),
             pet.Profile.Size is { } size ? PetSizeValues.ToWire(size) : null,
-            pet.IsActive))];
+            pet.IsActive,
+            pet.Profile.GoodWithDogs,
+            pet.Profile.GoodWithCats,
+            pet.Profile.GoodWithKids))];
     }
 }

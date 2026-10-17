@@ -207,6 +207,11 @@ public static class ListingsErrors
     public static readonly Error PageSizeInvalid =
         Error.Validation("pageSize", $"Page size must be between 1 and {MaxPageSize}.");
 
+    // --- Validação: "Combina com seu pet" ---
+
+    public static readonly Error CompatibilityPetRequired =
+        Error.Validation("petId", "Pet id is required.");
+
     // --- Validação: fotos ---
 
     // A URL da foto vem do bucket, não do cliente: estes dois só aparecem com o storage mal configurado.
@@ -278,6 +283,17 @@ public static class ListingsErrors
     /// </summary>
     public static readonly Error HasOpenBooking =
         new("LISTING_HAS_OPEN_BOOKING", "This listing has open bookings. Answer the requests, cancel the bookings that have not started or check out the stay in progress before deactivating it.");
+
+    /// <summary>404: a conta do token não tem perfil de tutor.</summary>
+    public static readonly Error OwnerNotFound =
+        new("LISTING_OWNER_NOT_FOUND", "This account has no owner profile.");
+
+    /// <summary>
+    /// 404: o pet não existe, está inativo ou é de outro tutor. As três situações respondem igual
+    /// de propósito (§8).
+    /// </summary>
+    public static Error PetNotFound(Guid petId) =>
+        new("LISTING_PET_NOT_FOUND", $"Pet '{petId}' was not found.");
 
     /// <summary>422: pessoa física já tem o seu cantinho. Só empresa tem vários (um por filial).</summary>
     public static readonly Error LimitReached =

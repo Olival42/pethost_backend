@@ -22,4 +22,12 @@ public static class ClaimsPrincipalExtensions
             ? id
             : throw new InvalidOperationException("The access token has no valid 'sub' claim.");
     }
+
+    /// <summary>Id da conta do token, ou <c>null</c> sem login (ação com <c>[AllowAnonymous]</c>).</summary>
+    public static Guid? FindUserId(this ClaimsPrincipal principal)
+    {
+        ArgumentNullException.ThrowIfNull(principal);
+
+        return Guid.TryParse(principal.FindFirstValue(SubjectClaim), out var id) ? id : null;
+    }
 }
