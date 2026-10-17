@@ -99,7 +99,7 @@ public sealed class ListingsController(
             : result.ToActionResult();
     }
 
-    /// <summary>Busca cantinhos com filtros que se somam. Qualquer conta logada.</summary>
+    /// <summary>Busca cantinhos com filtros que se somam. Aberta: qualquer pessoa, logada ou não.</summary>
     /// <remarks>
     /// Todos os filtros são opcionais e se somam (o cantinho atende a cada um): <c>state</c> (UF),
     /// <c>city</c> e <c>neighborhood</c> (nome exato, sem diferença de acento nem de maiúsculas); <c>species</c>,
@@ -124,12 +124,16 @@ public sealed class ListingsController(
     /// 100. Sem coordenada, a origem é o endereço de quem busca: o da empresa para o anfitrião
     /// empresa, senão o da conta (também é a base do selo <c>neighbor</c>). Busca por raio sem
     /// endereço: 422 <c>LISTING_SEARCH_ADDRESS_REQUIRED</c>.
+    /// <para>
+    /// Sem login: não há endereço, então sem coordenada nem estado/cidade/bairro lista todos os
+    /// cantinhos, do mais novo ao mais antigo (sem selo <c>neighbor</c>); <c>radiusKm</c> sem
+    /// coordenada dá 422 <c>LISTING_SEARCH_ADDRESS_REQUIRED</c>.
+    /// </para>
     /// </remarks>
     [HttpGet]
-    [Authorize]
+    [AllowAnonymous]
     [ProducesResponseType<ApiResponse<PagedResult<ListingSummaryResponse>>>(StatusCodes.Status200OK)]
     [ProducesResponseType<ApiResponse<PagedResult<ListingSummaryResponse>>>(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType<ApiResponse<PagedResult<ListingSummaryResponse>>>(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType<ApiResponse<PagedResult<ListingSummaryResponse>>>(StatusCodes.Status422UnprocessableEntity)]
     [ProducesResponseType<ApiResponse<PagedResult<ListingSummaryResponse>>>(StatusCodes.Status503ServiceUnavailable)]
     public async Task<IActionResult> SearchAsync(
@@ -140,7 +144,7 @@ public sealed class ListingsController(
 
         var result = await searchListings.HandleAsync(
             new SearchListingsQuery(
-                User.GetUserId(),
+                User.FindUserId(),
                 request.Latitude,
                 request.Longitude,
                 request.RadiusKm,

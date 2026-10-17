@@ -10,7 +10,7 @@ namespace PetHost.Modules.Listings.Application.Listings.SearchListings;
 /// bairro ("perto de casa"); aí a origem é a coordenada ou, sem ela, o endereço de quem busca
 /// (o da empresa, para o anfitrião empresa; senão, o da conta).
 /// </summary>
-/// <param name="UserId">Vem do access token.</param>
+/// <param name="UserId">Vem do access token; <c>null</c> para quem busca sem login.</param>
 /// <param name="Latitude">Origem opcional (ex.: GPS do celular). Vem junto com <paramref name="Longitude"/>.</param>
 /// <param name="RadiusKm">De 5 a 50 km. Na busca por raio, padrão 10.</param>
 /// <param name="State">UF, ex.: <c>PR</c>.</param>
@@ -30,7 +30,7 @@ namespace PetHost.Modules.Listings.Application.Listings.SearchListings;
 /// do endereço da conta.
 /// </param>
 public sealed record SearchListingsQuery(
-    Guid UserId,
+    Guid? UserId,
     decimal? Latitude = null,
     decimal? Longitude = null,
     int? RadiusKm = null,

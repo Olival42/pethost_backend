@@ -251,6 +251,28 @@ public sealed class SearchListingsQueryHandlerTests
         _repository.Verify(r => r.SearchAsync(It.IsAny<ListingSearch>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
+    [Fact]
+    public async Task HandleAsync_Should_ListEverythingWithoutRadius_When_AnonymousSendsNoPlace()
+    {
+        // Act
+        var result = await _sut.HandleAsync(new SearchListingsQuery(UserId: null), CancellationToken.None);
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        _search!.Area.Should().BeNull();
+        _addresses.Verify(a => a.GetAsync(It.IsAny<Guid>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task HandleAsync_Should_ReturnAddressRequired_When_AnonymousSendsRadiusWithoutCoordinates()
+    {
+        // Act
+        var result = await _sut.HandleAsync(new SearchListingsQuery(UserId: null, RadiusKm: 15), CancellationToken.None);
+
+        // Assert
+        result.FirstError.Should().Be(ListingsErrors.SearchAddressRequired);
+    }
+
     [Theory]
     [InlineData(GeocodingStatus.NotFound, "LISTING_SEARCH_ADDRESS_NOT_LOCATED")]
     [InlineData(GeocodingStatus.Unavailable, "LISTING_GEOCODER_UNAVAILABLE")]
