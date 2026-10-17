@@ -101,6 +101,26 @@ internal sealed class BookingDirectory(BookingsDbContext dbContext) : IBookingDi
                 group => nights.Max(night => group.Where(s => s.CheckIn <= night && night < s.CheckOut).Sum(s => s.PetCount)));
     }
 
+    public async Task<IReadOnlyList<StayingPet>> GetStayingPetsAsync(
+        Guid listingId,
+        DateOnly checkIn,
+        DateOnly checkOut,
+        CancellationToken cancellationToken)
+    {
+        var stays = await dbContext.Bookings
+            .AsNoTracking()
+            .Where(b => b.ListingId == listingId
+                && Occupying.Contains(b.Status)
+                && b.Period.CheckIn < checkOut
+                && checkIn < b.Period.CheckOut)
+            .OrderBy(b => b.Period.CheckIn)
+            .ThenBy(b => b.RequestedAt)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return [.. stays.SelectMany(stay => stay.Pets.Select(pet => new StayingPet(stay.OwnerId, pet.PetId)))];
+    }
+
     public async Task<IReadOnlyDictionary<Guid, HostBookingStats>> GetHostStatsAsync(
         IReadOnlyCollection<Guid> hostIds,
         CancellationToken cancellationToken)

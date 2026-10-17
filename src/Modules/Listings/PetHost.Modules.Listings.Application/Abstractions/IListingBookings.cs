@@ -13,6 +13,13 @@ public interface IListingBookings
     /// </summary>
     Task<IReadOnlyDictionary<Guid, int>> GetPeakOccupancyAsync(DateOnly checkIn, DateOnly checkOut, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Os pets hospedados no cantinho no período (reservas aceitas, confirmadas ou em andamento que
+    /// cruzam as noites de <paramref name="checkIn"/> a <paramref name="checkOut"/>), com o tutor de
+    /// cada reserva. É a base dos "outros hóspedes" do "Combina com seu pet".
+    /// </summary>
+    Task<IReadOnlyList<ListingGuest>> GetGuestsAsync(Guid listingId, DateOnly checkIn, DateOnly checkOut, CancellationToken cancellationToken);
+
     /// <summary>O cantinho tem reserva em aberto (solicitada, aceita, confirmada ou em andamento)?</summary>
     Task<bool> HasOpenBookingAsync(Guid listingId, CancellationToken cancellationToken);
 
@@ -21,6 +28,10 @@ public interface IListingBookings
         IReadOnlyCollection<Guid> hostIds,
         CancellationToken cancellationToken);
 }
+
+/// <summary>Um pet hospedado no cantinho no período.</summary>
+/// <param name="OwnerId">Tutor da reserva (<c>owner.owners.id</c>).</param>
+public sealed record ListingGuest(Guid OwnerId, Guid PetId);
 
 /// <summary>O histórico do anfitrião nas reservas, para os selos.</summary>
 /// <param name="AverageResponseTime">Nulo se ele nunca respondeu a um pedido.</param>

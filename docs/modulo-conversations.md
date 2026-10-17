@@ -192,7 +192,7 @@ connection.onreconnected(() => { /* recarregar conversas e contador pelo REST */
 - Uma conexão para o app inteiro (não uma por componente).
 - O `accessTokenFactory` precisa usar a **mesma** renovação do cliente HTTP: o refresh token é de uso único.
 - Na troca de conta (tutor ↔ anfitrião), fechar a conexão e abrir outra com o token novo.
-- CORS ainda não está configurado: decidir quando o front existir (origem do app e `withCredentials`).
+- CORS configurado para o front em Next.js (`Cors:AllowedOrigins`, com credenciais — o `withCredentials` do negotiate funciona). Origem do app na configuração: [`PROJECT_STANDARDS.md`](PROJECT_STANDARDS.md) §13, CORS.
 
 ## 5. Regras
 
@@ -306,7 +306,3 @@ Mudanças em `Shared`: `ImageFolders.Conversations`; `AuditTargets.Conversation`
 | Denunciar não bloqueia (2026-10-16) | Decisão do produto: ações separadas; o app junta as duas se quiser. |
 | Retenção segura a conversa bloqueada ou com denúncia pendente (2026-10-16) | Denúncia pendente: decisão do produto (o admin precisa ver a mensagem). Bloqueada: apagar a conversa apagaria o bloqueio e o tutor puxaria conversa de novo; o custo é guardar as mensagens enquanto estiver bloqueada. |
 | Socket aberto até o token expirar | Aceito pelo produto: conta inativada ou com senha trocada continua recebendo eventos por até 15 min. |
-
-**Pendências**
-
-1. **CORS e origem do front** — decidir quando o React existir.

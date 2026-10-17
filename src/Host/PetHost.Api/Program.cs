@@ -37,6 +37,7 @@ using PetHost.Modules.Conversations.Presentation;
 using PetHost.Modules.Payments.Application;
 using PetHost.Modules.Payments.Infrastructure;
 using PetHost.Modules.Payments.Presentation;
+using PetHost.Shared.Infrastructure.Cors;
 using PetHost.Shared.Infrastructure.Email;
 using PetHost.Shared.Infrastructure.Http;
 using PetHost.Shared.Infrastructure.Identity;
@@ -188,6 +189,9 @@ builder.Services
 
 builder.Services.AddAuthorization();
 
+// --- CORS: o front (Next.js) chama a API e o hub de outra origem; as origens vêm de Cors:AllowedOrigins ---
+builder.Services.AddFrontendCors(builder.Configuration);
+
 // --- Rate limit: geral para todo endpoint, mais rígido nos críticos ---
 builder.Services.AddPetHostRateLimiting(builder.Configuration);
 
@@ -224,6 +228,10 @@ if (trustForwardedHeaders)
     app.UseForwardedHeaders();
 
 app.UseExceptionHandler();
+
+// Logo no começo: o preflight (OPTIONS) responde aqui, antes do rate limit e da autenticação,
+// e os headers de CORS saem também nas respostas de erro (401, 404, 429, 500).
+app.UseCors();
 
 // Erro sem corpo (rota inexistente, id fora do formato, método errado) sai no envelope.
 app.UseEmptyErrorEnvelope();

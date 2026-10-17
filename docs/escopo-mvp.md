@@ -95,7 +95,7 @@ A ideia é que o produto não pareça um sistema genérico. Ele tem quatro princ
 | **Pagamento**               | Stripe Connect com checkout transparente: cartão e Pix dentro do PetHost, à vista ou em até 6 parcelas. Detalhes na seção 6. (Feito: parcelas, checkout, confirmação por webhook, repasse 90/10 no check-out, reembolso no cancelamento, parcela vencida com multa e juros, contestação. Detalhes em [`modulo-payments.md`](modulo-payments.md).) |
 | **Avaliação**               | Depois do check-out, cada lado avalia o outro: nota de 1 a 5 e comentário, em até 7 dias.                                                                                                                                              |
 | **Selos automáticos**       | Calculados, não cadastrados: Vizinho, Responde rápido, Casa com quintal, Experiente, Bem avaliado (regras na seção 7).                                                                                                                 |
-| **"Combina com seu pet"**   | Ao ver um cantinho, o sistema cruza a ficha do pet com a casa e com os outros hóspedes do período: "A Pipoca não se dá com gatos e aqui tem gato" ou "Nessas datas a Dona Cida também recebe o Thor, cão grande". Avisa, não bloqueia. |
+| **"Combina com seu pet"**   | Ao ver um cantinho, o sistema cruza a ficha do pet com a casa e com os outros hóspedes do período: "A Pipoca não se dá com gatos e aqui tem gato" ou "Nessas datas a Dona Cida também recebe o Thor, cão grande". Avisa, não bloqueia. (Feito: `GET /listings/{id}/compatibility`, detalhes em [`modulo-listings.md`](modulo-listings.md) seção 5.2.) |
 | **Painel do anfitrião**     | Pedidos novos, próximas estadias e quanto recebeu no mês.                                                                                                                                                                              |
 | **Admin mínimo**            | Aprovar anfitriões: fila de solicitações, dados da conta lado a lado com as fotos, aprovar ou recusar com motivo (cada foto aberta fica na trilha). Uma tela (tipos de pet são uma lista fixa). Suspender conta e liberar CPF em disputa; trilha de auditoria de tudo.                                                                                                                                                                               |
 
@@ -378,7 +378,7 @@ O protótipo HTML atual serve como **mapa de telas**, não como visual final. O 
 
 | Semana | Entrega                                                                                                                                                              |
 |------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **1**      | Base: projeto .NET, banco, login com dois tipos de conta, ficha do pet (tutor e anfitrião). Decidir o front. Teste isolado do Stripe (Pix em modo de teste + webhook local).   |
+| **1**      | Base: projeto .NET, banco, login com dois tipos de conta, ficha do pet (tutor e anfitrião). Decidir o front (decidido: Next.js). Teste isolado do Stripe (Pix em modo de teste + webhook local).   |
 | **2**      | Verificação do anfitrião (solicitação, fotos no bucket privado, fila e decisão do admin — feito), cantinho + conexão com Stripe, agenda, busca, tela do cantinho com selos e "Combina com seu pet".                                                           |
 | **3**      | Reserva completa (pedir, aceitar, recusar, expirar), pagamento com Payment Element, webhook, chegada e saída, repasse, chat.                                             |
 | **4**      | Avaliação, cancelamento com reembolso, painel do anfitrião, revisão de todos os textos no tom da seção 2, dados de demonstração com bairros de Maringá, testes e ensaio. |
@@ -386,8 +386,8 @@ O protótipo HTML atual serve como **mapa de telas**, não como visual final. O 
 ## 11. Em aberto e o que mudou
 
 ### Decisões em aberto
-- **Front-end.** Recomendação: React, porque o Payment Element e o cadastro embutido do Stripe têm versão oficial para React. Blazor ou Razor funcionam, mas precisam de ponte com JavaScript.
-- **Banco.** PostgreSQL ou SQL Server. Escolher o que mais gente do grupo já conhece.
+- **Front-end.** ~~Recomendação: React, porque o Payment Element e o cadastro embutido do Stripe têm versão oficial para React.~~ Decidido: **Next.js** (React). A API libera a origem do front por CORS (`Cors:AllowedOrigins`, ver [`PROJECT_STANDARDS.md`](PROJECT_STANDARDS.md) §13).
+- **Banco.** ~~PostgreSQL ou SQL Server.~~ Decidido: **PostgreSQL 17**, um schema por módulo ([`PROJECT_STANDARDS.md`](PROJECT_STANDARDS.md) §11).
 - **Chat em tempo real.** ~~SignalR ou consulta a cada poucos segundos.~~ Decidido: **SignalR** (já vem no ASP.NET Core). O hub só avisa (mensagem nova e contador); enviar e ler é pela API REST. Ver [`modulo-conversations.md`](modulo-conversations.md).
 - **Fotos.** ~~Pasta local no servidor no MVP.~~ Decidido: bucket S3 compatível (RustFS no compose; R2 ou Supabase em produção, ver [`armazenamento-de-imagens.md`](armazenamento-de-imagens.md)). Documentos e selfies da verificação ficam num **bucket privado** separado.
 

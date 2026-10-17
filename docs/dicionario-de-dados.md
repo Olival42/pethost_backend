@@ -2,7 +2,7 @@
 
 _Modelo lógico do MVP · 19 tabelas · outubro de 2026 · complementa o [`escopo-mvp.md`](escopo-mvp.md)_
 
-Este documento explica cada tabela e cada coluna do banco: o que guarda, por que existe e quais regras valem. O banco ainda não foi escolhido (PostgreSQL ou SQL Server), então os tipos são genéricos; a seção 1 mostra como cada um vira tipo real.
+Este documento explica cada tabela e cada coluna do banco: o que guarda, por que existe e quais regras valem. O banco é o **PostgreSQL 17** (EF Core + Npgsql, um schema por módulo). Os tipos aparecem na forma genérica; a seção 1 mostra o tipo real no PostgreSQL (a coluna do SQL Server ficou só como referência, da época em que o banco não estava decidido).
 
 ## Sumário
 

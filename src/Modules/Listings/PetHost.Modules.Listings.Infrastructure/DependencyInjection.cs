@@ -7,6 +7,7 @@ using Microsoft.Extensions.Options;
 using PetHost.Modules.Listings.Application.Abstractions;
 using PetHost.Modules.Listings.Application.Listings.AddListingPhoto;
 using PetHost.Modules.Listings.Application.Listings.AvailabilityBlocks;
+using PetHost.Modules.Listings.Application.Listings.CheckPetCompatibility;
 using PetHost.Modules.Listings.Application.Listings.CreateListing;
 using PetHost.Modules.Listings.Application.Listings.DeactivateListing;
 using PetHost.Modules.Listings.Application.Listings.GetListingById;
@@ -26,6 +27,7 @@ using PetHost.Modules.Listings.Infrastructure.Geocoding;
 using PetHost.Modules.Listings.Infrastructure.Hosts;
 using PetHost.Modules.Listings.Infrastructure.Persistence;
 using PetHost.Modules.Listings.Infrastructure.Persistence.Repositories;
+using PetHost.Modules.Listings.Infrastructure.Pets;
 using PetHost.Shared.Contracts.Listings;
 using PetHost.Shared.Contracts.Responses;
 using PetHost.Shared.Infrastructure.Redis;
@@ -63,6 +65,7 @@ public static class DependencyInjection
         services.AddScoped<IListingHosts, ListingHosts>();
         services.AddScoped<IAccountAddresses, AccountAddresses>();
         services.AddScoped<IListingBookings, ListingBookings>();
+        services.AddScoped<IListingPets, ListingPets>();
 
         // Contrato público: o Bookings lê as condições do cantinho por aqui (§5).
         services.AddScoped<IListingDirectory, ListingDirectory>();
@@ -83,6 +86,7 @@ public static class DependencyInjection
         services.AddScoped<IQueryHandler<GetListingByIdQuery, ListingResponse>, GetListingByIdQueryHandler>();
         services.AddScoped<IQueryHandler<ListMyListingsQuery, MyListingsResponse>, ListMyListingsQueryHandler>();
         services.AddScoped<IQueryHandler<SearchListingsQuery, PagedResult<ListingSummaryResponse>>, SearchListingsQueryHandler>();
+        services.AddScoped<IQueryHandler<CheckPetCompatibilityQuery, PetCompatibilityResponse>, CheckPetCompatibilityQueryHandler>();
         services.AddScoped<IQueryHandler<ListAvailabilityBlocksQuery, IReadOnlyList<AvailabilityBlockResponse>>, ListAvailabilityBlocksQueryHandler>();
 
         return services;

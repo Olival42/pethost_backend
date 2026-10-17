@@ -16,6 +16,7 @@ O **cantinho** é o espaço que o anfitrião oferece — o "quarto" da metáfora
   - [4. Regras](#4-regras)
   - [5. Busca, filtros e geocodificação](#5-busca-filtros-e-geocodificação)
     - [5.1 Selos](#51-selos)
+    - [5.2 "Combina com seu pet"](#52-combina-com-seu-pet)
   - [6. Fotos (até 5, em ordem)](#6-fotos-até-5-em-ordem)
     - [6.1 Agenda (datas bloqueadas)](#61-agenda-datas-bloqueadas)
   - [7. Banco](#7-banco)
@@ -45,12 +46,15 @@ Só **anfitrião verificado** (perfil em `host.hosts`, que nasce na aprovação 
 src/Modules/Listings/
 ├── Domain/          Listing, ListingId, ListingDetails (+ Data), ListingAddress (+ Data), GeoPoint,
 │                    ListingPhoto, ListingHost, HomeType, AcceptedSpecies, Weekdays (+ *Values),
-│                    NearbySearch, ListingsErrors, IListingRepository, IListingsUnitOfWork
+│                    NearbySearch, PetCompatibility (+ CompatibilityPet, CompatibilityWarning),
+│                    ListingsErrors, IListingRepository, IListingsUnitOfWork
 ├── Application/     CreateListing, UpdateListing (+ ListingPatch), DeactivateListing, ReactivateListing,
-│                    GetListingById, ListMyListings, SearchListings, Add/Replace/Remove/ReorderListingPhoto(s),
-│                    ListingAccess, ListingLocator, portas IListingHosts, IAccountAddresses, IGeocoder
+│                    GetListingById, ListMyListings, SearchListings, CheckPetCompatibility,
+│                    Add/Replace/Remove/ReorderListingPhoto(s), ListingAccess, ListingLocator,
+│                    portas IListingHosts, IAccountAddresses, IGeocoder, IListingBookings, IListingPets
 ├── Infrastructure/  ListingsDbContext (schema listing), configurações, ListingRepository (busca com filtros e raio),
-│                    ListingHosts / AccountAddresses (adaptadores), NominatimGeocoder + CachedGeocoder
+│                    ListingHosts / AccountAddresses / ListingBookings / ListingPets (adaptadores),
+│                    NominatimGeocoder + CachedGeocoder
 └── Presentation/    ListingsController
 ```
 
@@ -62,6 +66,7 @@ src/Modules/Listings/
 | `GET` | `/api/v1/listings?[radiusKm=][&latitude=&longitude=][&state=&city=&neighborhood=][&species=&sizes=&weekdays=][&minNightlyRate=&maxNightlyRate=][&minCapacity=][&hasYard=][&homeType=][&hasDogs=&hasCats=&hasKids=][&checkIn=&checkOut=][&pets=][&page=&pageSize=]` | qualquer logado | Busca com filtros somados; por raio (do mais perto ao mais longe) ou só por lugar (do mais novo ao mais antigo). Com datas, só cantinhos com vaga. Cada item com os selos. Paginada. |
 | `GET` | `/api/v1/listings/me` | host | Todos os cantinhos do anfitrião logado (ativos e inativos), `{ host, listings }`, sem paginação. |
 | `GET` | `/api/v1/listings/{listingId}` | qualquer logado | Um cantinho. Dono: tudo, inclusive inativo. Outros: visão pública, só se ativo. |
+| `GET` | `/api/v1/listings/{listingId}/compatibility?petId=[&checkIn=&checkOut=]` | owner | "Combina com seu pet": avisos do pet do tutor logado no cantinho e, com datas, os outros hóspedes do período. Só avisa (seção 5.2). |
 | `PATCH` | `/api/v1/listings/{listingId}` | host dono | Altera (só o que vier). Endereço novo recalcula a coordenada. |
 | `POST` | `/api/v1/listings/{listingId}/deactivation` | host dono | Inativa. Idempotente. Com reserva em aberto: `422 LISTING_HAS_OPEN_BOOKING`. |
 | `DELETE` | `/api/v1/listings/{listingId}/deactivation` | host dono | Reativa. Idempotente. |
@@ -176,6 +181,31 @@ Calculados a cada leitura (`ListingBadges`), nunca cadastrados (escopo, regra 10
 
 "Bem avaliado" (nota 4,5+ com 3+ avaliações) fica para quando existir o módulo de avaliações. Os números do anfitrião vêm do Bookings pelo contrato `IBookingDirectory` (porta `IListingBookings`), uma consulta para a página inteira.
 
+### 5.2 "Combina com seu pet"
+
+Ao ver um cantinho, o tutor escolhe um dos seus pets e o app pergunta `GET /listings/{id}/compatibility?petId=...` (com `checkIn`/`checkOut`, quando já tem as datas). A regra (`PetCompatibility`, escopo regra 11) cruza a ficha do pet com o cantinho e com os outros hóspedes do período. **Só avisa, nunca bloqueia**: o pedido de reserva continua com as regras dele ([`modulo-bookings.md`](modulo-bookings.md)).
+
+```json
+{ "listingId": "0192…", "petId": "0192…", "petName": "Pipoca", "matches": false,
+  "warnings": [ { "code": "guest_is_cat", "guest": { "name": "Mimi", "species": "cat", "size": "small" } } ],
+  "guests":   [ { "name": "Mimi", "species": "cat", "size": "small" } ] }
+```
+
+| Código | Quando |
+|---|---|
+| `species_not_accepted` | O cantinho não aceita o tipo do pet. |
+| `size_not_accepted` | Cachorro ou gato com porte que o cantinho não aceita (sem porte informado, não avisa). |
+| `home_has_dogs` / `home_has_cats` / `home_has_kids` | O pet não se dá com cães / gatos / crianças (`goodWith*` falso) e na casa tem (`has*`). |
+| `guest_is_dog` / `guest_is_cat` | O pet não se dá com cães / gatos e um hóspede do período é cão / gato. |
+| `guest_dislikes_dogs` / `guest_dislikes_cats` | O pet é cão / gato e um hóspede do período não se dá com cães / gatos. |
+| `guest_large_dog` | O pet é de porte pequeno e um hóspede do período é cão grande ("a Dona Cida também recebe o Thor, cão grande"). |
+
+- **Ordem:** primeiro o cantinho e a casa, depois cada hóspede (ordem de chegada). `matches` = nenhum aviso. O texto ("A Pipoca não se dá com gatos e aqui tem gato") é do app, a partir do código e dos nomes — pet tem nome.
+- **Hóspedes do período:** pets das reservas **aceitas, confirmadas e em andamento** que cruzam as noites pedidas (as mesmas que ocupam vaga), lidos do Bookings (`IBookingDirectory.GetStayingPetsAsync`) e do Pets (`IPetDirectory`). Os do próprio tutor ficam de fora — ele já conhece os pets dele. De cada hóspede sai só nome, tipo e porte; nada do outro tutor. Sem datas, `guests` é omitido.
+- **Datas:** mesmas regras da busca (juntas, a partir de hoje, até 365 dias, até 30 noites): `400` em `checkIn`/`checkOut`. `petId` ausente: `400` em `petId`. Os erros voltam juntos.
+- **Quem:** só tutor (`owner`; outro papel `403`), com pet **ativo e dele** — senão `404 LISTING_PET_NOT_FOUND` (§8: pet de outra conta é 404). Conta sem perfil de tutor: `404 LISTING_OWNER_NOT_FOUND`. O cantinho segue a visão pública do detalhe: inativo, de anfitrião inativo, suspenso ou sem repasses liberados é `404 LISTING_NOT_FOUND`.
+- É leitura: não vai para a trilha.
+
 **Geocodificação** (`IGeocoder` → `CachedGeocoder` → `NominatimGeocoder`):
 
 - **Nominatim (OpenStreetMap)**, gratuito e sem chave. O mapa do OSM no Brasil nem sempre tem número ou CEP, então tenta do mais preciso ao mais grosso e usa o primeiro que achar: rua + número + cidade + UF → rua, bairro, cidade → bairro, cidade → CEP. O bairro basta para "2 km de você".
@@ -252,9 +282,10 @@ Nenhuma referência a outro módulo (§5, verificado em `ListingsModuleBoundaryT
 |---|---|---|
 | `IListingHosts` | `ListingHosts` | `IHostDirectory` (anfitrião, PF/PJ, ativo/suspenso, repasses liberados, ids indisponíveis) + `IUserDirectory` (nome e foto) |
 | `IAccountAddresses` | `AccountAddresses` | `IHostDirectory` (endereço da empresa, quando o token é `host` e o anfitrião é PJ) + `IUserDirectory` (endereço da conta, nos outros casos): origem da busca e base do selo Vizinho |
+| `IListingPets` | `ListingPets` | `IOwnerDirectory` (tutor da conta) + `IPetDirectory` (ficha do pet, com `goodWithDogs/Cats/Kids`): "Combina com seu pet" |
 | `IGeocoder` | `CachedGeocoder` (Redis) → `NominatimGeocoder` | HTTP externo + `IConnectionMultiplexer` do `Shared` |
 
-Para datas, vaga, selos e a trava da inativação (reserva em aberto) o Listings lê as reservas pela porta `IListingBookings` (adaptador `Infrastructure/Bookings/ListingBookings.cs`) sobre o contrato `IBookingDirectory`, implementado pelo Bookings.
+Para datas, vaga, selos, os hóspedes do período ("Combina com seu pet": `GetGuestsAsync` → `IBookingDirectory.GetStayingPetsAsync`) e a trava da inativação (reserva em aberto) o Listings lê as reservas pela porta `IListingBookings` (adaptador `Infrastructure/Bookings/ListingBookings.cs`) sobre o contrato `IBookingDirectory`, implementado pelo Bookings.
 
 No sentido contrário, o Listings **implementa** o contrato `IListingDirectory` (`Shared.Contracts/Listings`, adaptador `Infrastructure/Directory/ListingDirectory.cs`): o módulo Bookings lê por ele as condições do cantinho para reservar (capacidade, diária, espécies, portes e dias da semana), os **períodos fechados na agenda** (`GetBlockedPeriodsAsync` → `BlockedPeriod`, os que terminam a partir de uma data) e, à parte, o endereço exato (`GetAddressesAsync`) — que o Bookings só mostra ao tutor de reserva confirmada.
 
@@ -262,9 +293,9 @@ O `IHostDirectory` ganhou `HostReference.IsSuspended` (com `IsCompany` e `IsAvai
 
 ## 9. Testes
 
-- **Domínio** (`Listings.Domain.UnitTests`): `ListingDetails` (cada regra, PF × PJ, diária, porte), `ListingAddress`, `GeoPoint` (faixas, haversine Maringá–Londrina), valores dos enums, `Listing` (limite PF/PJ, alterações, ativo/inativo, fotos e reordenação), `AvailabilityBlock` (datas inclusivas, um dia só, todos os erros de campo juntos, até 365 dias, "hoje" em Brasília, sobreposição nas pontas e englobando, dia seguinte livre, limite de 50).
-- **Application** (`Listings.Application.UnitTests`): cada handler, caminho feliz e cada falha (busca e detalhe pedem o endereço com o papel do token; inativar com reserva em aberto recusa sem gravar nem ir para a trilha; já inativo não consulta as reservas; limite sem consultar o mapa, endereço não achado, mapa fora, posse, visão pública × dono, busca por coordenada e por endereço da conta, busca só por lugar sem mapa, lugar + raio, todos os filtros somados, filtros inválidos, datas da busca seguindo para o filtro da agenda; agenda: bloquear com trilha sem o motivo, sobreposição sem gravar, 404 de outro anfitrião, 403 de suspenso, validador com todos os campos (inclusive o início conferido quando o fim é ilegível), reabrir devolvendo o resto, bloqueio de outro cantinho, motivo só para dono e admin, 404 de cantinho inativo para os outros).
-- **Integração** (`Listings.IntegrationTests`, Postgres + Redis + RustFS em container): cache do geocodificador no Redis (uma consulta por endereço, TTL de "achou" e "não achou", falha não guardada, valor ilegível ignorado, endereço fora da chave); cadastro PF/PJ, 400 com todos os campos, 403/404/422/503, visão pública, inativar/reativar, PATCH com nova coordenada, anfitrião empresa buscando sem coordenada a partir do endereço da empresa (e o pessoa física, do da conta), busca por raio (5/10/50 km, ordem, ocultar inativo e suspenso, endereço da conta), cadastro recusado (422) antes de o Stripe liberar os repasses, cantinho escondido da busca e do detalhe quando o Stripe bloqueia depois (o dono continua vendo), busca só por estado/cidade/bairro (sem distância, sem diferença de acento e maiúsculas), todos os filtros somados ao raio, tipo da casa e quem mora nela, curinga do `ILIKE` tratado como texto, 400 com todos os filtros inválidos, fotos com reordenação e compactação no banco.
+- **Domínio** (`Listings.Domain.UnitTests`): `ListingDetails` (cada regra, PF × PJ, diária, porte), `ListingAddress`, `GeoPoint` (faixas, haversine Maringá–Londrina), valores dos enums, `Listing` (limite PF/PJ, alterações, ativo/inativo, fotos e reordenação), `AvailabilityBlock` (datas inclusivas, um dia só, todos os erros de campo juntos, até 365 dias, "hoje" em Brasília, sobreposição nas pontas e englobando, dia seguinte livre, limite de 50), `PetCompatibility` (cada código, porte por tamanho aceito, sem porte, espécie desconhecida, a ordem com vários avisos).
+- **Application** (`Listings.Application.UnitTests`): cada handler, caminho feliz e cada falha (busca e detalhe pedem o endereço com o papel do token; inativar com reserva em aberto recusa sem gravar nem ir para a trilha; já inativo não consulta as reservas; limite sem consultar o mapa, endereço não achado, mapa fora, posse, visão pública × dono, busca por coordenada e por endereço da conta, busca só por lugar sem mapa, lugar + raio, todos os filtros somados, filtros inválidos, datas da busca seguindo para o filtro da agenda; agenda: bloquear com trilha sem o motivo, sobreposição sem gravar, 404 de outro anfitrião, 403 de suspenso, validador com todos os campos (inclusive o início conferido quando o fim é ilegível), reabrir devolvendo o resto, bloqueio de outro cantinho, motivo só para dono e admin, 404 de cantinho inativo para os outros; "Combina com seu pet": sem datas não consulta as reservas, hóspede de outro tutor gera aviso e os do próprio tutor ficam de fora, `petId` e datas inválidas juntos sem ler o cantinho, cantinho inexistente/inativo/de anfitrião suspenso, conta sem tutor, pet de outro tutor, inativo ou inexistente).
+- **Integração** (`Listings.IntegrationTests`, Postgres + Redis + RustFS em container): cache do geocodificador no Redis (uma consulta por endereço, TTL de "achou" e "não achou", falha não guardada, valor ilegível ignorado, endereço fora da chave); cadastro PF/PJ, 400 com todos os campos, 403/404/422/503, visão pública, inativar/reativar, PATCH com nova coordenada, anfitrião empresa buscando sem coordenada a partir do endereço da empresa (e o pessoa física, do da conta), busca por raio (5/10/50 km, ordem, ocultar inativo e suspenso, endereço da conta), cadastro recusado (422) antes de o Stripe liberar os repasses, cantinho escondido da busca e do detalhe quando o Stripe bloqueia depois (o dono continua vendo), busca só por estado/cidade/bairro (sem distância, sem diferença de acento e maiúsculas), todos os filtros somados ao raio, tipo da casa e quem mora nela, curinga do `ILIKE` tratado como texto, 400 com todos os filtros inválidos, fotos com reordenação e compactação no banco. O "Combina com seu pet" ponta a ponta fica em `Bookings.IntegrationTests` (precisa de pets e de reservas aceitas): aviso do gato hospedado no período, sem datas sem `guests`, pet de outro tutor `404`, `petId` ausente `400`, anfitrião `403`.
 
 ## 10. Decisões e pendências
 
@@ -285,4 +316,7 @@ O `IHostDirectory` ganhou `HostReference.IsSuspended` (com `IsCompany` e `IsAvai
 | Coordenada e rua escondidas na visão pública | Escopo, regra 7, e "Bairro, não coordenada". |
 | Busca sem raio só com estado/cidade/bairro | Quem procura em outra cidade (viagem) não quer o raio de casa; sem nenhum lugar, o padrão continua "perto de casa" (10 km). |
 | Cidade/bairro com `unaccent` (extensão do Postgres) | O usuário digita "Maringa" ou "maringá"; sem índice (a função não é `IMMUTABLE`), o que basta para o volume do MVP. |
+| "Combina com seu pet" em rota própria, não no detalhe (2026-10-16) | O aviso depende do pet escolhido e das datas; o detalhe continua igual para todo mundo. Só avisa — quem aceita ou recusa é o anfitrião. |
+| Hóspedes do próprio tutor fora do "Combina" (2026-10-16) | "Outros hóspedes": o tutor conhece os pets dele; avisar que a Pipoca não se dá com o gato dele mesmo seria ruído. |
+| Hóspede só com nome, tipo e porte (2026-10-16) | O escopo mostra o nome ("também recebe o Thor"); o resto da ficha e o tutor são de outra pessoa. |
 | Listas da busca exigem **todos** os valores | O tutor leva cachorro **e** gato: o cantinho precisa aceitar os dois. |

@@ -88,6 +88,11 @@ services:
       # So confia em proxies da rede privada do Docker.
       ForwardedHeaders__Enabled: "true"
 
+      # --- CORS ---
+      # Origem do front (Next.js) que pode chamar a API pelo navegador. Para mais de uma,
+      # acrescente Cors__AllowedOrigins__1, __2...
+      Cors__AllowedOrigins__0: ${CORS_ALLOWED_ORIGIN:-http://localhost:3000}
+
       # --- conexoes ---
       # `__` e o separador de secao da configuracao do ASP.NET Core:
       # ConnectionStrings__Postgres -> configuration["ConnectionStrings:Postgres"]
