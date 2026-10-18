@@ -181,6 +181,15 @@ services:
       # E-mail do admin que recebe o aviso de denuncia nova. Vazio = sem e-mail (o admin consulta a fila).
       ConversationModeration__AdminAlertEmail: ${CONVERSATION_MODERATION_ADMIN_ALERT_EMAIL:-}
 
+      # --- avaliacoes ---
+      # Tarefa das avaliacoes: lembrete de "avalie a estadia" (horas depois do check-out; o prazo e de
+      # 7 dias) e aviso das avaliacoes publicadas no fim do prazo (as cegas).
+      ReviewMaintenance__ReminderDelayHours: ${REVIEW_REMINDER_DELAY_HOURS:-24}
+      ReviewMaintenance__IntervalMinutes: ${REVIEW_MAINTENANCE_INTERVAL_MINUTES:-60}
+      # Endereco do app no botao dos e-mails e quem recebe o aviso de denuncia de avaliacao (vazio = sem e-mail).
+      ReviewEmail__AppUrl: ${REVIEW_EMAIL_APP_URL:-}
+      ReviewEmail__AdminAlertEmail: ${REVIEW_EMAIL_ADMIN_ALERT_EMAIL:-}
+
       # --- anfitriao de demonstracao (apresentacao) ---
       # Cria na subida um anfitriao ja verificado, opcionalmente ligado a uma conta do Stripe.
       Seed__DemoHost__Enabled: ${SEED_DEMO_HOST_ENABLED:-false}

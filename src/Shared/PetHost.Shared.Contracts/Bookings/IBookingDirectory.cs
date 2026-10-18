@@ -4,7 +4,8 @@ namespace PetHost.Shared.Contracts.Bookings;
 /// Contrato público de leitura do módulo Bookings (§5). Outros módulos perguntam por aqui o que
 /// depende das reservas — o Pets (pet com estadia em aberto; anfitrião que recebeu o pet), o
 /// Listings (vaga no período; selos), o Conversations (estadia em andamento da dupla; reserva em
-/// aberto que segura a retenção) e o Payments (status, valor e prazo da reserva) — sem
+/// aberto que segura a retenção), o Payments (status, valor e prazo da reserva) e o Reviews
+/// (estadia concluída que pode ser avaliada) — sem
 /// referenciar o Bookings nem fazer JOIN entre schemas.
 /// </summary>
 public interface IBookingDirectory
@@ -93,6 +94,23 @@ public interface IBookingDirectory
     /// reembolso), ou <c>null</c> se ela não existe. Sem nome, endereço nem outro dado pessoal.
     /// </summary>
     Task<BookingPaymentView?> GetForPaymentAsync(Guid bookingId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// A reserva como o módulo de avaliações precisa vê-la (tutor, anfitrião, cantinho, status e
+    /// check-out), ou <c>null</c> se ela não existe. Sem nome, endereço nem outro dado pessoal.
+    /// </summary>
+    Task<BookingReviewView?> GetForReviewAsync(Guid bookingId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// As reservas concluídas com check-out entre <paramref name="checkedOutFrom"/> e
+    /// <paramref name="checkedOutTo"/>, da mais antiga para a mais nova, no máximo
+    /// <paramref name="limit"/>. O Reviews lembra os dois lados de avaliar.
+    /// </summary>
+    Task<IReadOnlyList<BookingReviewView>> ListCompletedForReviewAsync(
+        DateTimeOffset checkedOutFrom,
+        DateTimeOffset checkedOutTo,
+        int limit,
+        CancellationToken cancellationToken);
 }
 
 /// <summary>Um pet hospedado no cantinho no período, com o tutor da reserva.</summary>

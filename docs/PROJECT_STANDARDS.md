@@ -3,7 +3,7 @@
 > Documento normativo. Tudo é obrigatório salvo onde marcado como *recomendado*.
 > Em conflito com o código existente, este documento vence.
 
-**Atualizado:** 2026-10-16 · **Escopo:** backend (API)
+**Atualizado:** 2026-10-17 · **Escopo:** backend (API)
 
 ---
 
@@ -36,7 +36,7 @@
 4. **Erro esperado não usa exceção.** Fluxo de negócio previsível retorna `Result`. Exceção só para bug ou infraestrutura fora.
 5. **Toda regra de negócio tem teste unitário.** Sem exceção.
 
-**Módulos** (bounded contexts): `Auth` (conta, sessão, perfil comum), `Owners` (perfil de tutor), `Hosts` (anfitrião: verificação de identidade aprovada pelo admin e perfil verificado, PF/PJ), `Audit` (trilha de auditoria de todos os módulos), `Pets` (ficha do pet, do tutor ou do anfitrião), `Listings` (cantinho: o espaço do anfitrião, com fotos e busca com filtros e raio — [`modulo-listings.md`](modulo-listings.md)), `Bookings` (reserva: pedido, aceite/recusa, cancelamento, check-in e check-out — [`modulo-bookings.md`](modulo-bookings.md)), `Payments` (pagamento da reserva: Pix ou cartão em até 6 parcelas, checkout transparente, webhook, reembolso, repasse 90/10 e contestação — [`modulo-payments.md`](modulo-payments.md)), `Conversations` (chat: uma conversa por dupla tutor–anfitrião, texto e foto, não lidas e aviso em tempo real pelo hub — [`modulo-conversations.md`](modulo-conversations.md)), `Availability`, `Reviews`, `Notifications`. Criar módulo novo é decisão de arquitetura — discutir antes do PR.
+**Módulos** (bounded contexts): `Auth` (conta, sessão, perfil comum), `Owners` (perfil de tutor), `Hosts` (anfitrião: verificação de identidade aprovada pelo admin e perfil verificado, PF/PJ), `Audit` (trilha de auditoria de todos os módulos), `Pets` (ficha do pet, do tutor ou do anfitrião), `Listings` (cantinho: o espaço do anfitrião, com fotos e busca com filtros e raio — [`modulo-listings.md`](modulo-listings.md)), `Bookings` (reserva: pedido, aceite/recusa, cancelamento, check-in e check-out — [`modulo-bookings.md`](modulo-bookings.md)), `Payments` (pagamento da reserva: Pix ou cartão em até 6 parcelas, checkout transparente, webhook, reembolso, repasse 90/10 e contestação — [`modulo-payments.md`](modulo-payments.md)), `Conversations` (chat: uma conversa por dupla tutor–anfitrião, texto e foto, não lidas e aviso em tempo real pelo hub — [`modulo-conversations.md`](modulo-conversations.md)), `Reviews` (avaliação: depois do check-out cada lado avalia o outro — o tutor, o anfitrião; o anfitrião, o tutor e os pets — com nota de 1 a 5, em até 7 dias, às cegas; resposta do avaliado, denúncia e moderação, nota e selo "Bem avaliado" na busca, nota do tutor no pedido, histórico do pet, lembrete por e-mail — [`modulo-reviews.md`](modulo-reviews.md)), `Availability`, `Notifications`. Criar módulo novo é decisão de arquitetura — discutir antes do PR.
 
 ---
 
@@ -510,7 +510,7 @@ public sealed class BookingsController(
 | Regra | Detalhe |
 |-------|---------|
 | Um `DbContext` por módulo | `BookingsDbContext`, `AuthDbContext` |
-| Um schema por módulo | `auth`, `owner`, `host`, `pet`, `listing`, `booking`, `conversation`, `payment`, `audit` (singular). Infraestrutura compartilhada que precisa de tabela também ganha schema e `DbContext` próprios em `Shared.Infrastructure`: `email` (caixa de saída de e-mails) |
+| Um schema por módulo | `auth`, `owner`, `host`, `pet`, `listing`, `booking`, `conversation`, `review`, `payment`, `audit` (singular). Infraestrutura compartilhada que precisa de tabela também ganha schema e `DbContext` próprios em `Shared.Infrastructure`: `email` (caixa de saída de e-mails) |
 | Migrations e histórico isolados | `Persistence/Migrations`, `__ef_migrations_history` no schema do módulo |
 | Sem `JOIN` entre schemas | Cruzar dado só pelo §5 |
 | `DbContext` nunca sai da `Infrastructure` | `Application` só conhece interfaces |
@@ -590,6 +590,12 @@ O time pensa em português, o código fala inglês. Esta é a tradução oficial
 | Puxar conversa (no cantinho) | `StartConversation` | Quem enviou (tutor ou anfitrião) | `SentBy` (`ConversationParty`: `owner`/`host`) |
 | Não lidas / marcar como lida | `Unread` (`UnreadCount`) / `ReadMarker` (`MarkConversationRead`) | Mensagens mais antigas (cursor) | `Before` |
 | Aviso em tempo real (hub) | `Realtime` (`ConversationsHub`, `IConversationRealtime`) | Apagar conversas paradas (LGPD) | `Retention` (`PurgeInactiveConversations`) |
+| Avaliação da estadia (cada lado, depois do check-out) | `Review` (`ReviewedStay`: a estadia vista pelo Bookings) | Prazo para avaliar e editar (7 dias do check-out) | `WindowDays` (`EditableUntil`, `REVIEW_WINDOW_CLOSED`) |
+| Quem escreveu / quem é avaliado | `AuthorSide` / `SubjectSide` (`ReviewParty`: `owner`/`host`) | Nota do pet (na avaliação do anfitrião) | `ReviewPetRating` (`pets`) |
+| Resposta do avaliado | `Reply` (`ReplyText`, rota `/reply`) | Denúncia de avaliação / ocultar (admin) | `ReviewReport` / `Hide` (`HiddenByModeration`, rota `/moderation-hide`) |
+| Nota média e contagem | `RatingSummary` (`IReviewDirectory`) / `ListingRating` | Selo "Bem avaliado" | `well_rated` (`ListingBadges.WellRated`) |
+| Lembrete de avaliar | `ReviewReminder` (`SendReviewReminders`) | Avaliação às cegas (publicada quando os dois avaliam ou no fim do prazo) | `PublishedAt` / `Publish` (`REVIEW_ALREADY_PUBLISHED`, `NotifyPublishedReviews`) |
+| Histórico de notas do pet ("currículo") | `ListPetReviews` (rota `/pets/{petId}/reviews`) | Nota do tutor no pedido | `OwnerRating` (`ownerRating`, `IBookingReviews`) |
 | "Combina com seu pet" (aviso, não bloqueia) | `PetCompatibility` (`CompatibilityWarning`, rota `/compatibility`) | Outros hóspedes do período | `Guests` (`StayingPet` / `ListingGuest`) |
 | Pagamento da reserva (o plano de parcelas) | `Payment` (`InstallmentCount`) | Parcela | `Installment` *(❌ Parcel, Quota)* |
 | Prazo para pagar a 1ª parcela (24h depois do aceite) | `PaymentDeadline` (`PaymentWindow`) | Checkout transparente (abrir o pagamento da parcela) | `PaymentSession` (rota `/payment-session`) |
@@ -654,6 +660,12 @@ POST   /api/v1/bookings/{bookingId:guid}/acceptance  ·  POST /api/v1/bookings/{
 POST   /api/v1/bookings/{bookingId:guid}/cancellation  ·  POST /api/v1/bookings/{bookingId:guid}/check-in  ·  /check-out
 POST   /api/v1/conversations  ·  GET /api/v1/conversations/me  ·  GET /api/v1/conversations/me/unread-count  ·  GET /api/v1/conversations/{conversationId:guid}
 GET    /api/v1/conversations/{conversationId:guid}/messages?before=&pageSize=  ·  POST .../messages  ·  POST .../messages/photo  ·  PUT .../read-marker
+POST   /api/v1/reviews  ·  GET /api/v1/reviews?hostId=&listingId=  ·  GET /api/v1/reviews/summary  ·  GET /api/v1/reviews/me  ·  GET /api/v1/reviews/me/received
+GET    /api/v1/reviews/{reviewId:guid}  ·  PATCH /api/v1/reviews/{reviewId:guid}  ·  DELETE /api/v1/reviews/{reviewId:guid}
+PUT    /api/v1/reviews/{reviewId:guid}/reply  ·  DELETE .../reply  ·  POST .../report  ·  DELETE .../moderation-hide (admin)
+GET    /api/v1/reviews/reports  ·  GET /api/v1/reviews/reports/{reportId:guid}  ·  PUT .../resolution (admin)
+GET    /api/v1/owners/{ownerId:guid}/reviews  ·  GET /api/v1/owners/{ownerId:guid}/reviews/summary (anfitrião, admin)
+GET    /api/v1/pets/{petId:guid}/reviews  ·  GET /api/v1/pets/{petId:guid}/reviews/summary (anfitrião, admin)
 GET    /api/v1/bookings/{bookingId:guid}/payment  ·  PUT /api/v1/bookings/{bookingId:guid}/payment  ·  POST .../payment/synchronization
 POST   /api/v1/bookings/{bookingId:guid}/payment/installments/{installmentNumber:int}/payment-session
 GET    /api/v1/payments/payouts/me  ·  GET /api/v1/payments/issues  ·  POST /api/v1/stripe/webhooks

@@ -16,6 +16,7 @@ namespace PetHost.Modules.Listings.Application.Listings.Responses;
 /// <param name="Location">Coordenada do endereço. Só para o dono.</param>
 /// <param name="Photos">Até 5, na ordem: a primeira é a capa.</param>
 /// <param name="Badges">Selos automáticos, só no detalhe (<c>GET /listings/{id}</c>). Omitido nas outras rotas.</param>
+/// <param name="Rating">Nota dos tutores, só no detalhe. Omitida nas outras rotas e enquanto ninguém avaliou.</param>
 public sealed record ListingResponse(
     Guid Id,
     Guid HostId,
@@ -42,7 +43,8 @@ public sealed record ListingResponse(
     DateTimeOffset? DeactivatedAt,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
-    IReadOnlyList<string>? Badges = null)
+    IReadOnlyList<string>? Badges = null,
+    ListingRatingResponse? Rating = null)
 {
     /// <summary>Visão do dono: endereço completo e coordenada.</summary>
     public static ListingResponse ForOwner(Listing listing, ListingHostSummary? host) => From(listing, host, isOwnerView: true);

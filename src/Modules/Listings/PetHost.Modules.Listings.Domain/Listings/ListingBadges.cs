@@ -8,7 +8,8 @@ namespace PetHost.Modules.Listings.Domain.Listings;
 /// cartão da busca e no detalhe, na ordem abaixo.
 /// </summary>
 /// <remarks>
-/// "Bem avaliado" (nota 4,5+ com 3+ avaliações) ainda não sai: depende do módulo de avaliações.
+/// "Bem avaliado" usa a nota dos tutores (<see cref="ListingRating"/>): a do cantinho, para empresa;
+/// a do anfitrião, para pessoa física (ele tem um cantinho só).
 /// </remarks>
 public static class ListingBadges
 {
@@ -24,24 +25,35 @@ public static class ListingBadges
     /// <summary>Experiente: o anfitrião tem 5 ou mais estadias concluídas.</summary>
     public const string Experienced = "experienced";
 
+    /// <summary>Bem avaliado: nota média 4,5 ou mais, com 3 ou mais avaliações.</summary>
+    public const string WellRated = "well_rated";
+
     /// <summary>Média de resposta abaixo disto ganha "Responde rápido".</summary>
     public static readonly TimeSpan FastResponseLimit = TimeSpan.FromHours(2);
 
     /// <summary>Estadias concluídas a partir das quais o anfitrião é "Experiente".</summary>
     public const int ExperiencedMinStays = 5;
 
+    /// <summary>Nota média a partir da qual o cantinho é "Bem avaliado".</summary>
+    public const decimal WellRatedMinAverage = 4.5m;
+
+    /// <summary>Avaliações mínimas para o "Bem avaliado" (uma nota só não basta).</summary>
+    public const int WellRatedMinCount = 3;
+
     /// <summary>Todos os selos que existem, na ordem em que saem.</summary>
-    public static IReadOnlyList<string> All { get; } = [Neighbor, FastResponder, Yard, Experienced];
+    public static IReadOnlyList<string> All { get; } = [Neighbor, FastResponder, Yard, Experienced, WellRated];
 
     /// <summary>Os selos do cantinho para quem vê.</summary>
     /// <param name="viewerAddress">Endereço da conta de quem vê; sem endereço, não há "Vizinho".</param>
     /// <param name="completedStays">Estadias concluídas do anfitrião.</param>
     /// <param name="averageResponseTime">Tempo médio de resposta do anfitrião; nulo se nunca respondeu.</param>
+    /// <param name="rating">Nota dos tutores; nula se ninguém avaliou.</param>
     public static IReadOnlyList<string> For(
         Listing listing,
         ListingAddressData? viewerAddress,
         int completedStays,
-        TimeSpan? averageResponseTime)
+        TimeSpan? averageResponseTime,
+        ListingRating? rating = null)
     {
         ArgumentNullException.ThrowIfNull(listing);
 
@@ -62,6 +74,9 @@ public static class ListingBadges
 
         if (completedStays >= ExperiencedMinStays)
             badges.Add(Experienced);
+
+        if (rating is { Count: >= WellRatedMinCount, Average: >= WellRatedMinAverage })
+            badges.Add(WellRated);
 
         return badges;
     }

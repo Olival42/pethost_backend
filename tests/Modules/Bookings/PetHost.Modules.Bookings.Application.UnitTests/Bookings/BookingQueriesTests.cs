@@ -88,7 +88,7 @@ public sealed class GetBookingByIdQueryHandlerTests
         var sut = new GetBookingByIdQueryHandler(
             BookingsTestData.Repository(_booking).Object,
             BookingsTestData.Parties().Object,
-            new BookingResponseBuilder(BookingsTestData.Listings().Object, BookingsTestData.Parties().Object, BookingsTestData.Pets(BookingBuilder.Thor()).Object));
+            new BookingResponseBuilder(BookingsTestData.Listings().Object, BookingsTestData.Parties().Object, BookingsTestData.Pets(BookingBuilder.Thor()).Object, BookingsTestData.Reviews().Object));
 
         // Act
         var result = await sut.HandleAsync(new GetBookingByIdQuery(BookingsTestData.OwnerUserId, Roles.Owner, _booking.Id.Value), CancellationToken.None);

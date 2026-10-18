@@ -143,7 +143,20 @@ internal static class BookingsTestData
     }
 
     public static BookingResponseBuilder ResponseBuilder() =>
-        new(Listings().Object, Parties().Object, Pets().Object);
+        new(Listings().Object, Parties().Object, Pets().Object, Reviews().Object);
+
+    /// <summary>Notas dos tutores: a do <see cref="BookingBuilder.OwnerId"/> é 4,75 com 4 avaliações; os outros, sem nota.</summary>
+    public static Mock<IBookingReviews> Reviews()
+    {
+        var reviews = new Mock<IBookingReviews>();
+
+        reviews
+            .Setup(r => r.GetOwnerRatingsAsync(It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyCollection<Guid> ids, CancellationToken _) =>
+                ids.Where(id => id == BookingBuilder.OwnerId).ToDictionary(id => id, _ => new OwnerRating(4.75m, 4)));
+
+        return reviews;
+    }
 
     /// <summary>Avisos por e-mail sobre o <paramref name="notifier"/> (um dublê que não manda nada, se omitido).</summary>
     public static BookingNotifications Notifications(IBookingNotifier? notifier = null) =>

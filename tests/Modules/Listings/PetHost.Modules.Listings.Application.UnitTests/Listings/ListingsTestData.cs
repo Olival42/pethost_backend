@@ -62,6 +62,21 @@ internal static class ListingsTestData
         return bookings;
     }
 
+    /// <summary>Notas dos tutores: ninguém avaliou, salvo o que o teste configurar.</summary>
+    public static Mock<IListingReviews> Reviews()
+    {
+        var reviews = new Mock<IListingReviews>();
+
+        reviews
+            .Setup(r => r.GetHostRatingsAsync(It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<Guid, ListingRating>());
+        reviews
+            .Setup(r => r.GetListingRatingsAsync(It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<Guid, ListingRating>());
+
+        return reviews;
+    }
+
     /// <summary>Geocodificador que sempre acha o centro de Maringá.</summary>
     public static Mock<IGeocoder> Geocoder(GeocodingResult? result = null)
     {
@@ -80,7 +95,7 @@ internal static class ListingsTestData
     public static ListingAddressInput Address() =>
         new("87020-000", "Rua das Flores", "120", null, "Zona 7", "Maringá", "PR");
 
-    private static ListingHostSummary Summary(Guid hostId) =>
+    public static ListingHostSummary Summary(Guid hostId) =>
         hostId == CompanyHostId
             ? new ListingHostSummary(hostId, "Hotel Pet Feliz", null, IsCompany: true, IsAvailable: true, PayoutsEnabled: true)
             : new ListingHostSummary(hostId, "Dona Cida", "https://cdn.pethost.test/cida.png", IsCompany: false, IsAvailable: hostId != SuspendedHostId, PayoutsEnabled: true);

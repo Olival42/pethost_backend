@@ -63,6 +63,11 @@ public static class AuditTargets
     /// <summary>Denúncia de mensagem do chat (módulo Conversations). O id é o da denúncia.</summary>
     public const string ConversationReport = "conversation_report";
 
+    /// <summary>Avaliação de uma estadia (módulo Reviews). O id é o da avaliação.</summary>
+    public const string Review = "review";
+
+    /// <summary>Denúncia de avaliação (módulo Reviews). O id é o da denúncia.</summary>
+    public const string ReviewReport = "review_report";
 
     /// <summary>Pagamento de uma reserva (módulo Payments). O id é o do pagamento.</summary>
     public const string Payment = "payment";
@@ -239,6 +244,43 @@ public static class AuditActions
     /// <summary>Admin listou as denúncias (com as mensagens denunciadas).</summary>
     public const string ConversationReportsListed = "conversation.reports_listed";
 
+    // --- Avaliação (Reviews) ---
+
+    /// <summary>Um dos lados avaliou a estadia (quem e a nota nos detalhes; nunca o comentário).</summary>
+    public const string ReviewCreated = "review.created";
+
+    /// <summary>O autor editou a avaliação (campos alterados pelo nome, nunca o comentário).</summary>
+    public const string ReviewUpdated = "review.updated";
+
+    /// <summary>O autor apagou a avaliação (some das listas; a reserva não pode ser avaliada de novo).</summary>
+    public const string ReviewDeleted = "review.deleted";
+
+    /// <summary>O avaliado respondeu (ou trocou a resposta). Nunca o texto.</summary>
+    public const string ReviewReplied = "review.replied";
+
+    /// <summary>O avaliado apagou a resposta.</summary>
+    public const string ReviewReplyRemoved = "review.reply_removed";
+
+    /// <summary>Alguém denunciou a avaliação (motivo nos detalhes; nunca a descrição).</summary>
+    public const string ReviewReported = "review.reported";
+
+    /// <summary>Admin analisou uma denúncia de avaliação (desfecho nos detalhes, observação como motivo).</summary>
+    public const string ReviewReportResolved = "review.report_resolved";
+
+    /// <summary>Admin listou as denúncias de avaliação.</summary>
+    public const string ReviewReportsListed = "review.reports_listed";
+
+    /// <summary>Admin abriu uma denúncia de avaliação.</summary>
+    public const string ReviewReportViewed = "review.report_viewed";
+
+    /// <summary>A avaliação foi ocultada pela moderação (denúncia procedente), com o motivo.</summary>
+    public const string ReviewHidden = "review.hidden";
+
+    /// <summary>Admin voltou a mostrar uma avaliação ocultada.</summary>
+    public const string ReviewUnhidden = "review.unhidden";
+
+    /// <summary>Lembrete de "avalie a estadia" enviado a um dos lados (qual, nos detalhes).</summary>
+    public const string ReviewReminderSent = "review.reminder_sent";
 
     // --- Pagamento (Payments) ---
 

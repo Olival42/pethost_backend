@@ -90,10 +90,32 @@ public sealed class ListingBadgesTests
     public void For_Should_GiveEveryBadge_When_AllRulesMatch()
     {
         // Act
-        var badges = ListingBadges.For(new ListingBuilder().Build(), ZonaSete, completedStays: 5, TimeSpan.FromMinutes(119));
+        var badges = ListingBadges.For(new ListingBuilder().Build(), ZonaSete, completedStays: 5, TimeSpan.FromMinutes(119), new ListingRating(4.5m, 3));
 
         // Assert
         badges.Should().Equal(ListingBadges.All);
+    }
+
+    [Theory]
+    [InlineData(4.49, 10)]
+    [InlineData(5.0, 2)]
+    public void For_Should_SkipWellRated_When_TheRatingIsBelowTheRule(double average, int count)
+    {
+        // Act
+        var badges = ListingBadges.For(new ListingBuilder().Build(), null, 0, null, new ListingRating((decimal)average, count));
+
+        // Assert
+        badges.Should().NotContain(ListingBadges.WellRated);
+    }
+
+    [Fact]
+    public void For_Should_GiveWellRated_When_TheRatingIs45WithThreeReviews()
+    {
+        // Act
+        var badges = ListingBadges.For(new ListingBuilder().Build(), null, 0, null, new ListingRating(4.5m, 3));
+
+        // Assert
+        badges.Should().Contain(ListingBadges.WellRated);
     }
 
     [Fact]

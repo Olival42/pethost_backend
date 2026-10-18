@@ -54,6 +54,12 @@
     <Project Path="src/Modules/Conversations/PetHost.Modules.Conversations.Infrastructure/PetHost.Modules.Conversations.Infrastructure.csproj" />
     <Project Path="src/Modules/Conversations/PetHost.Modules.Conversations.Presentation/PetHost.Modules.Conversations.Presentation.csproj" />
   </Folder>
+  <Folder Name="/src/Modules/Reviews/">
+    <Project Path="src/Modules/Reviews/PetHost.Modules.Reviews.Application/PetHost.Modules.Reviews.Application.csproj" />
+    <Project Path="src/Modules/Reviews/PetHost.Modules.Reviews.Domain/PetHost.Modules.Reviews.Domain.csproj" />
+    <Project Path="src/Modules/Reviews/PetHost.Modules.Reviews.Infrastructure/PetHost.Modules.Reviews.Infrastructure.csproj" />
+    <Project Path="src/Modules/Reviews/PetHost.Modules.Reviews.Presentation/PetHost.Modules.Reviews.Presentation.csproj" />
+  </Folder>
   <Folder Name="/src/Modules/Payments/">
     <Project Path="src/Modules/Payments/PetHost.Modules.Payments.Application/PetHost.Modules.Payments.Application.csproj" />
     <Project Path="src/Modules/Payments/PetHost.Modules.Payments.Domain/PetHost.Modules.Payments.Domain.csproj" />
@@ -105,6 +111,11 @@
     <Project Path="tests/Modules/Conversations/PetHost.Modules.Conversations.Application.UnitTests/PetHost.Modules.Conversations.Application.UnitTests.csproj" />
     <Project Path="tests/Modules/Conversations/PetHost.Modules.Conversations.Domain.UnitTests/PetHost.Modules.Conversations.Domain.UnitTests.csproj" />
     <Project Path="tests/Modules/Conversations/PetHost.Modules.Conversations.IntegrationTests/PetHost.Modules.Conversations.IntegrationTests.csproj" />
+  </Folder>
+  <Folder Name="/tests/Modules/Reviews/">
+    <Project Path="tests/Modules/Reviews/PetHost.Modules.Reviews.Application.UnitTests/PetHost.Modules.Reviews.Application.UnitTests.csproj" />
+    <Project Path="tests/Modules/Reviews/PetHost.Modules.Reviews.Domain.UnitTests/PetHost.Modules.Reviews.Domain.UnitTests.csproj" />
+    <Project Path="tests/Modules/Reviews/PetHost.Modules.Reviews.IntegrationTests/PetHost.Modules.Reviews.IntegrationTests.csproj" />
   </Folder>
   <Folder Name="/tests/Modules/Payments/">
     <Project Path="tests/Modules/Payments/PetHost.Modules.Payments.Application.UnitTests/PetHost.Modules.Payments.Application.UnitTests.csproj" />

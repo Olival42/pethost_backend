@@ -112,7 +112,7 @@ src/Modules/Listings/
 
 **Visão pública** (quem não é dono nem admin): `address` só com `neighborhood`, `city` e `state`; sem `zipCode`, `street`, `number`, `complement` e sem `location` (escopo, regra 7: endereço só depois do pagamento; "Bairro, não coordenada").
 
-Item da busca (`ListingSummaryResponse`): `id`, `hostId`, `host`, `title`, `neighborhood`, `city`, `state`, **`distanceKm`** (1 casa; omitido na busca sem raio), `nightlyRate`, `capacity`, `homeType`, `hasYard`, `acceptedSpecies`, `accepts*`, `availableWeekdays`, `coverPhotoUrl`, **`badges`** (selos, seção 5.1). Nunca endereço nem coordenada. O detalhe (`GET /listings/{id}`) também traz `badges`.
+Item da busca (`ListingSummaryResponse`): `id`, `hostId`, `host`, `title`, `neighborhood`, `city`, `state`, **`distanceKm`** (1 casa; omitido na busca sem raio), `nightlyRate`, `capacity`, `homeType`, `hasYard`, `acceptedSpecies`, `accepts*`, `availableWeekdays`, `coverPhotoUrl`, **`badges`** (selos, seção 5.1), **`rating`** (`{ average, count }`, nota dos tutores com 1 casa; omitida enquanto ninguém avaliou). Nunca endereço nem coordenada. O detalhe (`GET /listings/{id}`) também traz `badges` e `rating`.
 
 ## 4. Regras
 
@@ -178,8 +178,9 @@ Calculados a cada leitura (`ListingBadges`), nunca cadastrados (escopo, regra 10
 | `fast_responder` | Responde rápido | Tempo médio entre o pedido e a resposta (aceite ou recusa) do anfitrião abaixo de **2h**. Quem nunca respondeu não ganha. |
 | `yard` | Casa com quintal | `hasYard` marcado no cantinho. |
 | `experienced` | Experiente | **5 ou mais** estadias concluídas pelo anfitrião. |
+| `well_rated` | Bem avaliado | Nota média **4,5 ou mais** com **3 ou mais** avaliações dos tutores (sem apagadas nem ocultas pela moderação). |
 
-"Bem avaliado" (nota 4,5+ com 3+ avaliações) fica para quando existir o módulo de avaliações. Os números do anfitrião vêm do Bookings pelo contrato `IBookingDirectory` (porta `IListingBookings`), uma consulta para a página inteira.
+Os números do anfitrião vêm do Bookings pelo contrato `IBookingDirectory` (porta `IListingBookings`), uma consulta para a página inteira. A nota vem do Reviews pelo contrato `IReviewDirectory` (porta `IListingReviews`, regra em `ListingRatings`): **empresa** usa a nota do **cantinho** (a filial); **pessoa física**, a do **anfitrião** (continua valendo se ele trocar de cantinho). Uma consulta de cada tipo para a página inteira. Detalhes em [`modulo-reviews.md`](modulo-reviews.md) seção 6.
 
 ### 5.2 "Combina com seu pet"
 

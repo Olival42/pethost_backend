@@ -11,11 +11,14 @@ namespace PetHost.Modules.Bookings.Application.Bookings.Responses;
 /// O contato (<see cref="BookingResponse.Contact"/>) depende de quem vê (<c>viewer</c>): o tutor
 /// recebe o telefone do anfitrião e o endereço exato; o anfitrião, o telefone do tutor; o admin
 /// (<c>null</c>), nada. E só sai em reserva que já libera contato (<see cref="Booking.RevealsContact"/>).
+/// A nota do tutor (<see cref="BookingResponse.OwnerRating"/>) sai para o anfitrião e o admin — o
+/// tutor não precisa dela no próprio pedido.
 /// </remarks>
 public sealed class BookingResponseBuilder(
     IBookingListings bookingListings,
     IBookingParties bookingParties,
-    IBookingPets bookingPets)
+    IBookingPets bookingPets,
+    IBookingReviews bookingReviews)
 {
     public async Task<BookingResponse> BuildAsync(Booking booking, BookingParty? viewer, CancellationToken cancellationToken) =>
         (await BuildAsync([booking], viewer, cancellationToken).ConfigureAwait(false))[0];
@@ -56,10 +59,15 @@ public sealed class BookingResponseBuilder(
             ? new Dictionary<Guid, BookingAddress>()
             : await bookingListings.GetAddressesAsync(addressIds, cancellationToken).ConfigureAwait(false);
 
+        IReadOnlyDictionary<Guid, OwnerRating> ownerRatings = viewer == BookingParty.Owner
+            ? new Dictionary<Guid, OwnerRating>()
+            : await bookingReviews.GetOwnerRatingsAsync([.. bookings.Select(b => b.OwnerId).Distinct()], cancellationToken).ConfigureAwait(false);
+
         return [.. bookings.Select(booking =>
         {
             var owner = owners.GetValueOrDefault(booking.OwnerId);
             var host = hosts.GetValueOrDefault(booking.HostId);
+            var rating = ownerRatings.GetValueOrDefault(booking.OwnerId);
 
             return ToResponse(
                 booking,
@@ -67,7 +75,12 @@ public sealed class BookingResponseBuilder(
                 owner,
                 host,
                 pets,
-                ContactFor(booking, viewer, owner, host, addresses.GetValueOrDefault(booking.ListingId)));
+                ContactFor(booking, viewer, owner, host, addresses.GetValueOrDefault(booking.ListingId))) with
+            {
+                OwnerRating = rating is null
+                    ? null
+                    : new BookingOwnerRatingResponse(Math.Round(rating.Average, 1, MidpointRounding.AwayFromZero), rating.Count),
+            };
         })];
     }
 

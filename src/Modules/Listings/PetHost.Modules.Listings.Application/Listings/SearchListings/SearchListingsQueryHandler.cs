@@ -35,6 +35,7 @@ public sealed class SearchListingsQueryHandler(
     IAccountAddresses accountAddresses,
     IGeocoder geocoder,
     IListingBookings listingBookings,
+    IListingReviews listingReviews,
     TimeProvider timeProvider) : IQueryHandler<SearchListingsQuery, PagedResult<ListingSummaryResponse>>
 {
     private const string Small = "small";
@@ -98,13 +99,18 @@ public sealed class SearchListingsQueryHandler(
             ? new Dictionary<Guid, HostTrackRecord>()
             : await listingBookings.GetTrackRecordsAsync(hostIds, cancellationToken).ConfigureAwait(false);
 
+        var ratings = await ListingRatings
+            .ForAsync(listingReviews, [.. items.Select(item => item.Listing)], hosts, cancellationToken)
+            .ConfigureAwait(false);
+
         return Result<PagedResult<ListingSummaryResponse>>.Success(new PagedResult<ListingSummaryResponse>(
             [.. items.Select(item =>
             {
                 var record = records.GetValueOrDefault(item.Listing.HostId) ?? HostTrackRecord.None;
-                var badges = ListingBadges.For(item.Listing, viewerAddress, record.CompletedStays, record.AverageResponseTime);
+                var rating = ratings.GetValueOrDefault(item.Listing.Id.Value);
+                var badges = ListingBadges.For(item.Listing, viewerAddress, record.CompletedStays, record.AverageResponseTime, rating);
 
-                return ListingSummaryResponse.From(item, hosts.GetValueOrDefault(item.Listing.HostId), badges);
+                return ListingSummaryResponse.From(item, hosts.GetValueOrDefault(item.Listing.HostId), badges, rating);
             })],
             query.Page,
             query.PageSize,
