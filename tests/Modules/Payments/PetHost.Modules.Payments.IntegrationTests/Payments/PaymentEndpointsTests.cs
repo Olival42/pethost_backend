@@ -123,6 +123,98 @@ public sealed class PaymentEndpointsTests(PaymentsApiFixture fixture) : IAsyncLi
         paidEmails.Should().OnlyContain(e => e.ToAddress == "camila@exemplo.com");
     }
 
+    // ----- painel do anfitrião -----
+
+    [Fact]
+    public async Task Dashboard_Should_ShowRequestsStays_AndCountEarningsByTransferDate()
+    {
+        const string DashboardRoute = "/api/v1/hosts/me/dashboard";
+        var stay = await ArrangeAsync();
+
+        // Um pedido sem resposta, um aceite sem pagamento e uma estadia para hoje (4 × R$ 60,50 em 2x de R$ 121, a 1ª paga).
+        var requestId = await CreateBookingAsync(stay.OwnerToken, stay.ListingId, stay.PipocaId, Arrival.AddDays(10), 2);
+        await RequestAndAcceptAsync(stay, nights: 2, checkIn: Arrival.AddDays(20));
+        var paidId = await RequestAndAcceptAsync(stay, nights: 4);
+        (await SendAsync(HttpMethod.Put, PaymentRoute(paidId), stay.OwnerToken, new { installmentCount = 2 })).StatusCode.Should().Be(HttpStatusCode.OK);
+        var intent = Data(await ReadAsync(await SendAsync(HttpMethod.Post, SessionRoute(paidId, 1), stay.OwnerToken))).GetProperty("paymentIntentId").GetString()!;
+        fixture.Stripe.Pay(intent);
+        (await SendWebhookAsync("payment_intent.succeeded", intent, "payment_intent")).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var before = Data(await ReadAsync(await SendAsync(HttpMethod.Get, DashboardRoute, stay.HostToken)));
+        before.GetProperty("earnings").GetProperty("month").GetString().Should().Be(PaymentClock.Today(DateTimeOffset.UtcNow).ToString("yyyy-MM", CultureInfo.InvariantCulture));
+        var pending = before.GetProperty("pendingRequests");
+        pending.GetProperty("count").GetInt32().Should().Be(1);
+        var request = pending.GetProperty("items")[0];
+        request.GetProperty("bookingId").GetGuid().Should().Be(requestId);
+        request.GetProperty("owner").GetProperty("name").GetString().Should().Be("Camila Souza");
+        request.GetProperty("listing").GetProperty("title").GetString().Should().Be("Casa com quintal");
+        request.GetProperty("pets")[0].GetProperty("name").GetString().Should().Be("Pipoca");
+        request.TryGetProperty("responseDeadline", out _).Should().BeTrue();
+        request.TryGetProperty("owner", out var owner).Should().BeTrue();
+        owner.TryGetProperty("phone", out _).Should().BeFalse();
+        before.GetProperty("awaitingPayment").GetProperty("count").GetInt32().Should().Be(1);
+        before.GetProperty("inProgress").GetProperty("count").GetInt32().Should().Be(0);
+        before.GetProperty("upcomingStays").GetProperty("count").GetInt32().Should().Be(1);
+        before.GetProperty("upcomingStays").GetProperty("items")[0].GetProperty("bookingId").GetGuid().Should().Be(paidId);
+        var held = before.GetProperty("earnings");
+        held.GetProperty("received").GetDecimal().Should().Be(0m);
+        held.GetProperty("held").GetProperty("total").GetDecimal().Should().Be(108.90m);
+        held.GetProperty("held").GetProperty("awaitingCheckOut").GetDecimal().Should().Be(108.90m);
+        held.GetProperty("held").GetProperty("blocked").GetDecimal().Should().Be(0m);
+        held.GetProperty("expected").GetProperty("amount").GetDecimal().Should().Be(108.90m);
+        held.GetProperty("expected").GetProperty("installments").GetInt32().Should().Be(1);
+        held.GetProperty("completedStays").GetInt32().Should().Be(0);
+        held.GetProperty("payoutsEnabled").GetBoolean().Should().BeTrue();
+
+        // Check-in: a estadia passa para "em andamento".
+        (await SendAsync(HttpMethod.Post, $"{BookingsRoute}/{paidId}/check-in", stay.HostToken)).StatusCode.Should().Be(HttpStatusCode.OK);
+        var during = Data(await ReadAsync(await SendAsync(HttpMethod.Get, DashboardRoute, stay.HostToken)));
+        during.GetProperty("inProgress").GetProperty("count").GetInt32().Should().Be(1);
+        during.GetProperty("inProgress").GetProperty("items")[0].TryGetProperty("checkedInAt", out _).Should().BeTrue();
+        during.GetProperty("upcomingStays").GetProperty("count").GetInt32().Should().Be(0);
+
+        // Check-out: 90% da parcela paga repassados agora contam como recebidos no mês.
+        (await SendAsync(HttpMethod.Post, $"{BookingsRoute}/{paidId}/check-out", stay.HostToken)).StatusCode.Should().Be(HttpStatusCode.OK);
+        var after = Data(await ReadAsync(await SendAsync(HttpMethod.Get, DashboardRoute, stay.HostToken)));
+        var earnings = after.GetProperty("earnings");
+        earnings.GetProperty("received").GetDecimal().Should().Be(108.90m);
+        earnings.GetProperty("reversed").GetDecimal().Should().Be(0m);
+        earnings.GetProperty("net").GetDecimal().Should().Be(108.90m);
+        earnings.GetProperty("receivedPreviousMonth").GetDecimal().Should().Be(0m);
+        earnings.GetProperty("receivedYearToDate").GetDecimal().Should().Be(108.90m);
+        earnings.GetProperty("completedStays").GetInt32().Should().Be(1);
+        var breakdown = earnings.GetProperty("breakdown");
+        breakdown.GetProperty("paidByOwners").GetDecimal().Should().Be(121m);
+        breakdown.GetProperty("lateFees").GetDecimal().Should().Be(0m);
+        breakdown.GetProperty("refunded").GetDecimal().Should().Be(0m);
+        breakdown.GetProperty("platformFee").GetDecimal().Should().Be(12.10m);
+        earnings.GetProperty("held").GetProperty("total").GetDecimal().Should().Be(0m);
+        earnings.GetProperty("expected").GetProperty("amount").GetDecimal().Should().Be(108.90m, "the 2nd installment is still to be paid");
+        after.GetProperty("inProgress").GetProperty("count").GetInt32().Should().Be(0);
+
+        // Mês anterior: o repasse de hoje não entra.
+        var lastMonth = PaymentClock.Today(DateTimeOffset.UtcNow).AddMonths(-1).ToString("yyyy-MM", CultureInfo.InvariantCulture);
+        var previous = Data(await ReadAsync(await SendAsync(HttpMethod.Get, $"{DashboardRoute}?month={lastMonth}", stay.HostToken)));
+        previous.GetProperty("earnings").GetProperty("month").GetString().Should().Be(lastMonth);
+        previous.GetProperty("earnings").GetProperty("received").GetDecimal().Should().Be(0m);
+    }
+
+    [Fact]
+    public async Task Dashboard_Should_Return400ForBadMonth_And403ForOwner()
+    {
+        var stay = await ArrangeAsync();
+
+        var bad = await SendAsync(HttpMethod.Get, "/api/v1/hosts/me/dashboard?month=2026-13", stay.HostToken);
+        bad.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        Fields(await ReadAsync(bad)).Should().Equal("month");
+
+        var future = PaymentClock.Today(DateTimeOffset.UtcNow).AddMonths(1).ToString("yyyy-MM", CultureInfo.InvariantCulture);
+        var ahead = await SendAsync(HttpMethod.Get, $"/api/v1/hosts/me/dashboard?month={future}", stay.HostToken);
+        ahead.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        (await SendAsync(HttpMethod.Get, "/api/v1/hosts/me/dashboard", stay.OwnerToken)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
     // ----- plano e checkout -----
 
     [Fact]
@@ -643,7 +735,7 @@ public sealed class PaymentEndpointsTests(PaymentsApiFixture fixture) : IAsyncLi
     }
 
     private static object Pedido(Guid listingId, Guid[] petIds, DateOnly checkIn, int nights) =>
-        new { listingId, petIds, checkIn = Iso(checkIn), checkOut = Iso(checkIn.AddDays(nights)) };
+        new { listingId, petIds, checkIn = Iso(checkIn), checkOut = Iso(checkIn.AddDays(nights)), careTermsAccepted = true };
 
     private static string Iso(DateOnly date) => date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 

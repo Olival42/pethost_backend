@@ -7,6 +7,7 @@ using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
 using PetHost.Modules.Bookings.Application.Bookings.CloseOverdueStays;
 using PetHost.Modules.Bookings.Application.Bookings.ExpireOverdueBookings;
+using PetHost.Modules.Bookings.Application.Bookings.RemindDeadlines;
 using PetHost.Modules.Bookings.Application.Bookings.RemindUpcomingStays;
 using PetHost.Modules.Bookings.Domain.Bookings;
 using PetHost.Modules.Hosts.Domain.Hosts;
@@ -125,7 +126,7 @@ public sealed class BookingEndpointsTests(BookingsApiFixture fixture) : IAsyncLi
         var response = await SendAsync(HttpMethod.Post, BookingsRoute, stay.OwnerToken, new { });
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        Fields(await ReadAsync(response)).Should().BeEquivalentTo(["listingId", "petIds", "checkIn", "checkOut"]);
+        Fields(await ReadAsync(response)).Should().BeEquivalentTo(["listingId", "petIds", "careTermsAccepted", "checkIn", "checkOut"]);
     }
 
     [Fact]
@@ -139,6 +140,7 @@ public sealed class BookingEndpointsTests(BookingsApiFixture fixture) : IAsyncLi
             petIds = new[] { stay.PipocaId },
             checkIn = Iso(Today.AddDays(-1)),
             checkOut = "25/12/2026",
+            careTermsAccepted = true,
         });
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
@@ -466,6 +468,129 @@ public sealed class BookingEndpointsTests(BookingsApiFixture fixture) : IAsyncLi
 
         Status(await ReadAsync(await SendAsync(HttpMethod.Get, $"{BookingsRoute}/{leavingToday}", stay.HostToken))).Should().Be("completed");
         (await WaitForEmailAsync(e => e.Subject.Contains("estadia concluída", StringComparison.Ordinal))).Should().NotBeNull();
+    }
+
+    // ----- a mesma pessoa dos dois lados -----
+
+    [Fact]
+    public async Task Create_Should_Return422_When_TheListingBelongsToTheOwnersOwnHostAccount()
+    {
+        // A Camila tem conta de tutora e, com o mesmo e-mail, de anfitriã com um cantinho.
+        var stay = await ArrangeAsync();
+        var ownHost = await RegisterHostAsync("camila@exemplo.com", "Camila Souza", "52998224725");
+        var ownListing = await CreateListingAsync(ownHost, 3, EveryDay);
+
+        var response = await SendAsync(HttpMethod.Post, BookingsRoute, stay.OwnerToken, Pedido(ownListing, [stay.PipocaId]));
+        var conversation = await SendAsync(HttpMethod.Post, "/api/v1/conversations", stay.OwnerToken, new { listingId = ownListing });
+
+        response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+        Code(await ReadAsync(response)).Should().Be("BOOKING_OWN_LISTING");
+        conversation.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+        Code(await ReadAsync(conversation)).Should().Be("CONVERSATION_OWN_LISTING");
+        (await SendAsync(HttpMethod.Post, BookingsRoute, stay.OwnerToken, Pedido(stay.ListingId, [stay.PipocaId]))).StatusCode
+            .Should().Be(HttpStatusCode.Created, "o cantinho de outra pessoa continua liberado");
+    }
+
+    [Fact]
+    public async Task Create_Should_RecordTheCareTerms_When_TheOwnerConfirms()
+    {
+        var stay = await ArrangeAsync();
+
+        var created = await SendAsync(HttpMethod.Post, BookingsRoute, stay.OwnerToken, Pedido(stay.ListingId, [stay.PipocaId]));
+        var missing = await SendAsync(HttpMethod.Post, BookingsRoute, stay.OwnerToken, new
+        {
+            listingId = stay.ListingId,
+            petIds = new[] { stay.ThorId },
+            checkIn = Iso(Arrival),
+            checkOut = Iso(Arrival.AddDays(2)),
+            careTermsAccepted = false,
+        });
+
+        created.StatusCode.Should().Be(HttpStatusCode.Created);
+        Data(await ReadAsync(created)).TryGetProperty("careTermsAcceptedAt", out _).Should().BeTrue();
+        missing.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        Fields(await ReadAsync(missing)).Should().Equal("careTermsAccepted");
+    }
+
+    // ----- painel do anfitrião -----
+
+    [Fact]
+    public async Task Dashboard_Should_MoveAPaidStayWhoseArrivalPassedWithoutCheckIn_ToOverdueCheckIns()
+    {
+        var stay = await ArrangeAsync();
+        var late = await CreateBookingAsync(stay.OwnerToken, stay.ListingId, stay.PipocaId);
+        await AcceptAndPayAsync(stay.HostToken, late);
+        await MovePeriodAsync(late, Today.AddDays(-1), Today.AddDays(2));
+        var today = await CreateBookingAsync(stay.OwnerToken, stay.ListingId, stay.ThorId, checkIn: Arrival.AddDays(5));
+        await AcceptAndPayAsync(stay.HostToken, today);
+        await MovePeriodAsync(today, Today, Today.AddDays(2));
+
+        var dashboard = Data(await ReadAsync(await SendAsync(HttpMethod.Get, "/api/v1/hosts/me/dashboard", stay.HostToken)));
+
+        dashboard.GetProperty("overdueCheckIns").GetProperty("count").GetInt32().Should().Be(1);
+        dashboard.GetProperty("overdueCheckIns").GetProperty("items")[0].GetProperty("bookingId").GetGuid().Should().Be(late);
+        dashboard.GetProperty("upcomingStays").GetProperty("items").EnumerateArray()
+            .Select(b => b.GetProperty("bookingId").GetGuid()).Should().Equal([today], "quem chega hoje ainda é próxima estadia");
+    }
+
+    // ----- lista do admin -----
+
+    [Fact]
+    public async Task AdminList_Should_FilterBookings_AndBeOnlyForTheAdmin()
+    {
+        var stay = await ArrangeAsync();
+        var requested = await CreateBookingAsync(stay.OwnerToken, stay.ListingId, stay.PipocaId);
+        var accepted = await CreateBookingAsync(stay.OwnerToken, stay.ListingId, stay.ThorId, checkIn: Arrival.AddDays(5));
+        (await SendAsync(HttpMethod.Post, $"{BookingsRoute}/{accepted}/acceptance", stay.HostToken)).StatusCode.Should().Be(HttpStatusCode.OK);
+        var admin = await AdminTokenAsync();
+
+        var all = Data(await ReadAsync(await SendAsync(HttpMethod.Get, $"{BookingsRoute}?listingId={stay.ListingId}", admin)));
+        var onlyRequested = Data(await ReadAsync(await SendAsync(HttpMethod.Get, $"{BookingsRoute}?status=requested&hostId={await HostIdAsync()}&ownerId={await OwnerIdAsync()}", admin)));
+        var otherHost = Data(await ReadAsync(await SendAsync(HttpMethod.Get, $"{BookingsRoute}?hostId={Guid.CreateVersion7()}", admin)));
+        var badStatus = await SendAsync(HttpMethod.Get, $"{BookingsRoute}?status=unknown", admin);
+        var asOwner = await SendAsync(HttpMethod.Get, BookingsRoute, stay.OwnerToken);
+
+        all.GetProperty("totalCount").GetInt64().Should().Be(2);
+        onlyRequested.GetProperty("items").EnumerateArray().Select(b => b.GetProperty("id").GetGuid()).Should().Equal(requested);
+        onlyRequested.GetProperty("items")[0].TryGetProperty("contact", out _).Should().BeFalse();
+        otherHost.GetProperty("totalCount").GetInt64().Should().Be(0);
+        badStatus.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        asOwner.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    // ----- lembretes de prazo -----
+
+    [Fact]
+    public async Task Deadlines_Should_RemindTheHostToAnswerAndThenTheOwnerToPay_OnceEach()
+    {
+        var stay = await ArrangeAsync();
+        var bookingId = await CreateBookingAsync(stay.OwnerToken, stay.ListingId, stay.PipocaId);
+
+        // Pedido de 21h atrás: faltam 3h para o prazo de 24h.
+        await fixture.ExecuteAsync($"UPDATE booking.bookings SET requested_at = now() - interval '21 hours' WHERE id = '{bookingId}'");
+        fixture.SentEmails.Clear();
+        (await RemindDeadlinesAsync()).Should().Be(new RemindDeadlinesResponse(1, 0));
+        (await RemindDeadlinesAsync()).Should().Be(new RemindDeadlinesResponse(0, 0), "o lembrete vai uma vez só");
+        var answer = await WaitForEmailAsync(e => e.Subject.Contains("espera a sua resposta", StringComparison.Ordinal));
+        answer.ToAddress.Should().Be("cida@exemplo.com");
+        answer.TextBody.Should().Contain("Camila Souza").And.Contain("Responda até");
+
+        // Aceito há 19h: faltam 5h para o prazo de pagamento.
+        (await SendAsync(HttpMethod.Post, $"{BookingsRoute}/{bookingId}/acceptance", stay.HostToken)).StatusCode.Should().Be(HttpStatusCode.OK);
+        await fixture.ExecuteAsync($"UPDATE booking.bookings SET responded_at = now() - interval '19 hours' WHERE id = '{bookingId}'");
+        (await RemindDeadlinesAsync()).Should().Be(new RemindDeadlinesResponse(0, 1));
+        (await RemindDeadlinesAsync()).Should().Be(new RemindDeadlinesResponse(0, 0));
+        var pay = await WaitForEmailAsync(e => e.Subject.Contains("falta pagar", StringComparison.Ordinal));
+        pay.ToAddress.Should().Be("camila@exemplo.com");
+        pay.TextBody.Should().Contain("Pague até");
+    }
+
+    private async Task<RemindDeadlinesResponse> RemindDeadlinesAsync()
+    {
+        await using var scope = fixture.Services.CreateAsyncScope();
+        var handler = scope.ServiceProvider.GetRequiredService<ICommandHandler<RemindDeadlinesCommand, RemindDeadlinesResponse>>();
+
+        return (await handler.HandleAsync(new RemindDeadlinesCommand(), Ct)).Value!;
     }
 
     [Fact]
@@ -1055,13 +1180,13 @@ public sealed class BookingEndpointsTests(BookingsApiFixture fixture) : IAsyncLi
         return Data(await ReadAsync(response)).GetProperty("accessToken").GetString()!;
     }
 
-    /// <summary>A Dona Cida: conta de anfitriã, verificada e com os repasses liberados pelo Stripe.</summary>
-    private async Task<string> RegisterHostAsync()
+    /// <summary>A Dona Cida (ou outra pessoa): conta de anfitriã, verificada e com os repasses liberados pelo Stripe.</summary>
+    private async Task<string> RegisterHostAsync(string email = "cida@exemplo.com", string fullName = "Dona Cida", string cpf = "12345678909")
     {
         var response = await _client.PostAsJsonAsync("/api/v1/users/register", new
         {
-            fullName = "Dona Cida",
-            email = "cida@exemplo.com",
+            fullName,
+            email,
             password = Password,
             phone = "(44) 99999-0000",
             birthDate = "1965-04-21",
@@ -1072,7 +1197,7 @@ public sealed class BookingEndpointsTests(BookingsApiFixture fixture) : IAsyncLi
         var data = Data(await ReadAsync(response));
         var userId = data.GetProperty("user").GetProperty("id").GetGuid();
 
-        var host = Host.CreateIndividual(userId, Cpf.Create("12345678909").Value!, Guid.CreateVersion7(), Guid.CreateVersion7(), DateTimeOffset.UtcNow);
+        var host = Host.CreateIndividual(userId, Cpf.Create(cpf).Value!, Guid.CreateVersion7(), Guid.CreateVersion7(), DateTimeOffset.UtcNow);
         host.LinkStripeAccount($"acct_test_{host.Id.Value:N}", DateTimeOffset.UtcNow);
         host.ApplyStripeSnapshot(new StripeAccountSnapshot(true, true, true, null), DateTimeOffset.UtcNow);
 
@@ -1143,7 +1268,7 @@ public sealed class BookingEndpointsTests(BookingsApiFixture fixture) : IAsyncLi
     {
         var from = checkIn ?? Arrival;
 
-        return new { listingId, petIds, checkIn = Iso(from), checkOut = Iso(from.AddDays(2)) };
+        return new { listingId, petIds, checkIn = Iso(from), checkOut = Iso(from.AddDays(2)), careTermsAccepted = true };
     }
 
     private static string Iso(DateOnly date) => date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);

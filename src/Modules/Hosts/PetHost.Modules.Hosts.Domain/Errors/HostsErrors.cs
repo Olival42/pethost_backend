@@ -96,6 +96,12 @@ public static class HostsErrors
     public static readonly Error StripeStatusFilterInvalid =
         Error.Validation("stripeStatus", $"Stripe status must be one of: {string.Join(", ", StripeOnboardingStatusValues.All)}.");
 
+    public static readonly Error DashboardMonthInvalid =
+        Error.Validation("month", "Month must be in the format yyyy-MM (e.g. 2026-10).");
+
+    public static readonly Error DashboardMonthInFuture =
+        Error.Validation("month", "Month cannot be in the future.");
+
     public static readonly Error PersonTypeInvalid =
         Error.Validation("personType", $"Person type must be one of: {PersonTypeValues.Individual}, {PersonTypeValues.Company}.");
 

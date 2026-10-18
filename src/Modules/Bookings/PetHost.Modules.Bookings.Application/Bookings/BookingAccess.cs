@@ -35,6 +35,27 @@ public static class BookingAccess
     }
 
     /// <summary>
+    /// O tutor <paramref name="ownerId"/> e o anfitrião <paramref name="hostId"/> são a mesma pessoa?
+    /// As contas de tutor e de anfitrião são separadas, mas a pessoa é a mesma quando o e-mail é o
+    /// mesmo — é por ele que o PetHost liga as contas (troca de conta, restrição 9 do CPF).
+    /// </summary>
+    public static async Task<bool> IsSamePersonAsync(
+        IBookingParties bookingParties,
+        Guid ownerId,
+        Guid hostId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(bookingParties);
+
+        var owners = await bookingParties.GetOwnersAsync([ownerId], cancellationToken).ConfigureAwait(false);
+        var hosts = await bookingParties.GetHostsAsync([hostId], cancellationToken).ConfigureAwait(false);
+
+        return owners.TryGetValue(ownerId, out var owner)
+            && hosts.TryGetValue(hostId, out var host)
+            && string.Equals(owner.Email, host.Email, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
     /// O anfitrião da conta logada. Sem perfil de anfitrião: <c>404 BOOKING_HOST_NOT_FOUND</c>.
     /// Com <paramref name="requireAvailable"/>, inativo ou suspenso: <c>403 BOOKING_HOST_DEACTIVATED</c>.
     /// </summary>

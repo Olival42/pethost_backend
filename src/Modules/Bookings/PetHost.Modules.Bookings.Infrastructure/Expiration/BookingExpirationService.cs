@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using PetHost.Modules.Bookings.Application.Bookings.CloseOverdueStays;
 using PetHost.Modules.Bookings.Application.Bookings.ExpireOverdueBookings;
+using PetHost.Modules.Bookings.Application.Bookings.RemindDeadlines;
 using PetHost.Modules.Bookings.Application.Bookings.RemindUpcomingStays;
 using PetHost.Shared.Kernel.Messaging;
 
@@ -13,7 +14,8 @@ namespace PetHost.Modules.Bookings.Infrastructure.Expiration;
 /// Tarefa em segundo plano: a cada <see cref="BookingExpirationOptions.IntervalMinutes"/> roda
 /// <see cref="ExpireOverdueBookingsCommand"/> (pedidos sem resposta em 24h viram <c>expired</c>) e
 /// <see cref="CloseOverdueStaysCommand"/> (pet que não chegou, lembrete e check-out automático) e
-/// <see cref="RemindUpcomingStaysCommand"/> (lembrete da véspera do check-in).
+/// <see cref="RemindUpcomingStaysCommand"/> (lembrete da véspera do check-in) e
+/// <see cref="RemindDeadlinesCommand"/> (pedido sem resposta e 1ª parcela sem pagamento perto do fim do prazo).
 /// </summary>
 /// <remarks>
 /// Falha numa rodada vai para o log e não derruba a API: a próxima rodada tenta de novo. A
@@ -67,6 +69,14 @@ internal sealed partial class BookingExpirationService(
 
             if (upcoming.IsSuccess && upcoming.Value > 0)
                 LogCheckInsReminded(logger, upcoming.Value);
+
+            var deadlines = await scope.ServiceProvider
+                .GetRequiredService<ICommandHandler<RemindDeadlinesCommand, RemindDeadlinesResponse>>()
+                .HandleAsync(new RemindDeadlinesCommand(), stoppingToken)
+                .ConfigureAwait(false);
+
+            if (deadlines.IsSuccess && deadlines.Value!.ResponseReminders + deadlines.Value.PaymentReminders > 0)
+                LogDeadlinesReminded(logger, deadlines.Value.ResponseReminders, deadlines.Value.PaymentReminders);
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
@@ -88,6 +98,9 @@ internal sealed partial class BookingExpirationService(
 
     [LoggerMessage(EventId = 8003, Level = LogLevel.Information, Message = "Upcoming stays: {Reminded} bookings reminded on the eve of check-in.")]
     private static partial void LogCheckInsReminded(ILogger logger, int reminded);
+
+    [LoggerMessage(EventId = 8004, Level = LogLevel.Information, Message = "Deadlines: {Responses} hosts reminded to answer, {Payments} owners reminded to pay the first installment.")]
+    private static partial void LogDeadlinesReminded(ILogger logger, int responses, int payments);
 
     [LoggerMessage(EventId = 8001, Level = LogLevel.Error, Message = "Booking expiration failed; it will run again on the next tick.")]
     private static partial void LogExpirationFailed(ILogger logger, Exception exception);

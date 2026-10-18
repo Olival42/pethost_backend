@@ -24,6 +24,12 @@ public interface IPaymentRepository
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// Todos os pagamentos do anfitrião com alguma parcela paga, sem ordem — a base dos ganhos do
+    /// painel. Não rastreados.
+    /// </summary>
+    Task<IReadOnlyList<Payment>> ListPaidByHostAsync(Guid hostId, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Pagamentos que pedem atenção do admin: parcela em atraso, contestação aberta ou perdida,
     /// reembolso que falhou ou repasse que não passou.
     /// </summary>

@@ -652,6 +652,7 @@ POST   /api/v1/auth/sessions/login    ·  POST /api/v1/auth/sessions/refresh
 POST   /api/v1/pets               ·  GET  /api/v1/pets/me  ·  PATCH /api/v1/pets/{petId:guid}
 POST   /api/v1/pets/{petId:guid}/deactivation  ·  DELETE /api/v1/pets/{petId:guid}/deactivation
 GET    /api/v1/hosts/{hostId:guid}/pets
+GET    /api/v1/hosts/me/dashboard?month=2026-10   (leitura que junta vários módulos: substantivo sob `me`, só GET)
 POST   /api/v1/listings           ·  GET  /api/v1/listings/me  ·  GET /api/v1/listings?radiusKm=10&city=Maringá&species=dog
 GET    /api/v1/listings/{listingId:guid}/compatibility?petId=&checkIn=&checkOut=
 PUT    /api/v1/listings/{listingId:guid}/photos/order

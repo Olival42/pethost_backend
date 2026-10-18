@@ -27,6 +27,9 @@ public static class BookingsErrors
     public static readonly Error PetIdsInvalid =
         Error.Validation("petIds", "Each pet must be a valid id and appear only once.");
 
+    public static readonly Error CareTermsNotAccepted =
+        Error.Validation("careTermsAccepted", "Confirm that you will bring the pet's food and hand over its medicines to the host.");
+
     public static readonly Error CheckInRequired =
         Error.Validation("checkIn", "Check-in date is required.");
 
@@ -136,6 +139,9 @@ public static class BookingsErrors
         new("BOOKING_PET_PERIOD_CONFLICT", $"{petName} already has another booking in this period.");
 
     /// <summary>422: o tutor tem parcela em atraso (estadia já feita e não paga). Paga antes de pedir outra.</summary>
+    public static readonly Error OwnListing =
+        new("BOOKING_OWN_LISTING", "You cannot book a listing of your own host account.");
+
     public static readonly Error OwnerPaymentOverdue =
         new("BOOKING_OWNER_PAYMENT_OVERDUE", "You have an overdue installment. Pay it before requesting a new stay.");
 

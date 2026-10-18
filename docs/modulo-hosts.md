@@ -78,19 +78,21 @@ src/Modules/Hosts/
 │                    UpdateMyHost, Change/RemoveMyHostAvatar, DeactivateMyHost, ReactivateHost,
 │                    SuspendHost (suspender, tirar, liberar CPF/CNPJ), GetHostById, ListHosts,
 │                    GetMyStripeAccount, StartMyStripeOnboarding, CreateMyStripeOnboardingLink,
-│                    SyncMyStripeAccount, SyncStripeAccount (webhook), HostPayoutSetup
+│                    SyncMyStripeAccount, SyncStripeAccount (webhook), HostPayoutSetup,
+│                    GetMyDashboard (painel)
 │                    + portas IHostAccounts, IHostApplicationNotifier, IHostVerificationPolicy,
-│                    IStripeConnect, IHostPayoutsNotifier
+│                    IStripeConnect, IHostPayoutsNotifier, IHostBookings, IHostEarnings
 ├── Infrastructure/  HostsDbContext (schema host), migrations, repositórios, UoW (xmin + índices únicos),
 │                    e-mail da decisão, tarefa de limpeza (BackgroundService), seed de demonstração,
 │                    Payouts/ (StripeConnectGateway, HostAccountUpdatedWebhookHandler), e-mail "recebimento liberado"
 └── Presentation/    HostsController (/hosts/me, verificação), HostProfileController (perfil, foto, status),
-                     HostStripeAccountController (/hosts/me/stripe-account), HostsAdminController (/hosts, admin),
+                     HostStripeAccountController (/hosts/me/stripe-account), HostDashboardController (/hosts/me/dashboard),
+                     HostsAdminController (/hosts, admin),
                      HostApplicationsController (/host-applications, admin)
 tests/Modules/Hosts/  Domain.UnitTests, Application.UnitTests, IntegrationTests
 ```
 
-Mesmas regras de camada do §4. `PetHost.ArchitectureTests` (`HostsModuleBoundaryTests`) garante que o Hosts não referencia nenhum outro módulo: a conta vem do Auth por `IUserDirectory`/`IAccountRegistrar`, a trilha por `IAuditTrail`, as fotos por `IPrivateImageStorage`, o Stripe pelo `IStripeClientProvider` e o webhook pelo `IStripeWebhookHandler` (os dois em `Shared.Infrastructure/Stripe`).
+Mesmas regras de camada do §4. `PetHost.ArchitectureTests` (`HostsModuleBoundaryTests`) garante que o Hosts não referencia nenhum outro módulo: a conta vem do Auth por `IUserDirectory`/`IAccountRegistrar`, a trilha por `IAuditTrail`, as fotos por `IPrivateImageStorage`, o Stripe pelo `IStripeClientProvider` e o webhook pelo `IStripeWebhookHandler` (os dois em `Shared.Infrastructure/Stripe`), as reservas pelo `IBookingDirectory` (inativação, bloqueio e painel) e os ganhos do painel pelo `IPaymentDirectory`.
 
 ## 3. Endpoints
 
@@ -124,6 +126,12 @@ Anfitrião verificado (seção 4.2):
 | `DELETE` | `/api/v1/hosts/{hostId}/suspension` | admin | Tira a suspensão | `200` |
 | `POST` | `/api/v1/hosts/{hostId}/identity-release` | admin | Libera o CPF/CNPJ de um anfitrião suspenso (disputa), com motivo | `200` |
 | `POST` | `/api/v1/hosts/{hostId}/stripe-account-reset` | admin | Desliga a conta do Stripe **recusada** (`rejected`) para o anfitrião cadastrar o recebimento de novo, com motivo. Outra situação: `422 HOST_STRIPE_ACCOUNT_NOT_REJECTED` | `200` |
+
+Painel do anfitrião (seção 3.5):
+
+| Método | Rota | Acesso | O que faz | Sucesso |
+|---|---|---|---|---|
+| `GET` | `/api/v1/hosts/me/dashboard?[month=yyyy-MM]` | anfitrião | Pedidos novos, aceitas esperando pagamento, estadias em andamento, chegadas atrasadas, próximas estadias e quanto recebeu no mês, numa chamada só. `month` troca o mês dos ganhos (formato errado ou no futuro: `400` em `month`) | `200` |
 
 Cadastro de recebimento (seção 9):
 
@@ -247,6 +255,61 @@ O detalhe (`GET /host-applications/{id}`) traz tudo o que a pessoa enviou, o `us
 | `409` | `HOST_CPF_ALREADY_REGISTERED` | Na aprovação (pessoa física), outro anfitrião já tem o CPF. |
 | `409` | `HOST_CNPJ_ALREADY_REGISTERED` | Na aprovação (empresa), outro anfitrião já tem o CNPJ. |
 | `422` | `HOST_APPLICATION_NOT_UNDER_REVIEW` | A solicitação não está em `submitted`. |
+
+### 3.5 Painel — `GET /api/v1/hosts/me/dashboard`
+
+Junta o que antes pedia duas chamadas (`GET /bookings/me?status=...` e `GET /payments/payouts/me`) e deixa o "recebido no mês" pronto, contado pela **data do repasse** no horário de Brasília. Antes da aprovação: `404 HOST_NOT_FOUND`. Valores em reais; nulos omitidos.
+
+```json
+{
+  "generatedAt": "2026-10-18T14:00:00Z",
+  "pendingRequests": {
+    "count": 2,
+    "items": [{
+      "bookingId": "…",
+      "listing": { "id": "…", "title": "Casa com quintal", "neighborhood": "Zona 7" },
+      "owner": { "id": "…", "name": "Camila Souza", "avatarUrl": "…" },
+      "ownerRating": { "average": 4.8, "count": 5 },
+      "pets": [{ "id": "…", "name": "Pipoca", "species": "dog", "size": "small" }],
+      "checkIn": "2026-10-25", "checkOut": "2026-10-28", "nights": 3, "petCount": 1,
+      "totalPrice": 181.50, "requestedAt": "…", "responseDeadline": "…"
+    }]
+  },
+  "awaitingPayment": { "count": 1 },
+  "inProgress": { "count": 1, "items": [{ "…": "…", "checkedInAt": "…" }] },
+  "overdueCheckIns": { "count": 1, "items": [{ "…": "…" }] },
+  "upcomingStays": { "count": 3, "items": [{ "…": "…" }] },
+  "earnings": {
+    "month": "2026-10", "received": 810.00, "reversed": 0, "net": 810.00,
+    "receivedPreviousMonth": 1240.00, "receivedYearToDate": 3000.00, "completedStays": 4,
+    "breakdown": { "paidByOwners": 950.00, "lateFees": 10.00, "refunded": 50.00, "platformFee": 90.00 },
+    "held": { "total": 324.00, "awaitingCheckOut": 224.00, "disputed": 100.00, "blocked": 0 },
+    "expected": { "amount": 270.00, "installments": 3 },
+    "payoutsEnabled": true
+  }
+}
+```
+
+| Campo | Regra |
+|---|---|
+| `pendingRequests` | Reservas `requested` ainda no prazo, do `responseDeadline` mais curto para o mais longo. |
+| `awaitingPayment` | Só o total: `accepted` com o prazo de pagamento aberto (a vaga está segura, mas ainda pode expirar). |
+| `inProgress` | `in_progress` (o pet está em casa), da saída mais próxima; `checkedInAt` em cada item. |
+| `overdueCheckIns` | `confirmed` (paga) com o dia de chegada **já passado** (Brasília) e sem check-in, da mais antiga: o anfitrião esqueceu de marcar "Chegou" ou o pet não veio. Se ninguém marcar, a tarefa cancela no dia de saída com 50% de reembolso ([`modulo-bookings.md`](modulo-bookings.md) seção 7). |
+| `upcomingStays` | `confirmed` (paga, sem check-in) com chegada **hoje ou depois**, da mais próxima. |
+| `count` / `items` | `count` é o total do grupo; `items`, até **5**. A lista completa fica em `GET /bookings/me?status=...`. Sem telefone nem endereço do tutor (o contato continua no detalhe da reserva). |
+| `earnings.month` | O mês de `received`, `reversed`, `net`, `breakdown` e `completedStays` (`yyyy-MM`): o pedido em `?month=` ou o atual (Brasília). |
+| `received` | Soma de `host_payout_cents` das parcelas com `transferred_at` no mês (Brasília), antes de estornos. |
+| `reversed` / `net` | Estorno de contestação perdida com `reversed_at` no mês; líquido = repassado − estornado. |
+| `receivedPreviousMonth` | O mesmo do mês anterior ao `earnings.month`, para comparar. |
+| `receivedYearToDate` | Repassado de 1º de janeiro até o fim do `earnings.month`, antes de estornos. |
+| `completedStays` | Estadias com check-out no mês (do Bookings: `IBookingDirectory.CountCompletedStaysAsync`). |
+| `breakdown` | As parcelas repassadas no mês: `paidByOwners` (o que os tutores pagaram, multa incluída) − `refunded` (devolvido ao tutor) − `platformFee` (10% do PetHost) = `received`. `lateFees` é a parte de multa e juros, já dentro de `paidByOwners`. É a regra do dicionário (`platform_fee + host_payout = amount + late_fee − refunded`). |
+| `held` | Guardado agora (90% previstos das parcelas pagas ainda não repassadas; `total` = mesma conta do `payout.held` de "Ganhos"), pelo motivo: `awaitingCheckOut` (estadia não acabou), `disputed` (contestação aberta), `blocked` (o repasse não passou — Stripe bloqueou ou recusou — ou o reembolso falhou; a manutenção tenta de novo). Não muda com `?month=`. |
+| `expected` | O que ainda vai entrar: 90% do valor das parcelas não pagas (`pending`, `processing`, `overdue`) nos pagamentos em andamento (`active`), e quantas são. Sem multa futura. Não muda com `?month=`. |
+| `payoutsEnabled` | O Stripe libera os repasses. `false`: o painel avisa por que o dinheiro não chega. |
+
+As reservas, o `held` e o `expected` são sempre os de agora; `?month=` só muda os ganhos do mês — por isso o `month` da resposta fica dentro de `earnings`. A conta dos ganhos fica no domínio do Payments (`HostEarningsReport`). Pedido ou aceite com prazo vencido que a tarefa de expiração (a cada 5 min) ainda não fechou já não entra. As reservas vêm do Bookings (`IBookingDirectory.GetHostOverviewAsync`, com cantinho, tutor, nota e pets montados pelo mesmo builder da listagem) e os ganhos do Payments (`IPaymentDirectory.GetHostEarningsAsync`), uma leitura depois da outra (um `DbContext` não aceita consultas em paralelo).
 
 ## 4. Regras
 
@@ -485,8 +548,8 @@ As duas respostas vão com `Cache-Control: no-store`; o segredo e o link não s�
 | Projeto | O que cobre | Resultado |
 |---|---|---|
 | `Hosts.Domain.UnitTests` | Cadastro de recebimento (situação `rejected` para `rejected.*`, lembrete devido conforme a agenda — conta da aprovação se nem abriu, para em análise/recusado/inativo/suspenso, acaba depois do último —, pode abrir só ativo e sem suspensão, ligar a mesma conta de novo, recusar outra conta, espelho do Stripe: liberar/bloquear repasses, data da 1ª liberação, motivo normalizado, situação `not_started`…`enabled`, `IsListable`); `HostApplication` (abrir com histórico, tentativas, bloqueio, rascunho, fotos, foto repetida, enviar, aprovar criando o `Host`, recusar comum/definitiva, desistir, expirar, apagar fotos), valores dos enums, `Host` (verificação, `LinkStripeAccount`), `Cpf`, `Cnpj`, `CompanyAddress`, `CompanyDetails`; solicitação de empresa (abrir, corrigir os dados, recusar dados de empresa em pessoa física, aprovar criando o anfitrião empresa); ciclo do `Host` (inativar/reativar idempotentes, suspender, liberar CPF/CNPJ só de suspenso, suspensão que não sai depois da liberação, contato da empresa) | 171 ✅ |
-| `Hosts.Application.UnitTests` | Todos os casos de uso: abrir (CPF em uso, já anfitriã, corrida), corrigir, fotos (posse antes do upload, troca apaga a anterior, compensação quando gravar falha ou lança), enviar, desistir (prazo de guarda), fila/detalhe/foto do admin com trilha, aprovar (cria o host, apaga fotos, e-mail, conflito), recusar (pode ou não tentar de novo), limpeza, validadores, pessoa jurídica (CNPJ em uso, campos de empresa todos juntos na abertura, correção parcial da empresa completada com o rascunho, dado de empresa em pessoa física), CPF de outra pessoa pelo `ICpfOwnership`; perfil com a identidade travada (valor igual passa), contato da empresa, compensação, foto, inativar/reativar (com e sem perfil; com reserva em aberto recusa sem gravar nada), suspender/tirar/liberar com compensação e trilha (suspender cancela as reservas; conta que não pôde ser suspensa não cancela nada), leitura do admin; cadastro de recebimento (404 antes da aprovação, recusa de suspenso sem chamar o Stripe, conta criada uma vez e preenchida — PF e empresa —, reaproveitada depois, Stripe fora do ar sem gravar nada, link hospedado, sincronização liberando cantinhos com e-mail e trilha uma vez só, bloqueio na trilha, bloqueio com reservas em aberto alertando o admin uma vez com a lista, webhook de conta desconhecida); manutenção (releitura liberando quem perdeu o webhook, para no Stripe fora do ar, pula recusado e quem não tem conta, lembrete uma vez por etapa e não repetido se gravar falhar, lembrete para quem nem começou), recusa definitiva avisando anfitrião e admin uma vez só, filtro `stripeStatus` do admin (e 400), reset da conta recusada (nova tentativa com trilha e motivo, recusa de conta não recusada, 404, motivo obrigatório) | 130 ✅ |
-| `Hosts.IntegrationTests` | Ponta a ponta com Postgres, Redis e RustFS: fluxo completo até a aprovação, fotos no bucket privado e não no público, bucket privado sem leitura anônima, resposta da pessoa sem link, link assinado do admin abrindo a foto direto do bucket (`no-store`, vence em 5 min, URL adulterada dá 403), 403 para não admin, 400/409/422 das regras, recusa e nova tentativa, bloqueio por fraude, desistência apagando fotos, limpeza de rascunho abandonado, trilha, seed de demonstração (verificado, com Stripe, idempotente), empresa ponta a ponta até o anfitrião PJ, 400/409 de empresa, restrição 9 nos dois sentidos (tutor e anfitrião: mesmo e-mail pode, outro e-mail não), o ciclo do anfitrião (PATCH com trava, foto no bucket, inativar e reativar, suspensão que a senha não desfaz, liberação do CPF para a dona verdadeira, 403 para não admin, trilha) e o cadastro de recebimento com o **SDK do Stripe de verdade contra uma API do Stripe de mentira** (`FakeStripeApi`): 404 antes da aprovação, 403 para tutor, conta criada uma vez com o que foi enviado ao Stripe (país, CPF, nome, telefone, endereço, capacidades, chave de idempotência), link hospedado, 503 sem gravar nada, webhook assinado liberando o anfitrião na busca, bloqueio escondendo de novo, assinatura errada 400, conta desconhecida 200, Stripe fora na releitura 500; manutenção liberando o anfitrião sem webhook, lembrete por e-mail uma vez (dia 3), recusa (`rejected.fraud`) com e-mail ao anfitrião e ao admin, filtro `?stripeStatus=` do admin (e 400), recusado bloqueado no cadastro até o admin dar nova chance — conta nova com outra chave de idempotência, a recusada no histórico | 56 ✅ |
+| `Hosts.Application.UnitTests` | Todos os casos de uso: abrir (CPF em uso, já anfitriã, corrida), corrigir, fotos (posse antes do upload, troca apaga a anterior, compensação quando gravar falha ou lança), enviar, desistir (prazo de guarda), fila/detalhe/foto do admin com trilha, aprovar (cria o host, apaga fotos, e-mail, conflito), recusar (pode ou não tentar de novo), limpeza, validadores, pessoa jurídica (CNPJ em uso, campos de empresa todos juntos na abertura, correção parcial da empresa completada com o rascunho, dado de empresa em pessoa física), CPF de outra pessoa pelo `ICpfOwnership`; perfil com a identidade travada (valor igual passa), contato da empresa, compensação, foto, inativar/reativar (com e sem perfil; com reserva em aberto recusa sem gravar nada), suspender/tirar/liberar com compensação e trilha (suspender cancela as reservas; conta que não pôde ser suspensa não cancela nada), leitura do admin; cadastro de recebimento (404 antes da aprovação, recusa de suspenso sem chamar o Stripe, conta criada uma vez e preenchida — PF e empresa —, reaproveitada depois, Stripe fora do ar sem gravar nada, link hospedado, sincronização liberando cantinhos com e-mail e trilha uma vez só, bloqueio na trilha, bloqueio com reservas em aberto alertando o admin uma vez com a lista, webhook de conta desconhecida); manutenção (releitura liberando quem perdeu o webhook, para no Stripe fora do ar, pula recusado e quem não tem conta, lembrete uma vez por etapa e não repetido se gravar falhar, lembrete para quem nem começou), recusa definitiva avisando anfitrião e admin uma vez só, filtro `stripeStatus` do admin (e 400), reset da conta recusada (nova tentativa com trilha e motivo, recusa de conta não recusada, 404, motivo obrigatório); painel (404 antes da aprovação sem ler reservas nem ganhos, reservas e ganhos em reais com composição, guardado por motivo, previsto e estadias concluídas no mês de Brasília, mês de Brasília na virada do UTC, `month` no passado, 400 de formato e de mês no futuro) | 139 ✅ |
+| `Hosts.IntegrationTests` | Ponta a ponta com Postgres, Redis e RustFS: fluxo completo até a aprovação, fotos no bucket privado e não no público, bucket privado sem leitura anônima, resposta da pessoa sem link, link assinado do admin abrindo a foto direto do bucket (`no-store`, vence em 5 min, URL adulterada dá 403), 403 para não admin, 400/409/422 das regras, recusa e nova tentativa, bloqueio por fraude, desistência apagando fotos, limpeza de rascunho abandonado, trilha, seed de demonstração (verificado, com Stripe, idempotente), empresa ponta a ponta até o anfitrião PJ, 400/409 de empresa, restrição 9 nos dois sentidos (tutor e anfitrião: mesmo e-mail pode, outro e-mail não), o ciclo do anfitrião (PATCH com trava, foto no bucket, inativar e reativar, suspensão que a senha não desfaz, liberação do CPF para a dona verdadeira, 403 para não admin, trilha) e o cadastro de recebimento com o **SDK do Stripe de verdade contra uma API do Stripe de mentira** (`FakeStripeApi`): 404 antes da aprovação, 403 para tutor, conta criada uma vez com o que foi enviado ao Stripe (país, CPF, nome, telefone, endereço, capacidades, chave de idempotência), link hospedado, 503 sem gravar nada, webhook assinado liberando o anfitrião na busca, bloqueio escondendo de novo, assinatura errada 400, conta desconhecida 200, Stripe fora na releitura 500; manutenção liberando o anfitrião sem webhook, lembrete por e-mail uma vez (dia 3), recusa (`rejected.fraud`) com e-mail ao anfitrião e ao admin, filtro `?stripeStatus=` do admin (e 400), recusado bloqueado no cadastro até o admin dar nova chance — conta nova com outra chave de idempotência, a recusada no histórico; painel (404 antes da aprovação, vazio depois) | 57 ✅ |
 
 ## 11. Decisões e pendências
 
@@ -511,4 +574,6 @@ As duas respostas vão com `Cache-Control: no-store`; o segredo e o link não s�
 | Disponível só com `payouts_enabled` | Sem repasses liberados não dá para pagar a reserva ao anfitrião; o cantinho não pode ser reservado. |
 | Não inativa com reserva em aberto (`422`) | A conta inativa perde as sessões e não entra nem para responder, cancelar ou fazer o check-out: o pet poderia ficar numa estadia `in_progress` sem saída. A suspensão (admin) não é barrada: ela cancela as reservas que não começaram, e o admin encerra a estadia em andamento. |
 | Bloqueio do Stripe retém os repasses e alerta o admin, sem cancelar sozinho | O bloqueio costuma ser temporário (documento pendente): cancelar tudo puniria o tutor e o anfitrião por algo que se resolve. O dinheiro fica com a plataforma até o Stripe liberar ou o admin reembolsar. |
+| Chegada atrasada (paga, sem check-in, dia de chegada passado) num grupo próprio do painel | Na lista de próximas estadias ela parecia futura; separada, o anfitrião vê que precisa marcar "Chegou" — ou que o pet não veio. |
+| Painel numa rota do Hosts, com reservas e ganhos por contrato | A tela é do anfitrião; o Hosts não referencia outros módulos, então pergunta ao Bookings e ao Payments pelo `Shared.Contracts`. O "recebido no mês" sai pronto, pela data do repasse em Brasília, em vez de o app somar páginas de `/payouts/me`. |
 | Criar cantinho só depois do Stripe aprovar | Decisão sua: o cantinho só existe quando já pode ser reservado e pago. A ordem fica verificação → recebimento → cantinho. |

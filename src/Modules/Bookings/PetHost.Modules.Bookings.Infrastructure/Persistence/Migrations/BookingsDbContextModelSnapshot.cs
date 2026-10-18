@@ -44,6 +44,10 @@ namespace PetHost.Modules.Bookings.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(10)")
                         .HasColumnName("cancelled_by");
 
+                    b.Property<DateTimeOffset?>("CareTermsAcceptedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("care_terms_accepted_at");
+
                     b.Property<DateTimeOffset?>("CheckInRemindedAt")
                         .HasColumnType("timestamptz")
                         .HasColumnName("check_in_reminded_at");
@@ -94,6 +98,10 @@ namespace PetHost.Modules.Bookings.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("owner_id");
 
+                    b.Property<DateTimeOffset?>("PaymentRemindedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("payment_reminded_at");
+
                     b.Property<int>("PetCount")
                         .HasColumnType("integer")
                         .HasColumnName("pet_count");
@@ -109,6 +117,10 @@ namespace PetHost.Modules.Bookings.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset?>("RespondedAt")
                         .HasColumnType("timestamptz")
                         .HasColumnName("responded_at");
+
+                    b.Property<DateTimeOffset?>("ResponseRemindedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("response_reminded_at");
 
                     b.Property<string>("Status")
                         .IsRequired()

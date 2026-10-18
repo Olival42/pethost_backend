@@ -32,6 +32,10 @@ namespace PetHost.Modules.Bookings.Application.Bookings.Responses;
 /// A nota do tutor (o que os anfitriões escreveram dele: média com 1 casa e contagem), para o
 /// anfitrião decidir sobre o pedido. Só para o anfitrião e o admin; omitida enquanto ninguém avaliou.
 /// </param>
+/// <param name="CareTermsAcceptedAt">
+/// Quando o tutor confirmou que leva a ração e entrega os remédios (escopo, regra 8). Omitido nas
+/// reservas pedidas antes dessa confirmação existir.
+/// </param>
 public sealed record BookingResponse(
     Guid Id,
     string Status,
@@ -64,7 +68,8 @@ public sealed record BookingResponse(
     BookingContactResponse? Contact,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
-    BookingOwnerRatingResponse? OwnerRating = null);
+    BookingOwnerRatingResponse? OwnerRating = null,
+    DateTimeOffset? CareTermsAcceptedAt = null);
 
 /// <summary>Contato liberado depois da confirmação.</summary>
 /// <param name="Phone">Telefone do outro lado (nulo se a conta não tem).</param>

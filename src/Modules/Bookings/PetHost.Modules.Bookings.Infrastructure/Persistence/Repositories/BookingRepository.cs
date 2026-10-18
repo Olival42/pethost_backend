@@ -68,6 +68,9 @@ internal sealed class BookingRepository(BookingsDbContext dbContext) : IBookingR
         if (search.HostId is { } hostId)
             query = query.Where(b => b.HostId == hostId);
 
+        if (search.ListingId is { } listingId)
+            query = query.Where(b => b.ListingId == listingId);
+
         if (search.Statuses.Count > 0)
         {
             var statuses = search.Statuses.ToList();
@@ -146,6 +149,33 @@ internal sealed class BookingRepository(BookingsDbContext dbContext) : IBookingR
             .Take(limit)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
+
+    /// <summary>
+    /// Os prazos são calculados (<see cref="Booking.ResponseDeadline"/>, <see cref="Booking.PaymentDeadline"/>),
+    /// então o banco filtra por uma margem que os cobre — pedido de 20h atrás ou chegada em até 3 dias;
+    /// aceite de 18h atrás ou chegada até amanhã — e o domínio decide.
+    /// </summary>
+    public async Task<IReadOnlyList<Booking>> ListDeadlinesToRemindAsync(DateTimeOffset now, int limit, CancellationToken cancellationToken)
+    {
+        var utcNow = now.ToUniversalTime();
+        var today = BookingClock.Today(utcNow);
+        var requestedBefore = utcNow - (Booking.ResponseWindow - Booking.ResponseReminderLead);
+        var acceptedBefore = utcNow - (Booking.PaymentWindow - Booking.PaymentReminderLead);
+        var requestedCheckInUntil = today.AddDays(3);
+        var acceptedCheckInUntil = today.AddDays(1);
+
+        return await dbContext.Bookings
+            .Where(b =>
+                (b.Status == BookingStatus.Requested && b.ResponseRemindedAt == null
+                    && (b.RequestedAt <= requestedBefore || b.Period.CheckIn <= requestedCheckInUntil))
+                || (b.Status == BookingStatus.Accepted && b.PaymentRemindedAt == null
+                    && (b.RespondedAt <= acceptedBefore || b.Period.CheckIn <= acceptedCheckInUntil)))
+            .OrderBy(b => b.RequestedAt)
+            .ThenBy(b => b.Id)
+            .Take(limit)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+    }
 
     public void Add(Booking booking) => dbContext.Bookings.Add(booking);
 }

@@ -612,18 +612,18 @@ dotnet run --project src/Host/PetHost.Api
 |---|---|---|
 | `Shared.Kernel.UnitTests` | `Result`, `Map`, `BindAsync`, propagação de erros | 14 ✅ |
 | `Shared.Contracts.UnitTests` | Montagem do envelope e agrupamento de validação | 6 ✅ |
-| `Shared.Infrastructure.UnitTests` | Decorator de validação, código → status HTTP, `ToActionResult`, imagens (formato, remoção de metadados, troca), espera entre tentativas de e-mail | 66 ✅ |
+| `Shared.Infrastructure.UnitTests` | Decorator de validação, código → status HTTP, `ToActionResult`, imagens (formato, remoção de metadados, troca), espera entre tentativas de e-mail | 98 ✅ |
 | `Auth.Domain.UnitTests` | `User` (cadastro, 18+, inativar/reativar, perfil sem tocar `updatedAt` quando nada muda, troca da data de nascimento, suspensão com motivo e admin, sem suspender admin), `UserRoleValues` e todos os value objects (`Email`, `Password`, `PasswordHash`, `FullName`, `PhoneNumber`, `AvatarUrl`, `StateCode`, `ZipCode`, `Address`) | 130 ✅ |
 | `Auth.Application.UnitTests` | Handlers de sessão, senha, troca de senha logada e cadastro, a regra do PATCH de perfil (`ProfilePatch`) e os validadores, incluindo senha forte, endereço aninhado e data de nascimento no PATCH; login de conta suspensa, aviso por e-mail ao tirar a suspensão (conta ativa ou inativa, nada se não estava suspensa) e o que vai para a trilha (com Moq e `FakeTimeProvider`) | 83 ✅ |
 | `Auth.Infrastructure.UnitTests` | Argon2id (hash, verificação, PHC, entrada inválida) e geração de JWT | 32 ✅ |
-| `ArchitectureTests` | Regras de dependência do §4 nos dois módulos, fronteira do §5 (Auth, Owners e Audit não se referenciam), `sealed`, sincronia `Roles` ↔ `UserRoleValues` | 27 ✅ |
-| `Auth.IntegrationTests` | Corpo malformado, fluxo HTTP completo com Postgres e Redis reais em container (Testcontainers), banco limpo com Respawn, seed, rotação e concorrência do refresh, validação do JWT pelo host. Esqueci a senha e troca de senha ponta a ponta, com o SMTP trocado por um coletor que guarda os e-mails. PATCH do perfil, troca de senha logada (sessões antigas caem, a nova vale), inativar/reativar, contas da mesma pessoa, troca de conta, revogação imediata do access token, `Location` do cadastro, validação do cadastro com todos os campos. Rate limit numa instância com limites baixos (`429` no envelope com `Retry-After`, política própria por endpoint, limite geral por usuário, health check de fora). Data de nascimento no PATCH do anfitrião. Inativar/reativar pelo contrato `IAccountStatusManager`. Caixa de saída de e-mail: entregue sai da tabela, e-mail que sobrou de outra subida é entregue, SMTP fora deixa o e-mail na fila com a próxima tentativa agendada | 65 ✅ |
-| `Owners.*` | Ver [`modulo-owners.md`](modulo-owners.md) | 107 ✅ |
+| `ArchitectureTests` | Regras de dependência do §4 em todos os módulos, fronteira do §5 (nenhum módulo referencia outro: um `*ModuleBoundaryTests` por módulo), `sealed`, sincronia `Roles` ↔ `UserRoleValues` | 77 ✅ |
+| `Auth.IntegrationTests` | Corpo malformado, fluxo HTTP completo com Postgres e Redis reais em container (Testcontainers), banco limpo com Respawn, seed, rotação e concorrência do refresh, validação do JWT pelo host. Esqueci a senha e troca de senha ponta a ponta, com o SMTP trocado por um coletor que guarda os e-mails. PATCH do perfil, troca de senha logada (sessões antigas caem, a nova vale), inativar/reativar, contas da mesma pessoa, troca de conta, revogação imediata do access token, `Location` do cadastro, validação do cadastro com todos os campos. Rate limit numa instância com limites baixos (`429` no envelope com `Retry-After`, política própria por endpoint, limite geral por usuário, health check de fora). Data de nascimento no PATCH do anfitrião. Inativar/reativar pelo contrato `IAccountStatusManager`. Caixa de saída de e-mail: entregue sai da tabela, e-mail que sobrou de outra subida é entregue, SMTP fora deixa o e-mail na fila com a próxima tentativa agendada | 71 ✅ |
+| `Owners.*` | Ver [`modulo-owners.md`](modulo-owners.md) | 123 ✅ |
 | `Audit.*` | Ver [`modulo-audit.md`](modulo-audit.md) | 8 ✅ |
 
-**1003 testes passando** na solução (última execução), build com 0 avisos. Nomes no padrão `MethodName_Should_X_When_Y` (§14).
+**2277 testes sem Docker passando** na solução (última execução: unitários e de arquitetura de todos os módulos), build com 0 avisos. Nomes no padrão `MethodName_Should_X_When_Y` (§14).
 
-Como rodar (os de integração precisam do Docker Desktop ligado; a solução inteira tem 1852 testes):
+Como rodar (os de integração precisam do Docker Desktop ligado; a solução inteira tem 2698 testes, 421 deles de integração; os outros módulos estão nos documentos de cada um):
 
 ```bash
 dotnet test --solution PetHost.slnx
@@ -692,4 +692,5 @@ Bugs encontrados durante o desenvolvimento:
 
 | # | O quê | Impacto |
 |---|---|---|
-| 1 | E-mail não é verificado. | É o que obriga a troca de conta a pedir senha. A verificação seria: token por e-mail no cadastro (mesmo molde do "esqueci a senha"), `email_verified_at` em `users`, e só contas verificadas trocariam sem senha. 
+| 1 | E-mail não é verificado. | É o que obriga a troca de conta a pedir senha. A verificação seria: token por e-mail no cadastro (mesmo molde do "esqueci a senha"), `email_verified_at` em `users`, e só contas verificadas trocariam sem senha. |
+| 2 | Não dá para **excluir a conta** (LGPD, art. 18, VI: eliminação dos dados a pedido do titular); só inativar. | Para o projeto da faculdade (só dados de teste) fica registrado. A exclusão teria de anonimizar a pessoa (nome, e-mail, telefone, CPF, endereço, fotos no bucket) e manter o que a lei manda guardar ou o que o outro lado precisa: reservas e pagamentos (obrigação fiscal e contestação no Stripe), avaliações publicadas (sem o nome) e a trilha de auditoria. Barrada com reserva em aberto, como a inativação. Pede um contrato novo em `Shared.Contracts` para cada módulo apagar ou anonimizar a sua parte. |

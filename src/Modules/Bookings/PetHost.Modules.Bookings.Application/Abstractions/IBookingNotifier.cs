@@ -39,6 +39,18 @@ public interface IBookingNotifier
     /// </summary>
     Task NotifyCheckOutReminderAsync(BookingNotice notice, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Ao anfitrião: o pedido ainda espera resposta e o prazo acaba em poucas horas — depois disso ele
+    /// expira sozinho.
+    /// </summary>
+    Task NotifyResponseReminderAsync(BookingNotice notice, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Ao tutor: a reserva foi aceita, mas a 1ª parcela ainda não foi paga e o prazo acaba em poucas
+    /// horas — depois disso a reserva expira e a vaga volta.
+    /// </summary>
+    Task NotifyPaymentReminderAsync(BookingNotice notice, CancellationToken cancellationToken);
+
     /// <summary>Ao tutor e ao anfitrião: a plataforma concluiu a estadia (o check-out não foi feito a tempo).</summary>
     Task NotifyAutoCheckedOutAsync(BookingNotice notice, CancellationToken cancellationToken);
 }

@@ -42,6 +42,25 @@ public interface IBookingDirectory
     Task<IReadOnlyList<Guid>> ListOpenBookingIdsForHostAsync(Guid hostId, CancellationToken cancellationToken);
 
     /// <summary>
+    /// As reservas do anfitrião <paramref name="hostId"/> para o painel do Hosts: pedidos esperando
+    /// resposta, aceitas esperando pagamento, estadias em andamento e próximas estadias — o total de
+    /// cada grupo e, nas listas, no máximo <paramref name="itemLimit"/> itens, com cantinho, tutor
+    /// (nome, foto e nota) e pets. Sem telefone nem endereço.
+    /// </summary>
+    Task<HostBookingsOverview> GetHostOverviewAsync(Guid hostId, int itemLimit, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Quantas estadias do anfitrião <paramref name="hostId"/> foram concluídas (check-out) entre
+    /// <paramref name="checkedOutFrom"/> (inclusive) e <paramref name="checkedOutTo"/> (exclusive).
+    /// O painel do Hosts conta as do mês.
+    /// </summary>
+    Task<int> CountCompletedStaysAsync(
+        Guid hostId,
+        DateTimeOffset checkedOutFrom,
+        DateTimeOffset checkedOutTo,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// O pet foi pedido para um cantinho do anfitrião <paramref name="hostId"/> numa reserva
     /// ainda válida ou já concluída (solicitada, aceita, confirmada, em andamento ou concluída)?
     /// É o que deixa o anfitrião ler a ficha completa do pet. Recusada, expirada ou cancelada não conta.

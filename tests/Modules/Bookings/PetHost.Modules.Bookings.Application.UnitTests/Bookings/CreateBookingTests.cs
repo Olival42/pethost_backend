@@ -20,11 +20,12 @@ public sealed class CreateBookingCommandHandlerTests
     private Mock<IBookingListings> _listings = BookingsTestData.Listings();
     private Mock<IBookingPayments> _payments = BookingsTestData.Payments();
     private readonly Mock<IBookingNotifier> _notifier = new();
+    private readonly Mock<IBookingParties> _parties = BookingsTestData.Parties();
 
     private CreateBookingCommandHandler Sut() => new(
         _repository.Object,
         _unitOfWork.Object,
-        BookingsTestData.Parties().Object,
+        _parties.Object,
         _listings.Object,
         BookingsTestData.Pets().Object,
         _payments.Object,
@@ -38,7 +39,36 @@ public sealed class CreateBookingCommandHandlerTests
         listingId ?? BookingBuilder.ListingId,
         petIds.Length == 0 ? [BookingBuilder.PipocaId] : petIds,
         "2026-10-20",
-        "2026-10-25");
+        "2026-10-25",
+        CareTermsAccepted: true);
+
+    [Fact]
+    public async Task HandleAsync_Should_ReturnOwnListing_When_TheHostAccountIsTheSamePerson()
+    {
+        // Arrange: a conta de anfitrião do cantinho tem o mesmo e-mail da tutora (maiúsculas não importam).
+        _parties.Setup(p => p.GetHostsAsync(It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyCollection<Guid> ids, CancellationToken _) =>
+                ids.ToDictionary(id => id, id => new PartyInfo(id, "Camila Souza", null, null, BookingsTestData.OwnerEmail.ToUpperInvariant())));
+
+        // Act
+        var result = await Sut().HandleAsync(Command(), CancellationToken.None);
+
+        // Assert
+        result.FirstError.Should().Be(BookingsErrors.OwnListing);
+        _repository.Verify(r => r.Add(It.IsAny<Booking>()), Times.Never);
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+        _notifier.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task HandleAsync_Should_RecordWhenTheOwnerAcceptedTheCareTerms_When_TheRequestIsSaved()
+    {
+        // Act
+        var result = await Sut().HandleAsync(Command(), CancellationToken.None);
+
+        // Assert
+        result.Value!.CareTermsAcceptedAt.Should().Be(BookingBuilder.DefaultNow);
+    }
 
     [Fact]
     public async Task HandleAsync_Should_EmailOnlyTheHostWithTheDeadlineAndNoContact_When_TheRequestIsSaved()
@@ -192,7 +222,7 @@ public sealed class CreateBookingCommandValidatorTests
     private readonly CreateBookingCommandValidator _sut = new(new FakeTimeProvider(BookingBuilder.DefaultNow));
 
     private static CreateBookingCommand Valid() =>
-        new(Guid.CreateVersion7(), BookingBuilder.ListingId, [BookingBuilder.PipocaId], "2026-10-20", "2026-10-25");
+        new(Guid.CreateVersion7(), BookingBuilder.ListingId, [BookingBuilder.PipocaId], "2026-10-20", "2026-10-25", CareTermsAccepted: true);
 
     private List<string> Fields(CreateBookingCommand command) =>
         [.. _sut.Validate(command).Errors.Select(e => e.PropertyName)];
@@ -217,7 +247,19 @@ public sealed class CreateBookingCommandValidatorTests
         var fields = Fields(new CreateBookingCommand(Guid.CreateVersion7(), Guid.Empty, null, null, null));
 
         // Assert
-        fields.Should().BeEquivalentTo(["ListingId", "PetIds", "CheckIn", "CheckOut"]);
+        fields.Should().BeEquivalentTo(["ListingId", "PetIds", "CareTermsAccepted", "CheckIn", "CheckOut"]);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(null)]
+    public void Validate_Should_RequireTheCareTerms_When_TheOwnerDidNotConfirm(bool? accepted)
+    {
+        // Act
+        var messages = Messages(Valid() with { CareTermsAccepted = accepted });
+
+        // Assert
+        messages.Should().ContainSingle().Which.Should().Be(BookingsErrors.CareTermsNotAccepted.Message);
     }
 
     [Fact]

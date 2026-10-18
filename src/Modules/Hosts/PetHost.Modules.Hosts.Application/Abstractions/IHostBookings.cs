@@ -1,3 +1,5 @@
+using PetHost.Shared.Contracts.Bookings;
+
 namespace PetHost.Modules.Hosts.Application.Abstractions;
 
 /// <summary>
@@ -14,6 +16,15 @@ public interface IHostBookings
     /// chegada mais próxima para a mais distante.
     /// </summary>
     Task<IReadOnlyList<Guid>> ListOpenBookingIdsAsync(Guid hostId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// As reservas do anfitrião para o painel: pedidos novos, aceitas esperando pagamento, estadias
+    /// em andamento e próximas estadias (totais e, nas listas, até <paramref name="itemLimit"/> itens).
+    /// </summary>
+    Task<HostBookingsOverview> GetOverviewAsync(Guid hostId, int itemLimit, CancellationToken cancellationToken);
+
+    /// <summary>Estadias do anfitrião concluídas (check-out) entre <paramref name="from"/> (inclusive) e <paramref name="to"/> (exclusive).</summary>
+    Task<int> CountCompletedStaysAsync(Guid hostId, DateTimeOffset from, DateTimeOffset to, CancellationToken cancellationToken);
 
     /// <summary>
     /// O admin suspendeu o anfitrião: as reservas dele que ainda não começaram são canceladas pela

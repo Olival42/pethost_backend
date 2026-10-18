@@ -23,6 +23,8 @@ internal sealed class BookingEmailNotifier(IEmailOutbox outbox) : IBookingNotifi
     private const string CheckInReminderSubject = "PetHost — a estadia começa amanhã";
     private const string CheckOutReminderSubject = "PetHost — o pet já voltou pra casa? Marque o check-out";
     private const string AutoCheckedOutSubject = "PetHost — estadia concluída";
+    private const string ResponseReminderSubject = "PetHost — um pedido ainda espera a sua resposta";
+    private const string PaymentReminderSubject = "PetHost — falta pagar para garantir a reserva";
 
     private static readonly CultureInfo PtBr = CultureInfo.GetCultureInfo("pt-BR");
 
@@ -185,6 +187,40 @@ internal sealed class BookingEmailNotifier(IEmailOutbox outbox) : IBookingNotifi
                 "Hoje é o dia de saída desta estadia e o check-out ainda não foi feito.",
                 .. Summary(notice),
                 $"Quando o pet voltar pra casa, toque em \"Voltou pra casa\" no app: é isso que libera o seu repasse. Se não for marcado, concluímos a estadia sozinhos {Booking.AutoCheckOutAfterDays} dias depois do dia de saída.",
+            ],
+            cancellationToken);
+    }
+
+    public Task NotifyResponseReminderAsync(BookingNotice notice, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(notice);
+
+        return SendAsync(
+            notice,
+            ResponseReminderSubject,
+            [
+                $"Olá, {notice.Name}.",
+                $"{notice.OtherPartyName ?? "Um tutor"} ainda espera a sua resposta, e o prazo acaba em poucas horas.",
+                .. Summary(notice),
+                .. ResponseDeadline(notice),
+                "Abra o pedido no app para aceitar ou recusar. Se não puder receber o pet nessas datas, recusar já ajuda o tutor a procurar outro cantinho.",
+            ],
+            cancellationToken);
+    }
+
+    public Task NotifyPaymentReminderAsync(BookingNotice notice, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(notice);
+
+        return SendAsync(
+            notice,
+            PaymentReminderSubject,
+            [
+                $"Olá, {notice.Name}.",
+                $"{notice.OtherPartyName ?? "O anfitrião"} aceitou o seu pedido e está segurando a vaga, mas a 1ª parcela ainda não foi paga.",
+                .. Summary(notice),
+                .. PaymentDeadline(notice),
+                "Pague pelo app, com Pix ou cartão, à vista ou em até 6 parcelas. Se o Pix já foi feito, pode desconsiderar: a confirmação chega em instantes.",
             ],
             cancellationToken);
     }

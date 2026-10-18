@@ -19,6 +19,12 @@ internal sealed partial class HostBookings(
     public Task<IReadOnlyList<Guid>> ListOpenBookingIdsAsync(Guid hostId, CancellationToken cancellationToken) =>
         bookingDirectory.ListOpenBookingIdsForHostAsync(hostId, cancellationToken);
 
+    public Task<HostBookingsOverview> GetOverviewAsync(Guid hostId, int itemLimit, CancellationToken cancellationToken) =>
+        bookingDirectory.GetHostOverviewAsync(hostId, itemLimit, cancellationToken);
+
+    public Task<int> CountCompletedStaysAsync(Guid hostId, DateTimeOffset from, DateTimeOffset to, CancellationToken cancellationToken) =>
+        bookingDirectory.CountCompletedStaysAsync(hostId, from, to, cancellationToken);
+
     public async Task<int> CancelForSuspensionAsync(Guid hostId, CancellationToken cancellationToken)
     {
         try

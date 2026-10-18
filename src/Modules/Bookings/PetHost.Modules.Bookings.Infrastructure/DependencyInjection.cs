@@ -8,6 +8,7 @@ using PetHost.Modules.Bookings.Application.Bookings.CancelBooking;
 using PetHost.Modules.Bookings.Application.Bookings.CancelBookingsForSuspension;
 using PetHost.Modules.Bookings.Application.Bookings.CancelUnpaidBooking;
 using PetHost.Modules.Bookings.Application.Bookings.CloseOverdueStays;
+using PetHost.Modules.Bookings.Application.Bookings.RemindDeadlines;
 using PetHost.Modules.Bookings.Application.Bookings.RemindUpcomingStays;
 using PetHost.Modules.Bookings.Application.Bookings.CheckInBooking;
 using PetHost.Modules.Bookings.Application.Bookings.CheckOutBooking;
@@ -16,6 +17,7 @@ using PetHost.Modules.Bookings.Application.Bookings.CreateBooking;
 using PetHost.Modules.Bookings.Application.Bookings.DeclineBooking;
 using PetHost.Modules.Bookings.Application.Bookings.ExpireOverdueBookings;
 using PetHost.Modules.Bookings.Application.Bookings.GetBookingById;
+using PetHost.Modules.Bookings.Application.Bookings.ListBookings;
 using PetHost.Modules.Bookings.Application.Bookings.ListMyBookings;
 using PetHost.Modules.Bookings.Application.Bookings.Responses;
 using PetHost.Modules.Bookings.Domain.Bookings;
@@ -84,12 +86,14 @@ public static class DependencyInjection
         services.AddValidatedCommandHandler<ExpireOverdueBookingsCommandHandler, ExpireOverdueBookingsCommand, ExpireOverdueBookingsResponse>();
         services.AddValidatedCommandHandler<CloseOverdueStaysCommandHandler, CloseOverdueStaysCommand, CloseOverdueStaysResponse>();
         services.AddValidatedCommandHandler<RemindUpcomingStaysCommandHandler, RemindUpcomingStaysCommand, int>();
+        services.AddValidatedCommandHandler<RemindDeadlinesCommandHandler, RemindDeadlinesCommand, RemindDeadlinesResponse>();
         services.AddValidatedCommandHandler<ConfirmBookingPaymentCommandHandler, ConfirmBookingPaymentCommand, bool>();
         services.AddValidatedCommandHandler<CancelUnpaidBookingCommandHandler, CancelUnpaidBookingCommand, bool>();
         services.AddValidatedCommandHandler<CancelBookingsForSuspensionCommandHandler, CancelBookingsForSuspensionCommand, CancelBookingsForSuspensionResponse>();
 
         services.AddScoped<IQueryHandler<GetBookingByIdQuery, BookingResponse>, GetBookingByIdQueryHandler>();
         services.AddScoped<IQueryHandler<ListMyBookingsQuery, PagedResult<BookingResponse>>, ListMyBookingsQueryHandler>();
+        services.AddScoped<IQueryHandler<ListBookingsQuery, PagedResult<BookingResponse>>, ListBookingsQueryHandler>();
 
         services.AddOptions<BookingExpirationOptions>()
             .Bind(configuration.GetSection(BookingExpirationOptions.SectionName))

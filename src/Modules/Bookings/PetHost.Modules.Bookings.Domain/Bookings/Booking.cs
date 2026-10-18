@@ -75,6 +75,12 @@ public sealed class Booking : Entity<BookingId>
     /// </summary>
     public static readonly TimeSpan MinimumRequestNotice = ResponseWindow + MinimumAcceptNotice;
 
+    /// <summary>Quanto antes do fim do prazo de resposta o anfitrião é lembrado do pedido parado.</summary>
+    public static readonly TimeSpan ResponseReminderLead = TimeSpan.FromHours(4);
+
+    /// <summary>Quanto antes do fim do prazo de pagamento o tutor é lembrado da 1ª parcela.</summary>
+    public static readonly TimeSpan PaymentReminderLead = TimeSpan.FromHours(6);
+
     private readonly List<BookingPet> _pets = [];
 
     /// <summary>Construtor só para o EF Core materializar a entidade.</summary>
@@ -96,6 +102,8 @@ public sealed class Booking : Entity<BookingId>
         TotalPrice = Math.Round(listing.NightlyRate * period.Nights * petIds.Count, 2, MidpointRounding.AwayFromZero);
         Status = BookingStatus.Requested;
         RequestedAt = now;
+        // O pedido só chega aqui com a confirmação do tutor (validador do pedido; escopo, regra 8).
+        CareTermsAcceptedAt = now;
         CreatedAt = now;
         UpdatedAt = now;
     }
@@ -127,6 +135,18 @@ public sealed class Booking : Entity<BookingId>
 
     /// <summary>Quando o tutor pediu. Base do prazo de resposta de 24h.</summary>
     public DateTimeOffset RequestedAt { get; private set; }
+
+    /// <summary>
+    /// Quando o tutor confirmou que leva a ração e entrega os remédios ao anfitrião (escopo, regra 8).
+    /// Nulo só nas reservas pedidas antes dessa confirmação existir.
+    /// </summary>
+    public DateTimeOffset? CareTermsAcceptedAt { get; private set; }
+
+    /// <summary>Quando o anfitrião foi lembrado de responder o pedido, perto do fim do prazo.</summary>
+    public DateTimeOffset? ResponseRemindedAt { get; private set; }
+
+    /// <summary>Quando o tutor foi lembrado de pagar a 1ª parcela, perto do fim do prazo.</summary>
+    public DateTimeOffset? PaymentRemindedAt { get; private set; }
 
     /// <summary>Quando o anfitrião aceitou ou recusou.</summary>
     public DateTimeOffset? RespondedAt { get; private set; }
@@ -600,6 +620,44 @@ public sealed class Booking : Entity<BookingId>
             return false;
 
         CheckInRemindedAt = now;
+        UpdatedAt = now;
+
+        return true;
+    }
+
+    /// <summary>
+    /// O pedido continua sem resposta e faltam <see cref="ResponseReminderLead"/> ou menos para o
+    /// prazo (<see cref="ResponseDeadline"/>), sem lembrete ainda? Marca e devolve <c>true</c>: o
+    /// anfitrião é lembrado uma vez só. Prazo vencido não lembra (a tarefa de expiração fecha).
+    /// </summary>
+    public bool TakeResponseReminder(DateTimeOffset now)
+    {
+        if (Status != BookingStatus.Requested || ResponseRemindedAt is not null)
+            return false;
+
+        if (now < ResponseDeadline - ResponseReminderLead || now > ResponseDeadline)
+            return false;
+
+        ResponseRemindedAt = now;
+        UpdatedAt = now;
+
+        return true;
+    }
+
+    /// <summary>
+    /// Aceita e ainda sem a 1ª parcela paga, faltando <see cref="PaymentReminderLead"/> ou menos para o
+    /// prazo (<see cref="PaymentDeadline"/>), sem lembrete ainda? Marca e devolve <c>true</c>: o tutor é
+    /// lembrado uma vez só. Prazo vencido não lembra (a reserva expira).
+    /// </summary>
+    public bool TakePaymentReminder(DateTimeOffset now)
+    {
+        if (Status != BookingStatus.Accepted || PaymentRemindedAt is not null || PaymentDeadline is not { } deadline)
+            return false;
+
+        if (now < deadline - PaymentReminderLead || now > deadline)
+            return false;
+
+        PaymentRemindedAt = now;
         UpdatedAt = now;
 
         return true;

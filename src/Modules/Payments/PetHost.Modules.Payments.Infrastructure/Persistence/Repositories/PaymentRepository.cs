@@ -47,6 +47,13 @@ internal sealed class PaymentRepository(PaymentsDbContext dbContext) : IPaymentR
         return (items, total);
     }
 
+    public async Task<IReadOnlyList<Payment>> ListPaidByHostAsync(Guid hostId, CancellationToken cancellationToken) =>
+        await dbContext.Payments
+            .AsNoTracking()
+            .Where(p => p.HostId == hostId && p.Installments.Any(i => i.Status == InstallmentStatus.Paid))
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
     public async Task<IReadOnlyList<Payment>> ListNeedingAttentionAsync(CancellationToken cancellationToken) =>
         await dbContext.Payments
             .AsNoTracking()

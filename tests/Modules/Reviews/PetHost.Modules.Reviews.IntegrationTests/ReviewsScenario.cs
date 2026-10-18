@@ -65,6 +65,7 @@ internal sealed class ReviewsScenario(ReviewsApiFixture fixture, HttpClient clie
             petIds = new[] { petId },
             checkIn = Iso(arrival),
             checkOut = Iso(arrival.AddDays(2)),
+            careTermsAccepted = true,
         });
         requested.StatusCode.Should().Be(HttpStatusCode.Created);
         var bookingId = Data(await ReadAsync(requested)).GetProperty("id").GetGuid();

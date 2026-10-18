@@ -12,7 +12,8 @@ namespace PetHost.Modules.Conversations.Application.Conversations.StartConversat
 /// <summary>
 /// Abre a conversa do tutor com o anfitrião do cantinho, ou devolve a que a dupla já tem. Só o
 /// tutor puxa conversa, e precisa estar ativo e sem suspensão (<c>403 CONVERSATION_OWNER_DEACTIVATED</c>).
-/// O cantinho precisa aparecer na busca; senão, <c>404 CONVERSATION_LISTING_NOT_FOUND</c>.
+/// O cantinho precisa aparecer na busca; senão, <c>404 CONVERSATION_LISTING_NOT_FOUND</c>. A pessoa
+/// não conversa com a própria conta de anfitrião (mesmo e-mail): <c>422 CONVERSATION_OWN_LISTING</c>.
 /// </summary>
 /// <remarks>
 /// Duas aberturas ao mesmo tempo (duas abas) esbarram no índice único da dupla: a segunda recebe
@@ -43,6 +44,9 @@ public sealed class StartConversationCommandHandler(
         if (hostId is null)
             return Result<StartedConversation>.Failure(ConversationsErrors.ListingNotFound(command.ListingId));
 
+        if (await IsSamePersonAsync(owner.Value!.ProfileId, hostId.Value, cancellationToken).ConfigureAwait(false))
+            return Result<StartedConversation>.Failure(ConversationsErrors.OwnListing);
+
         var existing = await conversationRepository
             .FindByPartiesAsync(owner.Value!.ProfileId, hostId.Value, cancellationToken)
             .ConfigureAwait(false);
@@ -60,6 +64,20 @@ public sealed class StartConversationCommandHandler(
         await ConversationTrail.RecordStartedAsync(auditTrail, conversation, cancellationToken).ConfigureAwait(false);
 
         return await RespondAsync(conversation.Id, created: true, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Tutor e anfitrião são a mesma pessoa? As contas são separadas, mas o e-mail igual liga as duas
+    /// (troca de conta, restrição 9 do CPF).
+    /// </summary>
+    private async Task<bool> IsSamePersonAsync(Guid ownerId, Guid hostId, CancellationToken cancellationToken)
+    {
+        var owners = await conversationParties.GetContactsAsync(ConversationParty.Owner, [ownerId], cancellationToken).ConfigureAwait(false);
+        var hosts = await conversationParties.GetContactsAsync(ConversationParty.Host, [hostId], cancellationToken).ConfigureAwait(false);
+
+        return owners.TryGetValue(ownerId, out var owner)
+            && hosts.TryGetValue(hostId, out var host)
+            && string.Equals(owner.Email, host.Email, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Perdeu a corrida para outra abertura da mesma dupla: devolve a conversa que ficou.</summary>

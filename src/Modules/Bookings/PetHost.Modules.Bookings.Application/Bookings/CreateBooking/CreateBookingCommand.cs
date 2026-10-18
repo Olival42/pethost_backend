@@ -14,9 +14,14 @@ namespace PetHost.Modules.Bookings.Application.Bookings.CreateBooking;
 /// outras datas da API: data mal formada volta como erro do campo, junto com os outros.
 /// </param>
 /// <param name="CheckOut">Dia de saída, <c>yyyy-MM-dd</c> (depois da chegada, até 30 noites).</param>
+/// <param name="CareTermsAccepted">
+/// O tutor confirma que leva a ração e entrega os remédios ao anfitrião (escopo, regra 8).
+/// Obrigatório e <c>true</c>.
+/// </param>
 public sealed record CreateBookingCommand(
     Guid UserId,
     Guid ListingId,
     IReadOnlyList<Guid>? PetIds,
     string? CheckIn,
-    string? CheckOut) : ICommand<BookingResponse>;
+    string? CheckOut,
+    bool? CareTermsAccepted = null) : ICommand<BookingResponse>;

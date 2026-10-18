@@ -64,5 +64,13 @@ public interface IBookingRepository
     /// </summary>
     Task<IReadOnlyList<Booking>> ListCheckInsToRemindAsync(DateOnly checkIn, int limit, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Candidatas aos lembretes de prazo em <paramref name="now"/>: pedidos sem resposta e aceites sem
+    /// pagamento ainda não lembrados, perto do fim do prazo (a conta exata fica em
+    /// <see cref="Booking.TakeResponseReminder"/> e <see cref="Booking.TakePaymentReminder"/>). No máximo
+    /// <paramref name="limit"/>, as mais antigas primeiro. Rastreadas.
+    /// </summary>
+    Task<IReadOnlyList<Booking>> ListDeadlinesToRemindAsync(DateTimeOffset now, int limit, CancellationToken cancellationToken);
+
     void Add(Booking booking);
 }
