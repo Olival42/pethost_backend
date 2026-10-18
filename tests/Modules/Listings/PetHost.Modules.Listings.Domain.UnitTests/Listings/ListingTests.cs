@@ -107,6 +107,34 @@ public sealed class ListingTests
         changed.Should().BeTrue();
         listing.Address.Neighborhood.Should().Be("Zona 5");
         listing.Location.Latitude.Should().Be(-23.41m);
+        listing.Location.DistanceKmTo(listing.ApproximateLocation).Should().BeLessThan(0.5);
+    }
+
+    [Fact]
+    public void Create_Should_DrawAnApproximateLocationNearTheHome()
+    {
+        // Act
+        var listing = _builder.Build();
+
+        // Assert
+        listing.ApproximateLocation.Should().NotBe(listing.Location);
+        listing.Location.DistanceKmTo(listing.ApproximateLocation).Should().BeLessThan(0.5);
+    }
+
+    [Fact]
+    public void Relocate_Should_KeepTheApproximateLocation_When_OnlyTheAddressTextChanges()
+    {
+        // Arrange — complemento novo, mesma coordenada: sortear de novo deixaria cercar a casa pela média.
+        var listing = _builder.Build();
+        var approximate = listing.ApproximateLocation;
+        var sameSpot = new ListingBuilder().WithAddress(a => a with { Complement = "Fundos" });
+
+        // Act
+        var changed = listing.Relocate(sameSpot.BuildAddress(), _builder.BuildLocation(), Later);
+
+        // Assert
+        changed.Should().BeTrue();
+        listing.ApproximateLocation.Should().Be(approximate);
     }
 
     [Fact]

@@ -277,6 +277,8 @@ erDiagram
         char state
         decimal latitude
         decimal longitude
+        decimal approx_latitude
+        decimal approx_longitude
         enum home_type "nullable"
         boolean has_yard
         boolean has_dogs
@@ -681,6 +683,8 @@ O espaço que o anfitrião oferece (no app: "cantinho"). Schema `listing` (módu
 | `state` | `char(2)` |  | não | UF. |
 | `latitude` | `decimal(9,6)` |  | não | Coordenada do endereço, calculada pela API (geocodificação no Nominatim/OpenStreetMap), nunca enviada pelo cliente. Base da busca por raio ("2 km de você"). Não sai para quem não é o dono. |
 | `longitude` | `decimal(9,6)` |  | não | Idem. |
+| `approx_latitude` | `decimal(6,3)` |  | não | Ponto aproximado para o mapa público: a coordenada andada ao acaso até 0,4 km e arredondada para 3 casas; a casa fica sempre a menos de 500 m. Sorteado no cadastro e de novo só quando a coordenada muda. Base da busca por raio. Sai para todos. |
+| `approx_longitude` | `decimal(6,3)` |  | não | Idem. |
 | `home_type` | `enum` |  | sim | house ou apartment. Obrigatório para pessoa física; opcional para empresa (filial é espaço comercial). |
 | `has_yard` | `boolean` |  | não | Tem quintal. Gera o selo "Casa com quintal". |
 | `has_dogs` | `boolean` |  | não | Tem cães no espaço. Usado no "Combina com seu pet". |
@@ -699,7 +703,7 @@ O espaço que o anfitrião oferece (no app: "cantinho"). Schema `listing` (módu
 | `created_at` | `timestamptz` |  | não | Quando o registro foi criado (UTC). |
 | `updated_at` | `timestamptz` |  | não | Última alteração do registro (UTC). |
 
-> Índices: `ix_listings_host_id` ("meus cantinhos" e o limite da pessoa física) e o parcial `ix_listings_latitude_longitude_active` (`latitude, longitude` `WHERE is_active`), que filtra a caixa em volta do círculo na busca por raio. Extensão `unaccent` (schema `public`, migration `AddUnaccentExtension`) para os filtros de cidade e bairro. CHECKs: `ck_listings_home_type`, `ck_listings_capacity` (1–200), `ck_listings_nightly_rate` (10–10000), `ck_listings_accepted_species` (1–4095), `ck_listings_available_weekdays` (1–127), `ck_listings_latitude`, `ck_listings_longitude`. Só cantinho ativo de anfitrião ativo, sem suspensão e com `hosts.stripe_payouts_enabled` aparece na busca.
+> Índices: `ix_listings_host_id` ("meus cantinhos" e o limite da pessoa física) e o parcial `ix_listings_approx_latitude_approx_longitude_active` (`approx_latitude, approx_longitude` `WHERE is_active`), que filtra a caixa em volta do círculo na busca por raio. Extensão `unaccent` (schema `public`, migration `AddUnaccentExtension`) para os filtros de cidade e bairro. CHECKs: `ck_listings_home_type`, `ck_listings_capacity` (1–200), `ck_listings_nightly_rate` (10–10000), `ck_listings_accepted_species` (1–4095), `ck_listings_available_weekdays` (1–127), `ck_listings_latitude`, `ck_listings_longitude`, `ck_listings_approx_latitude`, `ck_listings_approx_longitude`. Só cantinho ativo de anfitrião ativo, sem suspensão e com `hosts.stripe_payouts_enabled` aparece na busca.
 
 ### `listing_photos` · Fotos do cantinho
 

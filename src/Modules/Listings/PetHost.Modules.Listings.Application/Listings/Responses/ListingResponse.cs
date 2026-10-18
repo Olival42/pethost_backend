@@ -6,7 +6,8 @@ namespace PetHost.Modules.Listings.Application.Listings.Responses;
 /// <summary>
 /// O cantinho inteiro. O dono (e o admin) recebe tudo; os outros recebem a <b>visão pública</b>:
 /// sem rua, número, complemento, CEP e coordenada (só o bairro, a cidade e a UF — escopo,
-/// regra 7). Campo nulo é omitido no JSON.
+/// regra 7). Para o mapa, todos recebem o ponto aproximado (<see cref="ApproximateLocation"/>).
+/// Campo nulo é omitido no JSON.
 /// </summary>
 /// <param name="Host">Nome e foto do anfitrião. Omitido em "meus cantinhos", onde vem uma vez no topo.</param>
 /// <param name="HomeType"><c>house</c> ou <c>apartment</c>. Omitido quando a empresa não informou.</param>
@@ -14,6 +15,7 @@ namespace PetHost.Modules.Listings.Application.Listings.Responses;
 /// <param name="NightlyRate">Diária por pet, em reais.</param>
 /// <param name="AvailableWeekdays">De segunda a domingo, ex.: <c>["monday", "friday"]</c>.</param>
 /// <param name="Location">Coordenada do endereço. Só para o dono.</param>
+/// <param name="ApproximateLocation">Ponto aproximado e o raio do círculo para o mapa. Para todos (o dono vê o que os tutores veem).</param>
 /// <param name="Photos">Até 5, na ordem: a primeira é a capa.</param>
 /// <param name="Badges">Selos automáticos, só no detalhe (<c>GET /listings/{id}</c>). Omitido nas outras rotas.</param>
 /// <param name="Rating">Nota dos tutores, só no detalhe. Omitida nas outras rotas e enquanto ninguém avaliou.</param>
@@ -38,6 +40,7 @@ public sealed record ListingResponse(
     IReadOnlyList<string> AvailableWeekdays,
     ListingAddressResponse Address,
     ListingLocationResponse? Location,
+    ListingApproximateLocationResponse ApproximateLocation,
     IReadOnlyList<ListingPhotoResponse> Photos,
     bool IsActive,
     DateTimeOffset? DeactivatedAt,
@@ -94,6 +97,7 @@ public sealed record ListingResponse(
             WeekdaysValues.ToWire(details.AvailableWeekdays),
             isOwnerView ? ListingAddressResponse.Full(listing.Address) : ListingAddressResponse.Public(listing.Address),
             isOwnerView ? new ListingLocationResponse(listing.Location.Latitude, listing.Location.Longitude) : null,
+            ListingApproximateLocationResponse.From(listing),
             [.. listing.Photos.Select(ListingPhotoResponse.From)],
             listing.IsActive,
             listing.DeactivatedAt,
@@ -131,6 +135,24 @@ public sealed record ListingAddressResponse(
 
 /// <summary>Coordenada do cantinho (só para o dono).</summary>
 public sealed record ListingLocationResponse(decimal Latitude, decimal Longitude);
+
+/// <summary>
+/// Onde o cantinho fica, mais ou menos: o mapa desenha um círculo de <paramref name="RadiusMeters"/> m
+/// em volta do ponto, não um alfinete. O ponto é sorteado e guardado (muda só quando o endereço
+/// muda) e a casa fica sempre dentro do círculo, mas nunca no centro de propósito.
+/// </summary>
+/// <param name="Latitude">Com 3 casas (~100 m).</param>
+/// <param name="Longitude">Com 3 casas (~100 m).</param>
+/// <param name="RadiusMeters">Raio do círculo: <c>500</c>.</param>
+public sealed record ListingApproximateLocationResponse(decimal Latitude, decimal Longitude, int RadiusMeters)
+{
+    public static ListingApproximateLocationResponse From(Listing listing)
+    {
+        ArgumentNullException.ThrowIfNull(listing);
+
+        return new(listing.ApproximateLocation.Latitude, listing.ApproximateLocation.Longitude, GeoPoint.ApproximateRadiusMeters);
+    }
+}
 
 /// <summary>Uma foto do cantinho.</summary>
 /// <param name="Id">Para substituir, tirar ou reordenar: <c>/listings/{listingId}/photos/{id}</c>.</param>

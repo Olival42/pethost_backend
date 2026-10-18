@@ -104,7 +104,7 @@ A ideia é que o produto não pareça um sistema genérico. Ele tem quatro princ
 | Item                                               | Por quê                                                         |
 |--------------------------------------------------------|---------------------------------------------------------------------|
 | **App nativo**                                         | A versão web responsiva já roda no celular.                         |
-| **Mapa**                                               | Bairro e distância bastam para a vizinhança. Entra se sobrar tempo. |
+| **Mapa**                                               | Bairro e distância bastam para a vizinhança. Entra se sobrar tempo. (O backend já manda o ponto aproximado — item 2 da seção 3.3.) |
 | **Diário separado**                                    | O chat com foto faz esse papel.                                     |
 | **Verificação automática de identidade**               | Stripe Identity não atende conta brasileira (out/2026); serviços nacionais (Serpro Datavalid, unico, idwall) são pagos. A conferência é manual, pelo admin. |
 | **Notificação push e por e-mail**                      | Aviso dentro do app (contador de não lidas).                        |
@@ -116,7 +116,7 @@ A ideia é que o produto não pareça um sistema genérico. Ele tem quatro princ
 
 ### 3.3 Se sobrar tempo (nessa ordem)
 1. ~~Recuperar senha por e-mail~~ — feito: `POST /api/v1/auth/password/forgot` e `/reset` ([`modulo-auth.md`](modulo-auth.md) seção 2.4).
-2. Mapa com Leaflet e OpenStreetMap (gratuito).
+2. Mapa com Leaflet e OpenStreetMap (gratuito). Backend feito: a busca e o detalhe trazem `approximateLocation` (ponto deslocado e arredondado, círculo de 500 m, nunca a casa — regra 7) ([`modulo-listings.md`](modulo-listings.md) seção 5.3). Falta a tela no front.
 3. ~~Avisos por e-mail (pedido novo)~~ — feito: o anfitrião recebe o pedido novo com o prazo para responder. Também feitos: reserva aceita e recusada (ao tutor), confirmada depois do pagamento e cancelada (aos dois); parcela paga, lembrete de vencimento, atraso (e o lembrete semanal do atraso) e reembolso (ao tutor); repasse e estorno (ao anfitrião); alertas de pagamento ao admin.
 4. ~~Filtro por faixa de preço~~ — feito: `minNightlyRate` e `maxNightlyRate` na busca ([`modulo-listings.md`](modulo-listings.md) seção 5).
 

@@ -185,7 +185,10 @@ internal sealed class ListingRepository(ListingsDbContext dbContext) : IListingR
         return listings;
     }
 
-    /// <summary>Só os de dentro do círculo, do mais perto para o mais longe.</summary>
+    /// <summary>
+    /// Só os de dentro do círculo, do mais perto para o mais longe. Conta a partir do ponto
+    /// aproximado: com a coordenada exata, a distância de várias origens entregaria a casa.
+    /// </summary>
     private static IQueryable<Ranked> WithinRadius(IQueryable<Listing> listings, SearchArea area)
     {
         var originLat = (double)area.Origin.Latitude;
@@ -204,18 +207,18 @@ internal sealed class ListingRepository(ListingsDbContext dbContext) : IListingR
         var maxLng = area.Origin.Longitude + lngDelta;
 
         return listings
-            .Where(l => l.Location.Latitude >= minLat && l.Location.Latitude <= maxLat)
-            .Where(l => l.Location.Longitude >= minLng && l.Location.Longitude <= maxLng)
+            .Where(l => l.ApproximateLocation.Latitude >= minLat && l.ApproximateLocation.Latitude <= maxLat)
+            .Where(l => l.ApproximateLocation.Longitude >= minLng && l.ApproximateLocation.Longitude <= maxLng)
             .Select(l => new
             {
                 l.Id,
                 l.CreatedAt,
                 // Haversine; LEAST(1, ...) protege o asin de um arredondamento acima de 1.
                 DistanceKm = 2 * GeoPoint.EarthRadiusKm * Math.Asin(Math.Min(1.0, Math.Sqrt(
-                    Math.Pow(Math.Sin((((double)l.Location.Latitude * DegreesToRadians) - originLatRad) / 2), 2)
+                    Math.Pow(Math.Sin((((double)l.ApproximateLocation.Latitude * DegreesToRadians) - originLatRad) / 2), 2)
                     + (cosOriginLat
-                        * Math.Cos((double)l.Location.Latitude * DegreesToRadians)
-                        * Math.Pow(Math.Sin((((double)l.Location.Longitude * DegreesToRadians) - originLngRad) / 2), 2))))),
+                        * Math.Cos((double)l.ApproximateLocation.Latitude * DegreesToRadians)
+                        * Math.Pow(Math.Sin((((double)l.ApproximateLocation.Longitude * DegreesToRadians) - originLngRad) / 2), 2))))),
             })
             .Where(x => x.DistanceKm <= radiusKm)
             .OrderBy(x => x.DistanceKm)

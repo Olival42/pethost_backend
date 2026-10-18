@@ -51,4 +51,54 @@ public sealed class GeoPointTests
         // Assert
         distance.Should().BeApproximately(80, 2);
     }
+
+    [Fact]
+    public void Approximate_Should_StayInsideTheMapCircle_And_RoundToThreeDecimals()
+    {
+        // Arrange
+        var home = GeoPoint.Create(-23.425269m, -51.938604m).Value!;
+        var random = new Random(42);
+
+        for (var i = 0; i < 1000; i++)
+        {
+            // Act
+            var approximate = home.Approximate(random);
+
+            // Assert
+            home.DistanceKmTo(approximate).Should().BeLessThan(GeoPoint.ApproximateRadiusMeters / 1000.0);
+            approximate.Latitude.Scale.Should().BeLessThanOrEqualTo(GeoPoint.ApproximateDecimals);
+            approximate.Longitude.Scale.Should().BeLessThanOrEqualTo(GeoPoint.ApproximateDecimals);
+        }
+    }
+
+    [Fact]
+    public void Approximate_Should_MoveThePoint_When_TheDrawIsNotZero()
+    {
+        // Arrange
+        var home = GeoPoint.Create(-23.425269m, -51.938604m).Value!;
+        var random = new Random(7);
+
+        // Act
+        var draws = Enumerable.Range(0, 200).Select(_ => home.Approximate(random)).ToList();
+
+        // Assert — espalha em volta: não fica no ponto nem sempre no mesmo lugar.
+        draws.Should().NotContain(home);
+        // Num disco de 0,4 km cabem umas 50 células de 0,001°.
+        draws.Distinct().Count().Should().BeGreaterThan(30);
+        draws.Average(p => home.DistanceKmTo(p)).Should().BeGreaterThan(0.15);
+    }
+
+    [Fact]
+    public void Approximate_Should_StayInRange_When_PointIsAtTheEdgeOfTheMap()
+    {
+        // Arrange
+        var corner = GeoPoint.Create(90m, 180m).Value!;
+
+        // Act
+        var approximate = corner.Approximate(new Random(1));
+
+        // Assert
+        approximate.Latitude.Should().BeInRange(-90m, 90m);
+        approximate.Longitude.Should().BeInRange(-180m, 180m);
+    }
 }

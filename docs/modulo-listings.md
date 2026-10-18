@@ -17,6 +17,7 @@ O **cantinho** é o espaço que o anfitrião oferece — o "quarto" da metáfora
   - [5. Busca, filtros e geocodificação](#5-busca-filtros-e-geocodificação)
     - [5.1 Selos](#51-selos)
     - [5.2 "Combina com seu pet"](#52-combina-com-seu-pet)
+    - [5.3 Ponto aproximado (mapa)](#53-ponto-aproximado-mapa)
   - [6. Fotos (até 5, em ordem)](#6-fotos-até-5-em-ordem)
     - [6.1 Agenda (datas bloqueadas)](#61-agenda-datas-bloqueadas)
   - [7. Banco](#7-banco)
@@ -65,7 +66,7 @@ src/Modules/Listings/
 | `POST` | `/api/v1/listings` | host | Cadastra um cantinho. `201` + `Location`. |
 | `GET` | `/api/v1/listings?[radiusKm=][&latitude=&longitude=][&state=&city=&neighborhood=][&species=&sizes=&weekdays=][&minNightlyRate=&maxNightlyRate=][&minCapacity=][&hasYard=][&homeType=][&hasDogs=&hasCats=&hasKids=][&checkIn=&checkOut=][&pets=][&page=&pageSize=]` | público (com ou sem login) | Busca com filtros somados; por raio (do mais perto ao mais longe) ou só por lugar (do mais novo ao mais antigo). Sem login e sem coordenada nem lugar, lista todos (do mais novo ao mais antigo). Com datas, só cantinhos com vaga. Cada item com os selos. Paginada. |
 | `GET` | `/api/v1/listings/me` | host | Todos os cantinhos do anfitrião logado (ativos e inativos), `{ host, listings }`, sem paginação. |
-| `GET` | `/api/v1/listings/{listingId}` | qualquer logado | Um cantinho. Dono: tudo, inclusive inativo. Outros: visão pública, só se ativo. |
+| `GET` | `/api/v1/listings/{listingId}` | público (com ou sem login) | Um cantinho. Dono: tudo, inclusive inativo. Outros (inclusive sem login): visão pública, só se ativo. |
 | `GET` | `/api/v1/listings/{listingId}/compatibility?petId=[&checkIn=&checkOut=]` | owner | "Combina com seu pet": avisos do pet do tutor logado no cantinho e, com datas, os outros hóspedes do período. Só avisa (seção 5.2). |
 | `PATCH` | `/api/v1/listings/{listingId}` | host dono | Altera (só o que vier). Endereço novo recalcula a coordenada. |
 | `POST` | `/api/v1/listings/{listingId}/deactivation` | host dono | Inativa. Idempotente. Com reserva em aberto: `422 LISTING_HAS_OPEN_BOOKING`. |
@@ -78,7 +79,7 @@ src/Modules/Listings/
 | `POST` | `/api/v1/listings/{listingId}/availability-blocks` | host dono | Fecha datas: `{ "startDate", "endDate", "reason"? }`. `201`. |
 | `DELETE` | `/api/v1/listings/{listingId}/availability-blocks/{blockId}` | host dono | Reabre as datas de um bloqueio. Devolve a agenda como ficou. |
 
-"Por id" serve aos dois casos pedidos: o anfitrião logado vê o **seu** cantinho completo (inclusive inativo) e qualquer outra conta vê o cantinho ativo na visão pública. Cantinho de outro anfitrião nas rotas de alteração responde `404 LISTING_NOT_FOUND` (§8: recurso de outra conta é 404).
+"Por id" serve aos dois casos pedidos: o anfitrião logado vê o **seu** cantinho completo (inclusive inativo) e qualquer outra pessoa — logada ou não, como na busca — vê o cantinho ativo na visão pública (sem login, nunca o selo `neighbor`). Cantinho de outro anfitrião nas rotas de alteração responde `404 LISTING_NOT_FOUND` (§8: recurso de outra conta é 404).
 
 ### 3.1 Corpo do cadastro / PATCH
 
@@ -108,11 +109,11 @@ src/Modules/Listings/
 
 ### 3.2 Resposta
 
-`ListingResponse`: `id`, `hostId`, `host` (`{ id, name, avatarUrl, isCompany, isAvailable }` — empresa pelo nome fantasia), os campos acima, `address`, `location` (`{ latitude, longitude }`), `photos` (`[{ id, url, position }]`), `isActive`, `deactivatedAt`, `createdAt`, `updatedAt`.
+`ListingResponse`: `id`, `hostId`, `host` (`{ id, name, avatarUrl, isCompany, isAvailable }` — empresa pelo nome fantasia), os campos acima, `address`, `location` (`{ latitude, longitude }`), **`approximateLocation`** (`{ latitude, longitude, radiusMeters }`, seção 5.3), `photos` (`[{ id, url, position }]`), `isActive`, `deactivatedAt`, `createdAt`, `updatedAt`.
 
-**Visão pública** (quem não é dono nem admin): `address` só com `neighborhood`, `city` e `state`; sem `zipCode`, `street`, `number`, `complement` e sem `location` (escopo, regra 7: endereço só depois do pagamento; "Bairro, não coordenada").
+**Visão pública** (quem não é dono nem admin): `address` só com `neighborhood`, `city` e `state`; sem `zipCode`, `street`, `number`, `complement` e sem `location` (escopo, regra 7: endereço só depois do pagamento; "Bairro, não coordenada"). O `approximateLocation` sai para todos, inclusive o dono (ele vê o que os tutores veem).
 
-Item da busca (`ListingSummaryResponse`): `id`, `hostId`, `host`, `title`, `neighborhood`, `city`, `state`, **`distanceKm`** (1 casa; omitido na busca sem raio), `nightlyRate`, `capacity`, `homeType`, `hasYard`, `acceptedSpecies`, `accepts*`, `availableWeekdays`, `coverPhotoUrl`, **`badges`** (selos, seção 5.1), **`rating`** (`{ average, count }`, nota dos tutores com 1 casa; omitida enquanto ninguém avaliou). Nunca endereço nem coordenada. O detalhe (`GET /listings/{id}`) também traz `badges` e `rating`.
+Item da busca (`ListingSummaryResponse`): `id`, `hostId`, `host`, `title`, `neighborhood`, `city`, `state`, **`distanceKm`** (1 casa, até o ponto aproximado; omitido na busca sem raio), **`approximateLocation`** (seção 5.3), `nightlyRate`, `capacity`, `homeType`, `hasYard`, `acceptedSpecies`, `accepts*`, `availableWeekdays`, `coverPhotoUrl`, **`badges`** (selos, seção 5.1), **`rating`** (`{ average, count }`, nota dos tutores com 1 casa; omitida enquanto ninguém avaliou). Nunca endereço nem a coordenada exata. O detalhe (`GET /listings/{id}`) também traz `badges` e `rating`.
 
 ## 4. Regras
 
@@ -166,7 +167,7 @@ Listas aceitam o parâmetro repetido (`species=dog&species=cat`) ou separado por
 
 **O que aparece:** só cantinhos **ativos** de anfitrião **ativo, sem suspensão e com os repasses liberados pelo Stripe** (`hosts.stripe_payouts_enabled`, cadastro de recebimento concluído — [`modulo-hosts.md`](modulo-hosts.md) seção 9) — `IHostDirectory.GetUnavailableIdsAsync`. Vale também para o detalhe (`GET /listings/{id}`) visto por outra conta: `404`. Se o Stripe bloquear os repasses **depois**, os cantinhos já criados somem para os outros, mas o anfitrião continua vendo e editando (em `host.payoutsEnabled` da resposta ele vê `false`). Paginação padrão (§13).
 
-**No banco** (`ListingRepository.SearchAsync`): (1) cada filtro enviado vira mais um `AND` (espécies e dias por máscara de bits: `(accepted_species & x) = x`); (2) na busca por raio, uma caixa em volta do círculo filtra por `latitude`/`longitude` (índice parcial `ix_listings_latitude_longitude_active`) e a distância exata é calculada no Postgres pela fórmula de **haversine** (`asin`, `sin`, `cos`, `power`, `LEAST`); (3) conta, ordena e pagina; (4) carrega só os cantinhos da página, com as fotos. Sem PostGIS: para o volume do MVP (uma cidade) é suficiente.
+**No banco** (`ListingRepository.SearchAsync`): (1) cada filtro enviado vira mais um `AND` (espécies e dias por máscara de bits: `(accepted_species & x) = x`); (2) na busca por raio, uma caixa em volta do círculo filtra pelo **ponto aproximado** (`approx_latitude`/`approx_longitude`, índice parcial `ix_listings_approx_latitude_approx_longitude_active`) e a distância é calculada no Postgres pela fórmula de **haversine** (`asin`, `sin`, `cos`, `power`, `LEAST`); (3) conta, ordena e pagina; (4) carrega só os cantinhos da página, com as fotos. Sem PostGIS: para o volume do MVP (uma cidade) é suficiente.
 
 ### 5.1 Selos
 
@@ -229,6 +230,20 @@ Configuração (seção `Geocoding`, todos com padrão):
 
 Nos testes de integração o geocodificador é trocado por um falso (`FakeGeocoder`): nenhum teste depende de serviço externo.
 
+### 5.3 Ponto aproximado (mapa)
+
+O front mostra os resultados num mapa (Leaflet + OpenStreetMap, gratuito e sem chave) com um **círculo** por cantinho, nunca um alfinete na casa. Cada cantinho e cada item da busca trazem:
+
+```json
+"approximateLocation": { "latitude": -23.413, "longitude": -51.929, "radiusMeters": 500 }
+```
+
+- **Como sai** (`GeoPoint.Approximate`): a coordenada exata andada ao acaso até **0,4 km** em qualquer direção (uniforme no disco) e arredondada para **3 casas** (~100 m). O deslocamento mais o arredondamento ficam abaixo de 0,5 km: **a casa está sempre dentro do círculo de 500 m**, mas o centro não é ela.
+- **Sorteado uma vez e guardado** (`approx_latitude`, `approx_longitude`). Toda leitura devolve o mesmo ponto; sorteia de novo só quando a coordenada muda (endereço novo no PATCH). Trocar só o complemento não sorteia.
+- **A busca por raio usa esse ponto** (filtro, ordem e `distanceKm`), não o exato: a distância tem erro de até 0,5 km, e nada que a busca devolve deixa chegar à casa.
+- O dono continua recebendo o `location` exato, além do aproximado.
+- Leaflet: `L.circle([lat, lng], { radius: radiusMeters })`.
+
 ## 6. Fotos (até 5, em ordem)
 
 Mesmo fluxo das fotos de pet ([`armazenamento-de-imagens.md`](armazenamento-de-imagens.md)): bucket público, pasta `listings/`, formato conferido pelo conteúdo, metadados removidos, `ImageReplacement` (troca apaga a antiga; falha desfaz). A posse é conferida antes do upload.
@@ -267,9 +282,9 @@ Trilha: `listing.dates_blocked` e `listing.dates_unblocked` (alvo `listing`, com
 
 ## 7. Banco
 
-Schema `listing`, migrations `CreateListingsTables`, `AddUnaccentExtension` e `AddAvailabilityBlocks`.
+Schema `listing`, migrations `CreateListingsTables`, `AddUnaccentExtension`, `AddAvailabilityBlocks` e `AddApproximateLocation` (colunas do ponto aproximado, sorteio para os cantinhos que já existiam e troca do índice da busca).
 
-- `listing.listings`: colunas do [dicionário](dicionario-de-dados.md#listings--cantinhos). `host_id` **não é único** (empresa tem filiais); índice `ix_listings_host_id`. Conjuntos em bits: `accepted_species` (`int`, 12 bits) e `available_weekdays` (`smallint`, 7 bits, `1 << DayOfWeek`). CHECKs: tipo da casa, capacidade (1–200), diária (10–10000), bits (> 0 e dentro do conjunto), latitude e longitude.
+- `listing.listings`: colunas do [dicionário](dicionario-de-dados.md#listings--cantinhos). `host_id` **não é único** (empresa tem filiais); índice `ix_listings_host_id`. Conjuntos em bits: `accepted_species` (`int`, 12 bits) e `available_weekdays` (`smallint`, 7 bits, `1 << DayOfWeek`). CHECKs: tipo da casa, capacidade (1–200), diária (10–10000), bits (> 0 e dentro do conjunto), latitude e longitude (exatas e aproximadas).
 - `listing.listing_photos`: FK física com `ON DELETE CASCADE`, posição 1–5 (CHECK), posição única **deferrable**, hash único por cantinho.
 - `listing.availability_blocks`: FK física para `listings` com `ON DELETE CASCADE`, CHECK `ck_availability_blocks_period` (`end_date >= start_date`), índice `ix_availability_blocks_listing_id_start_date_end_date` (pedido de reserva, agenda e busca por datas — `NOT EXISTS` do bloqueio que cruza o período).
 
@@ -294,9 +309,9 @@ O `IHostDirectory` ganhou `HostReference.IsSuspended` (com `IsCompany` e `IsAvai
 
 ## 9. Testes
 
-- **Domínio** (`Listings.Domain.UnitTests`): `ListingDetails` (cada regra, PF × PJ, diária, porte), `ListingAddress`, `GeoPoint` (faixas, haversine Maringá–Londrina), valores dos enums, `Listing` (limite PF/PJ, alterações, ativo/inativo, fotos e reordenação), `AvailabilityBlock` (datas inclusivas, um dia só, todos os erros de campo juntos, até 365 dias, "hoje" em Brasília, sobreposição nas pontas e englobando, dia seguinte livre, limite de 50), `PetCompatibility` (cada código, porte por tamanho aceito, sem porte, espécie desconhecida, a ordem com vários avisos).
-- **Application** (`Listings.Application.UnitTests`): cada handler, caminho feliz e cada falha (busca e detalhe pedem o endereço com o papel do token; inativar com reserva em aberto recusa sem gravar nem ir para a trilha; já inativo não consulta as reservas; limite sem consultar o mapa, endereço não achado, mapa fora, posse, visão pública × dono, busca por coordenada e por endereço da conta, busca só por lugar sem mapa, lugar + raio, todos os filtros somados, filtros inválidos, datas da busca seguindo para o filtro da agenda; agenda: bloquear com trilha sem o motivo, sobreposição sem gravar, 404 de outro anfitrião, 403 de suspenso, validador com todos os campos (inclusive o início conferido quando o fim é ilegível), reabrir devolvendo o resto, bloqueio de outro cantinho, motivo só para dono e admin, 404 de cantinho inativo para os outros; "Combina com seu pet": sem datas não consulta as reservas, hóspede de outro tutor gera aviso e os do próprio tutor ficam de fora, `petId` e datas inválidas juntos sem ler o cantinho, cantinho inexistente/inativo/de anfitrião suspenso, conta sem tutor, pet de outro tutor, inativo ou inexistente).
-- **Integração** (`Listings.IntegrationTests`, Postgres + Redis + RustFS em container): cache do geocodificador no Redis (uma consulta por endereço, TTL de "achou" e "não achou", falha não guardada, valor ilegível ignorado, endereço fora da chave); cadastro PF/PJ, 400 com todos os campos, 403/404/422/503, visão pública, inativar/reativar, PATCH com nova coordenada, anfitrião empresa buscando sem coordenada a partir do endereço da empresa (e o pessoa física, do da conta), busca por raio (5/10/50 km, ordem, ocultar inativo e suspenso, endereço da conta), cadastro recusado (422) antes de o Stripe liberar os repasses, cantinho escondido da busca e do detalhe quando o Stripe bloqueia depois (o dono continua vendo), busca só por estado/cidade/bairro (sem distância, sem diferença de acento e maiúsculas), todos os filtros somados ao raio, tipo da casa e quem mora nela, curinga do `ILIKE` tratado como texto, 400 com todos os filtros inválidos, fotos com reordenação e compactação no banco. O "Combina com seu pet" ponta a ponta fica em `Bookings.IntegrationTests` (precisa de pets e de reservas aceitas): aviso do gato hospedado no período, sem datas sem `guests`, pet de outro tutor `404`, `petId` ausente `400`, anfitrião `403`.
+- **Domínio** (`Listings.Domain.UnitTests`): `ListingDetails` (cada regra, PF × PJ, diária, porte), `ListingAddress`, `GeoPoint` (faixas, haversine Maringá–Londrina, ponto aproximado sempre a menos de 500 m, com 3 casas e espalhado), valores dos enums, `Listing` (limite PF/PJ, alterações, sorteio do ponto aproximado no cadastro e só com coordenada nova, ativo/inativo, fotos e reordenação), `AvailabilityBlock` (datas inclusivas, um dia só, todos os erros de campo juntos, até 365 dias, "hoje" em Brasília, sobreposição nas pontas e englobando, dia seguinte livre, limite de 50), `PetCompatibility` (cada código, porte por tamanho aceito, sem porte, espécie desconhecida, a ordem com vários avisos).
+- **Application** (`Listings.Application.UnitTests`): cada handler, caminho feliz e cada falha (busca e detalhe pedem o endereço com o papel do token; inativar com reserva em aberto recusa sem gravar nem ir para a trilha; já inativo não consulta as reservas; limite sem consultar o mapa, endereço não achado, mapa fora, posse, visão pública × dono, detalhe sem login (visão pública, sem consultar endereço, inativo `404`), busca por coordenada e por endereço da conta, busca só por lugar sem mapa, lugar + raio, todos os filtros somados, filtros inválidos, datas da busca seguindo para o filtro da agenda; agenda: bloquear com trilha sem o motivo, sobreposição sem gravar, 404 de outro anfitrião, 403 de suspenso, validador com todos os campos (inclusive o início conferido quando o fim é ilegível), reabrir devolvendo o resto, bloqueio de outro cantinho, motivo só para dono e admin, 404 de cantinho inativo para os outros; "Combina com seu pet": sem datas não consulta as reservas, hóspede de outro tutor gera aviso e os do próprio tutor ficam de fora, `petId` e datas inválidas juntos sem ler o cantinho, cantinho inexistente/inativo/de anfitrião suspenso, conta sem tutor, pet de outro tutor, inativo ou inexistente).
+- **Integração** (`Listings.IntegrationTests`, Postgres + Redis + RustFS em container): cache do geocodificador no Redis (uma consulta por endereço, TTL de "achou" e "não achou", falha não guardada, valor ilegível ignorado, endereço fora da chave); cadastro PF/PJ, 400 com todos os campos, 403/404/422/503, visão pública, detalhe sem login (visão pública com o ponto aproximado; inativo `404`), inativar/reativar, PATCH com nova coordenada, anfitrião empresa buscando sem coordenada a partir do endereço da empresa (e o pessoa física, do da conta), busca por raio (5/10/50 km, ordem, ocultar inativo e suspenso, endereço da conta), cadastro recusado (422) antes de o Stripe liberar os repasses, ponto aproximado igual em toda busca e no detalhe, a menos de 500 m da casa, cantinho escondido da busca e do detalhe quando o Stripe bloqueia depois (o dono continua vendo), busca só por estado/cidade/bairro (sem distância, sem diferença de acento e maiúsculas), todos os filtros somados ao raio, tipo da casa e quem mora nela, curinga do `ILIKE` tratado como texto, 400 com todos os filtros inválidos, fotos com reordenação e compactação no banco. O "Combina com seu pet" ponta a ponta fica em `Bookings.IntegrationTests` (precisa de pets e de reservas aceitas): aviso do gato hospedado no período, sem datas sem `guests`, pet de outro tutor `404`, `petId` ausente `400`, anfitrião `403`.
 
 ## 10. Decisões e pendências
 
@@ -315,6 +330,9 @@ O `IHostDirectory` ganhou `HostReference.IsSuspended` (com `IsCompany` e `IsAvai
 | Sobreposição recusada em vez de juntar sozinho | Mais simples de entender e de desfazer: cada bloqueio é o que o anfitrião criou. |
 | Geocodificação no backend (Nominatim) | Pedido do produto: a coordenada sai do endereço, nunca do cliente. Gratuito, sem chave. |
 | Coordenada e rua escondidas na visão pública | Escopo, regra 7, e "Bairro, não coordenada". |
+| Ponto aproximado para o mapa, sorteado e guardado (2026-10-18) | Item 2 do "Se sobrar tempo" (Leaflet + OpenStreetMap). Círculo de 500 m em vez de alfinete, como o Airbnb. Guardado no banco em vez de calculado do id: com o algoritmo no repositório, um deslocamento derivado do id seria desfeito por qualquer um. Sorteia de novo só quando a coordenada muda (sortear a cada leitura deixaria achar a casa pela média). |
+| Busca por raio pelo ponto aproximado, não pelo exato (2026-10-18) | A busca aceita qualquer origem (`latitude`/`longitude`) e devolve a distância com 1 casa: com o ponto exato, três buscas de lugares diferentes triangulariam a casa. O erro de até 0,5 km não muda "2 km de você". |
+| Detalhe do cantinho público, sem login (2026-10-18) | Igual à busca: quem ainda não tem conta abre o cantinho que achou (fotos, bairro, círculo no mapa, nota). A visão pública já não tem nada que exija login; sem conta não há endereço, então nunca o selo `neighbor`. A agenda (`availability-blocks`) continua só para logados. |
 | Busca sem raio só com estado/cidade/bairro | Quem procura em outra cidade (viagem) não quer o raio de casa; sem nenhum lugar, o padrão continua "perto de casa" (10 km). |
 | Cidade/bairro com `unaccent` (extensão do Postgres) | O usuário digita "Maringa" ou "maringá"; sem índice (a função não é `IMMUTABLE`), o que basta para o volume do MVP. |
 | "Combina com seu pet" em rota própria, não no detalhe (2026-10-16) | O aviso depende do pet escolhido e das datas; o detalhe continua igual para todo mundo. Só avisa — quem aceita ou recusa é o anfitrião. |

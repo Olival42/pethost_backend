@@ -34,6 +34,7 @@ public sealed class Listing : Entity<ListingId>
         Details = null!;
         Address = null!;
         Location = null!;
+        ApproximateLocation = null!;
     }
 
     private Listing(Guid hostId, ListingDetails details, ListingAddress address, GeoPoint location, DateTimeOffset now)
@@ -43,6 +44,7 @@ public sealed class Listing : Entity<ListingId>
         Details = details;
         Address = address;
         Location = location;
+        ApproximateLocation = location.Approximate(Random.Shared);
         IsActive = true;
         CreatedAt = now;
         UpdatedAt = now;
@@ -57,6 +59,12 @@ public sealed class Listing : Entity<ListingId>
 
     /// <summary>Coordenada do endereço, vinda do geocodificador. Anda junto com <see cref="Address"/>.</summary>
     public GeoPoint Location { get; private set; }
+
+    /// <summary>
+    /// Ponto aproximado para o mapa de quem não é o dono (<see cref="GeoPoint.Approximate"/>).
+    /// Sorteado uma vez e guardado; um novo sorteio só quando a <see cref="Location"/> muda.
+    /// </summary>
+    public GeoPoint ApproximateLocation { get; private set; }
 
     /// <summary>Até <see cref="MaxPhotos"/> fotos, pela vaga: a primeira é a capa.</summary>
     public IReadOnlyList<ListingPhoto> Photos => [.. _photos.OrderBy(photo => photo.Position)];
@@ -132,7 +140,7 @@ public sealed class Listing : Entity<ListingId>
 
     /// <summary>
     /// Troca o endereço e a coordenada juntos (a coordenada sai do endereço). Igual ao atual não
-    /// é alteração. Devolve se mudou.
+    /// é alteração. Com coordenada nova, sorteia outro <see cref="ApproximateLocation"/>. Devolve se mudou.
     /// </summary>
     public bool Relocate(ListingAddress address, GeoPoint location, DateTimeOffset now)
     {
@@ -141,6 +149,9 @@ public sealed class Listing : Entity<ListingId>
 
         if (address == Address && location == Location)
             return false;
+
+        if (location != Location)
+            ApproximateLocation = location.Approximate(Random.Shared);
 
         Address = address;
         Location = location;
