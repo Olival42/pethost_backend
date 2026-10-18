@@ -19,6 +19,7 @@ using PetHost.Modules.Hosts.Application.HostApplications.UploadHostApplicationDo
 using PetHost.Modules.Hosts.Application.Hosts.ChangeMyHostAvatar;
 using PetHost.Modules.Hosts.Application.Hosts.DeactivateMyHost;
 using PetHost.Modules.Hosts.Application.Hosts.GetHostById;
+using PetHost.Modules.Hosts.Application.Hosts.GetMyDashboard;
 using PetHost.Modules.Hosts.Application.Hosts.GetMyHost;
 using PetHost.Modules.Hosts.Application.Hosts.ReactivateHost;
 using PetHost.Modules.Hosts.Application.Hosts.SuspendHost;
@@ -38,6 +39,7 @@ using PetHost.Modules.Hosts.Infrastructure.Accounts;
 using PetHost.Modules.Hosts.Infrastructure.Bookings;
 using PetHost.Modules.Hosts.Infrastructure.Contracts;
 using PetHost.Modules.Hosts.Infrastructure.Notifications;
+using PetHost.Modules.Hosts.Infrastructure.Payments;
 using PetHost.Modules.Hosts.Infrastructure.Payouts;
 using PetHost.Modules.Hosts.Infrastructure.Persistence;
 using PetHost.Modules.Hosts.Infrastructure.Persistence.Repositories;
@@ -79,6 +81,7 @@ public static class DependencyInjection
         services.AddScoped<IHostsUnitOfWork, HostsUnitOfWork>();
         services.AddScoped<IHostAccounts, HostAccounts>();
         services.AddScoped<IHostBookings, HostBookings>();
+        services.AddScoped<IHostEarnings, HostEarnings>();
         services.AddScoped<IHostApplicationNotifier, HostApplicationEmailNotifier>();
         services.AddScoped<IHostPayoutsNotifier, HostPayoutsEmailNotifier>();
 
@@ -163,6 +166,7 @@ public static class DependencyInjection
         services.AddScoped<IQueryHandler<GetHostApplicationByIdQuery, HostApplicationReviewResponse>, GetHostApplicationByIdQueryHandler>();
         services.AddScoped<IQueryHandler<GetHostApplicationDocumentQuery, HostApplicationDocumentLinkResponse>, GetHostApplicationDocumentQueryHandler>();
         services.AddScoped<IQueryHandler<GetMyHostQuery, HostResponse>, GetMyHostQueryHandler>();
+        services.AddScoped<IQueryHandler<GetMyDashboardQuery, HostDashboardResponse>, GetMyDashboardQueryHandler>();
 
         // Anfitrião verificado: cadastro de recebimento no Stripe.
         services.AddValidatedCommandHandler<

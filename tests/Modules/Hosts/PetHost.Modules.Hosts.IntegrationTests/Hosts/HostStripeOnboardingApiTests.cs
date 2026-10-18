@@ -173,6 +173,29 @@ public sealed class HostStripeOnboardingApiTests(HostsApiFixture fixture) : IAsy
     }
 
     [Fact]
+    public async Task Dashboard_Should_Return404BeforeApproval_AndEmptyPanelAfter()
+    {
+        // Arrange
+        var (pendingToken, _) = await RegisterHostAccountAsync("pendente@exemplo.com");
+        var approvedToken = await ApprovedHostAsync("cida@exemplo.com");
+
+        // Act
+        var notApproved = await SendAsync(HttpMethod.Get, "/api/v1/hosts/me/dashboard", pendingToken);
+        var empty = await SendAsync(HttpMethod.Get, "/api/v1/hosts/me/dashboard", approvedToken);
+
+        // Assert
+        notApproved.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        Code(notApproved).Should().Be("HOST_NOT_FOUND");
+        empty.StatusCode.Should().Be(HttpStatusCode.OK);
+        var data = Data(empty);
+        data.GetProperty("pendingRequests").GetProperty("count").GetInt32().Should().Be(0);
+        data.GetProperty("pendingRequests").GetProperty("items").GetArrayLength().Should().Be(0);
+        data.GetProperty("upcomingStays").GetProperty("count").GetInt32().Should().Be(0);
+        data.GetProperty("earnings").GetProperty("received").GetDecimal().Should().Be(0m);
+        data.GetProperty("earnings").GetProperty("payoutsEnabled").GetBoolean().Should().BeFalse();
+    }
+
+    [Fact]
     public async Task Synchronization_Should_Return404_When_OnboardingWasNotStarted()
     {
         // Arrange

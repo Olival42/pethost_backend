@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using PetHost.Modules.Bookings.Application.Bookings.Responses;
 using PetHost.Modules.Bookings.Domain.Bookings;
 using PetHost.Modules.Bookings.Infrastructure.Persistence;
 using PetHost.Shared.Contracts.Bookings;
@@ -7,8 +8,12 @@ namespace PetHost.Modules.Bookings.Infrastructure.Directory;
 
 /// <summary>
 /// Listings, o Conversations e o Payments consultam as reservas. Leitura direta das tabelas do schema <c>booking</c>.
+/// O painel do anfitrião (Hosts) reaproveita o <see cref="BookingResponseBuilder"/> para o cantinho, o tutor e os pets.
 /// </summary>
-internal sealed class BookingDirectory(BookingsDbContext dbContext) : IBookingDirectory
+internal sealed class BookingDirectory(
+    BookingsDbContext dbContext,
+    BookingResponseBuilder responseBuilder,
+    TimeProvider timeProvider) : IBookingDirectory
 {
     private static readonly BookingStatus[] Open =
         [BookingStatus.Requested, BookingStatus.Accepted, BookingStatus.Confirmed, BookingStatus.InProgress];
@@ -69,6 +74,87 @@ internal sealed class BookingDirectory(BookingsDbContext dbContext) : IBookingDi
             .ConfigureAwait(false);
 
         return [.. ids.Select(id => id.Value)];
+    }
+
+    /// <summary>
+    /// Traz as reservas em aberto do anfitrião (poucas no volume do MVP), separa na memória e monta só
+    /// os itens mostrados. Pedido e aceite com o prazo vencido — que a tarefa de expiração ainda não
+    /// fechou — já não contam.
+    /// </summary>
+    public async Task<HostBookingsOverview> GetHostOverviewAsync(Guid hostId, int itemLimit, CancellationToken cancellationToken)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(itemLimit);
+
+        var now = timeProvider.GetUtcNow();
+
+        var open = await dbContext.Bookings
+            .AsNoTracking()
+            .Where(b => b.HostId == hostId && Open.Contains(b.Status))
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var pending = open
+            .Where(b => b.Status == BookingStatus.Requested && !b.IsResponseOverdue(now))
+            .OrderBy(b => b.ResponseDeadline)
+            .ThenBy(b => b.RequestedAt)
+            .ToList();
+
+        var awaitingPayment = open.Count(b => b.Status == BookingStatus.Accepted && !b.IsPaymentOverdue(now));
+
+        var inProgress = open
+            .Where(b => b.Status == BookingStatus.InProgress)
+            .OrderBy(b => b.Period.CheckOut)
+            .ThenBy(b => b.Period.CheckIn)
+            .ToList();
+
+        // Paga e com a chegada já passada sem check-in: não é mais "próxima" — o anfitrião precisa
+        // marcar "Chegou" (ou o pet não veio, e a tarefa cancela no dia de saída).
+        var today = BookingClock.Today(now);
+        var confirmed = open
+            .Where(b => b.Status == BookingStatus.Confirmed)
+            .OrderBy(b => b.Period.CheckIn)
+            .ThenBy(b => b.RequestedAt)
+            .ToList();
+        var overdueCheckIns = confirmed.Where(b => b.Period.CheckIn < today).ToList();
+        var upcoming = confirmed.Where(b => b.Period.CheckIn >= today).ToList();
+
+        var shown = pending.Take(itemLimit)
+            .Concat(inProgress.Take(itemLimit))
+            .Concat(overdueCheckIns.Take(itemLimit))
+            .Concat(upcoming.Take(itemLimit))
+            .ToList();
+
+        var summaries = (await responseBuilder.BuildAsync(shown, BookingParty.Host, cancellationToken).ConfigureAwait(false))
+            .ToDictionary(response => response.Id, ToHostSummary);
+
+        return new HostBookingsOverview(
+            pending.Count,
+            [.. pending.Take(itemLimit).Select(b => summaries[b.Id.Value])],
+            awaitingPayment,
+            inProgress.Count,
+            [.. inProgress.Take(itemLimit).Select(b => summaries[b.Id.Value])],
+            overdueCheckIns.Count,
+            [.. overdueCheckIns.Take(itemLimit).Select(b => summaries[b.Id.Value])],
+            upcoming.Count,
+            [.. upcoming.Take(itemLimit).Select(b => summaries[b.Id.Value])]);
+    }
+
+    /// <summary>O Npgsql só grava <c>timestamptz</c> em UTC: o intervalo (que pode vir em Brasília) é convertido antes.</summary>
+    public Task<int> CountCompletedStaysAsync(
+        Guid hostId,
+        DateTimeOffset checkedOutFrom,
+        DateTimeOffset checkedOutTo,
+        CancellationToken cancellationToken)
+    {
+        var from = checkedOutFrom.ToUniversalTime();
+        var to = checkedOutTo.ToUniversalTime();
+
+        return dbContext.Bookings
+            .AsNoTracking()
+            .CountAsync(b => b.HostId == hostId
+                && b.Status == BookingStatus.Completed
+                && b.CheckedOutAt >= from
+                && b.CheckedOutAt < to, cancellationToken);
     }
 
     public Task<bool> IsPetBookedWithHostAsync(Guid petId, Guid hostId, CancellationToken cancellationToken) =>
@@ -208,6 +294,25 @@ internal sealed class BookingDirectory(BookingsDbContext dbContext) : IBookingDi
         BookingStatusValues.ToWire(booking.Status),
         booking.CheckedOutAt,
         [.. booking.Pets.Select(p => p.PetId)]);
+
+    private static HostBookingSummary ToHostSummary(BookingResponse response) => new(
+        response.Id,
+        response.ListingId,
+        response.Listing?.Title,
+        response.Listing?.Neighborhood,
+        response.OwnerId,
+        response.Owner?.Name,
+        response.Owner?.AvatarUrl,
+        response.OwnerRating is { } rating ? new HostBookingOwnerRating(rating.Average, rating.Count) : null,
+        [.. response.Pets.Select(p => new HostBookingPet(p.Id, p.Name, p.Species, p.Size))],
+        response.CheckIn,
+        response.CheckOut,
+        response.Nights,
+        response.PetCount,
+        response.TotalPrice,
+        response.RequestedAt,
+        response.ResponseDeadline,
+        response.CheckedInAt);
 
     private static BookingPaymentView ToPaymentView(Booking booking) => new(
         booking.Id.Value,
