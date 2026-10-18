@@ -168,6 +168,47 @@ internal sealed class BookingDirectory(BookingsDbContext dbContext) : IBookingDi
         return booking is null ? null : ToPaymentView(booking);
     }
 
+    public async Task<BookingReviewView?> GetForReviewAsync(Guid bookingId, CancellationToken cancellationToken)
+    {
+        var id = new BookingId(bookingId);
+
+        var booking = await dbContext.Bookings
+            .AsNoTracking()
+            .FirstOrDefaultAsync(b => b.Id == id, cancellationToken)
+            .ConfigureAwait(false);
+
+        return booking is null ? null : ToReviewView(booking);
+    }
+
+    public async Task<IReadOnlyList<BookingReviewView>> ListCompletedForReviewAsync(
+        DateTimeOffset checkedOutFrom,
+        DateTimeOffset checkedOutTo,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        var bookings = await dbContext.Bookings
+            .AsNoTracking()
+            .Where(b => b.Status == BookingStatus.Completed
+                && b.CheckedOutAt >= checkedOutFrom
+                && b.CheckedOutAt <= checkedOutTo)
+            .OrderBy(b => b.CheckedOutAt)
+            .ThenBy(b => b.Id)
+            .Take(limit)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return [.. bookings.Select(ToReviewView)];
+    }
+
+    private static BookingReviewView ToReviewView(Booking booking) => new(
+        booking.Id.Value,
+        booking.OwnerId,
+        booking.HostId,
+        booking.ListingId,
+        BookingStatusValues.ToWire(booking.Status),
+        booking.CheckedOutAt,
+        [.. booking.Pets.Select(p => p.PetId)]);
+
     private static BookingPaymentView ToPaymentView(Booking booking) => new(
         booking.Id.Value,
         booking.OwnerId,

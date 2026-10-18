@@ -28,6 +28,10 @@ namespace PetHost.Modules.Bookings.Application.Bookings.Responses;
 /// telefone do anfitrião e o endereço exato do cantinho; para o anfitrião, o telefone do tutor.
 /// Omitido antes disso, depois de cancelada e para o admin.
 /// </param>
+/// <param name="OwnerRating">
+/// A nota do tutor (o que os anfitriões escreveram dele: média com 1 casa e contagem), para o
+/// anfitrião decidir sobre o pedido. Só para o anfitrião e o admin; omitida enquanto ninguém avaliou.
+/// </param>
 public sealed record BookingResponse(
     Guid Id,
     string Status,
@@ -59,12 +63,16 @@ public sealed record BookingResponse(
     int? RefundPercentage,
     BookingContactResponse? Contact,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    BookingOwnerRatingResponse? OwnerRating = null);
 
 /// <summary>Contato liberado depois da confirmação.</summary>
 /// <param name="Phone">Telefone do outro lado (nulo se a conta não tem).</param>
 /// <param name="Address">Endereço exato do cantinho — só para o tutor.</param>
 public sealed record BookingContactResponse(string? Phone, BookingAddress? Address);
+
+/// <summary>A nota do tutor: média com 1 casa ("4,8") e quantas avaliações.</summary>
+public sealed record BookingOwnerRatingResponse(decimal Average, int Count);
 
 /// <summary>Um pet da reserva: nome, espécie e porte (nulos se a ficha sumiu).</summary>
 public sealed record BookingPetResponse(Guid Id, string? Name, string? Species, string? Size);

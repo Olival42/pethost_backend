@@ -26,6 +26,7 @@ using PetHost.Modules.Listings.Infrastructure.Directory;
 using PetHost.Modules.Listings.Infrastructure.Geocoding;
 using PetHost.Modules.Listings.Infrastructure.Hosts;
 using PetHost.Modules.Listings.Infrastructure.Persistence;
+using PetHost.Modules.Listings.Infrastructure.Reviews;
 using PetHost.Modules.Listings.Infrastructure.Persistence.Repositories;
 using PetHost.Modules.Listings.Infrastructure.Pets;
 using PetHost.Shared.Contracts.Listings;
@@ -65,6 +66,7 @@ public static class DependencyInjection
         services.AddScoped<IListingHosts, ListingHosts>();
         services.AddScoped<IAccountAddresses, AccountAddresses>();
         services.AddScoped<IListingBookings, ListingBookings>();
+        services.AddScoped<IListingReviews, ListingReviews>();
         services.AddScoped<IListingPets, ListingPets>();
 
         // Contrato público: o Bookings lê as condições do cantinho por aqui (§5).

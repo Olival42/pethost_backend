@@ -64,7 +64,7 @@ Os nomes seguem o padrão mais comum em projetos atuais. A regra de ouro: **um j
 | PK sempre `id` | `id` | Simples e previsível. |
 | PK é `uuid` v7, gerado pela aplicação (nunca auto-incremento) | `0199c5a2-7f3e-7a41-9b1c-2d4e6f8a0b1c` | Não expõe quantos registros existem nem deixa adivinhar o id vizinho; a entidade nasce com id antes do insert; v7 é ordenado por tempo, então o índice não fragmenta como com v4. FKs seguem o mesmo tipo. |
 | FK = entidade no singular + `_id` | `listing_id` | Dá para saber para onde aponta só pelo nome. |
-| FK para `users` leva o papel | `owner_id`, `host_id`, `author_id` | Deixa claro quem é quem quando há dois usuários na mesma linha. |
+| FK para `users` leva o papel | `owner_id`, `host_id` | Deixa claro quem é quem quando há dois usuários na mesma linha. |
 | Booleanos como pergunta | `is_active`, `has_yard`, `accepts_large` | Lê-se como sim/não. |
 | Data e hora termina em `_at` | `paid_at`, `created_at` | Instantes no tempo, em UTC. |
 | Só data termina em `_date` | `check_in_date` | Dias do calendário, sem hora. |
@@ -93,7 +93,10 @@ Os nomes seguem o padrão mais comum em projetos atuais. A regra de ouro: **um j
 | Conversa · Mensagem | `conversations` · `messages` |  |
 | Denúncia de mensagem | `message_reports` | Quem recebeu a mensagem denuncia; o admin analisa. |
 | Preferência de aviso do chat | `notification_preferences` | Liga/desliga o e-mail de mensagens não lidas, por conta. |
-| Avaliação | `reviews` | Quem avalia: author. Quem é avaliado: reviewee. |
+| Avaliação | `reviews` | Cada lado avalia o outro (`author_side`): o tutor avalia o anfitrião e o cantinho; o anfitrião avalia o tutor. |
+| Nota do pet (na avaliação do anfitrião) | `review_pet_ratings` | Uma por pet da reserva. |
+| Denúncia de avaliação | `review_reports` | Quem vê denuncia; procedente oculta a avaliação. |
+| Lembrete de avaliar | `review_reminders` | Um por lado por reserva. |
 
 ## 4. Diagrama
 
@@ -117,7 +120,11 @@ erDiagram
     bookings ||--o| payments : "paid by"
     payments ||--|{ payment_installments : "split into"
     bookings ||--o{ reviews : "reviewed in"
-    users ||--o{ reviews : "writes / receives"
+    owners ||--o{ reviews : "writes / receives"
+    hosts ||--o{ reviews : "writes / receives"
+    listings ||--o{ reviews : "receives"
+    reviews ||--o{ review_pet_ratings : "rates pets"
+    reviews ||--o{ review_reports : "reported in"
     owners ||--o{ conversations : "talks"
     hosts ||--o{ conversations : "talks"
     conversations ||--o{ messages : "contains"
@@ -424,11 +431,33 @@ erDiagram
     reviews {
         uuid id PK
         uuid booking_id FK, UK
-        uuid author_id FK, UK
-        uuid reviewee_id FK
+        varchar author_side UK
+        uuid owner_id FK
+        uuid host_id FK
+        uuid listing_id FK
+        timestamptz stay_ended_at
         smallint rating
-        text comment "nullable"
-        timestamp created_at
+        varchar comment "nullable"
+        varchar reply_text "nullable"
+        timestamptz hidden_at "nullable"
+        timestamptz published_at
+        timestamptz created_at
+        timestamptz updated_at
+        timestamptz deleted_at "nullable"
+    }
+    review_pet_ratings {
+        uuid review_id PK, FK
+        uuid pet_id PK, FK
+        smallint rating
+        varchar comment "nullable"
+    }
+    review_reports {
+        uuid id PK
+        uuid review_id FK
+        uuid reported_by FK
+        varchar reason
+        varchar status
+        timestamptz created_at
     }
 ```
 
@@ -938,19 +967,70 @@ E-mails esperando envio. Schema `email` (infraestrutura compartilhada, `Shared.I
 
 ### `reviews` · Avaliações
 
-Avaliação feita depois da reserva concluída. Cada lado avalia o outro uma vez.
+Avaliação de uma estadia concluída, escrita por um dos lados (`author_side`): o tutor avalia o anfitrião e o cantinho; o anfitrião avalia o tutor (e os pets, em `review_pet_ratings`). Uma por lado por reserva. Fica no schema `review` (módulo Reviews, [`modulo-reviews.md`](modulo-reviews.md)). Grava sempre tutor, anfitrião **e** cantinho da reserva: pessoa física mostra pela nota do anfitrião; empresa, pela do cantinho (filial) ou do anfitrião (empresa inteira).
 
 | Coluna | Tipo | Chave | Nulo | Descrição |
 |---|---|---|---|---|
 | `id` | `uuid` | `PK` | não | Identificador da avaliação. |
-| `booking_id` | `uuid` | `FK UK³` | não | Reserva avaliada → bookings.id (status completed). |
-| `author_id` | `uuid` | `FK UK³` | não | Quem avaliou → users.id. |
-| `reviewee_id` | `uuid` | `FK` | não | Quem foi avaliado → users.id. |
-| `rating` | `smallint` |  | não | Nota inteira de 1 a 5. |
-| `comment` | `text` |  | sim | Comentário público. |
-| `created_at` | `timestamp` |  | não | Quando o registro foi criado (UTC). |
+| `booking_id` | `uuid` | `FK UK²` | não | Reserva avaliada → bookings.id (status completed), sem FK física. |
+| `author_side` | `varchar(10)` | `UK²` | não | Quem escreveu: `owner` (tutor) ou `host` (anfitrião). Uma por lado por reserva, mesmo apagada. |
+| `owner_id` | `uuid` | `FK` | não | Tutor da reserva → owners.id, sem FK física: o autor ou o avaliado. |
+| `host_id` | `uuid` | `FK` | não | Anfitrião da reserva → hosts.id, sem FK física: o avaliado ou o autor. |
+| `listing_id` | `uuid` | `FK` | não | Cantinho da estadia → listings.id, sem FK física (copiado da reserva). |
+| `stay_ended_at` | `timestamptz` |  | não | Check-out da reserva (checked_out_at). Base do prazo de 7 dias. |
+| `rating` | `smallint` |  | não | Nota inteira de 1 a 5 (`CHECK`). |
+| `comment` | `varchar(1000)` |  | sim | Comentário. |
+| `reply_text` | `varchar(1000)` |  | sim | Resposta pública do avaliado. |
+| `replied_at` | `timestamptz` |  | sim | Quando respondeu (junto com `reply_text`). |
+| `hidden_at` | `timestamptz` |  | sim | Ocultada pela moderação (denúncia procedente): some das listas e da média. |
+| `hidden_by` | `uuid` |  | sim | O admin que ocultou (users.id), sem FK. |
+| `hidden_reason` | `varchar(1000)` |  | sim | Motivo da ocultação (o autor vê). |
+| `published_at` | `timestamptz` |  | não | A partir de quando os outros leem (às cegas): o fim do prazo, ou antes, quando o outro lado também avalia. |
+| `subject_notified_at` | `timestamptz` |  | sim | Quando o avaliado recebeu o e-mail da publicação. |
+| `created_at` | `timestamptz` |  | não | Quando foi criada (UTC). |
+| `updated_at` | `timestamptz` |  | não | Última mudança (UTC). |
+| `deleted_at` | `timestamptz` |  | sim | Apagada pelo autor (soft delete): some das listas. |
 
-> Índice único (`booking_id, author_id`). Prazo: até 7 dias após checked_out_at.
+> Índice único (`booking_id`, `author_side`). Índices parciais (`WHERE deleted_at IS NULL`) em (`host_id`, `author_side`, `created_at`), (`listing_id`, `author_side`, `created_at`) e (`owner_id`, `author_side`, `created_at`). Índice (`published_at`) `WHERE subject_notified_at IS NULL AND deleted_at IS NULL`, para o aviso da publicação. Prazo: criar até 7 dias após `stay_ended_at`; editar só antes da publicação. Concorrência otimista pelo `xmin`.
+
+### `review_pet_ratings` · Notas dos pets
+
+Nota que o anfitrião dá a cada pet da reserva, dentro da avaliação dele.
+
+| Coluna | Tipo | Chave | Nulo | Descrição |
+|---|---|---|---|---|
+| `review_id` | `uuid` | `PK FK` | não | A avaliação do anfitrião → reviews.id (`ON DELETE CASCADE`). |
+| `pet_id` | `uuid` | `PK FK` | não | Pet da reserva → pets.id, sem FK física. |
+| `rating` | `smallint` |  | não | Nota inteira de 1 a 5 (`CHECK`). |
+| `comment` | `varchar(1000)` |  | sim | Como foi com o pet. |
+
+### `review_reports` · Denúncias de avaliação
+
+Quem vê a avaliação (menos o autor) denuncia; o admin analisa. Procedente oculta a avaliação.
+
+| Coluna | Tipo | Chave | Nulo | Descrição |
+|---|---|---|---|---|
+| `id` | `uuid` | `PK` | não | Identificador da denúncia. |
+| `review_id` | `uuid` | `FK UK²` | não | A avaliação → reviews.id (`ON DELETE CASCADE`). |
+| `reported_by` | `uuid` | `UK²` | não | Conta de quem denunciou (users.id), sem FK. Uma denúncia por conta por avaliação. |
+| `reporter_side` | `varchar(10)` |  | não | `owner` ou `host`. |
+| `reason` | `varchar(30)` |  | não | `offensive`, `false_information`, `personal_data`, `spam` ou `other`. |
+| `description` | `varchar(1000)` |  | sim | Obrigatória em `other`. |
+| `status` | `varchar(20)` |  | não | `pending`, `upheld`, `dismissed` ou `closed` (a avaliação foi apagada antes da análise). |
+| `created_at` | `timestamptz` |  | não | Quando foi denunciada. |
+| `resolved_at` | `timestamptz` |  | sim | Quando o admin analisou (ou quando a avaliação foi apagada, na `closed`). |
+| `resolved_by` | `uuid` |  | sim | O admin (users.id), sem FK. Nulo na `closed`. |
+| `resolution_note` | `varchar(1000)` |  | sim | Observação do admin; na procedente, é o motivo da ocultação. |
+
+> Índice (`status`, `created_at`) para a fila do admin. Concorrência otimista pelo `xmin`.
+
+### `review_reminders` · Lembretes de avaliar
+
+| Coluna | Tipo | Chave | Nulo | Descrição |
+|---|---|---|---|---|
+| `booking_id` | `uuid` | `PK` | não | A reserva → bookings.id, sem FK física. |
+| `side` | `varchar(10)` | `PK` | não | Quem recebeu o lembrete: `owner` ou `host`. |
+| `sent_at` | `timestamptz` |  | não | Quando foi para a caixa de saída. |
 
 ## 6. Relacionamentos
 
@@ -971,8 +1051,11 @@ Avaliação feita depois da reserva concluída. Cada lado avalia o outro uma vez
 | `bookings` | `pets` (via `booking_pets`) | N : N | Com pets, via booking_pets. |
 | `bookings` | `payments` | 1 : 0..1 | Criado quando o tutor escolhe as parcelas. |
 | `payments` | `payment_installments` | 1 : 1..6 | Uma cobrança no Stripe por parcela. |
-| `bookings` | `reviews` | 1 : 0..2 | Uma por lado. |
-| `users` | `reviews` | 1 : N | author_id e reviewee_id. |
+| `bookings` | `reviews` | 1 : 0..2 | Uma por lado (tutor e anfitrião). booking_id, sem FK física. |
+| `reviews` | `review_pet_ratings` | 1 : N | Só na avaliação do anfitrião. FK física, `ON DELETE CASCADE`. |
+| `reviews` | `review_reports` | 1 : N | Uma por conta. FK física, `ON DELETE CASCADE`. |
+| `owners` | `reviews` | 1 : N | owner_id → owners.id, sem FK física (autor ou avaliado, conforme `author_side`). |
+| `hosts` / `listings` | `reviews` | 1 : N | host_id → hosts.id e listing_id → listings.id, sem FK física. |
 | `owners` / `hosts` | `conversations` | 1 : N | owner_id → owners.id e host_id → hosts.id, sem FK física; uma por dupla. |
 | `conversations` | `messages` | 1 : N | FK física, `ON DELETE CASCADE` (a retenção apaga a conversa inteira). |
 | `bookings` | `messages` | 1 : N | booking_id, sem FK física: as mensagens enviadas durante a estadia. |
@@ -997,6 +1080,9 @@ Avaliação feita depois da reserva concluída. Cada lado avalia o outro uma vez
 | `bookings.status` | `requested` · `accepted` · `confirmed` · `in_progress` · `completed` · `declined` · `expired` · `cancelled` | Solicitada · Aceita · Confirmada · Em andamento · Concluída · Recusada · Expirada · Cancelada |
 | `bookings.cancelled_by` | `owner` · `host` · `platform` | Tutor · Anfitrião · Plataforma (parcela não paga) |
 | `messages.sent_by` | `owner` · `host` | Tutor · Anfitrião |
+| `reviews.author_side` · `review_reports.reporter_side` · `review_reminders.side` | `owner` · `host` | Tutor · Anfitrião |
+| `review_reports.reason` | `offensive` · `false_information` · `personal_data` · `spam` · `other` | Ofensa · Não aconteceu · Dado pessoal exposto · Spam · Outro (com descrição) |
+| `review_reports.status` | `pending` · `upheld` · `dismissed` · `closed` | Esperando análise · Procedente (avaliação oculta) · Improcedente · Fechada (avaliação apagada pelo autor) |
 | `payments.status` | `pending` · `active` · `paid` · `cancelled` | Aguardando a 1ª parcela · Pago em parte · Pago · Cancelado |
 | `payment_installments.status` | `pending` · `processing` · `paid` · `overdue` · `cancelled` | A vencer · Confirmando · Paga · Em atraso · Cancelada |
 | `payment_installments.method` | `card` · `pix` | Cartão · Pix |

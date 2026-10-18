@@ -44,6 +44,7 @@ public sealed class ListingAvailabilityTests
         _addresses.Object,
         ListingsTestData.Geocoder().Object,
         _bookings.Object,
+        ListingsTestData.Reviews().Object,
         new FakeTimeProvider(ListingBuilder.DefaultNow));
 
     private static SearchListingsQuery Query(string? checkIn = Tuesday, string? checkOut = Friday, int? pets = null) =>
@@ -134,7 +135,7 @@ public sealed class ListingAvailabilityTests
     public async Task GetById_Should_ReturnTheBadges()
     {
         // Arrange
-        var sut = new GetListingByIdQueryHandler(_repository.Object, ListingsTestData.Hosts().Object, _bookings.Object, _addresses.Object);
+        var sut = new GetListingByIdQueryHandler(_repository.Object, ListingsTestData.Hosts().Object, _bookings.Object, _addresses.Object, ListingsTestData.Reviews().Object);
 
         // Act
         var result = await sut.HandleAsync(new GetListingByIdQuery(ListingsTestData.OwnerUserId, Roles.Owner, _listing.Id.Value), CancellationToken.None);

@@ -22,7 +22,7 @@ public sealed class GetListingByIdQueryHandlerTests
     public GetListingByIdQueryHandlerTests()
     {
         _repository.Setup(r => r.GetByIdAsync(_listing.Id, It.IsAny<CancellationToken>())).ReturnsAsync(_listing);
-        _sut = new GetListingByIdQueryHandler(_repository.Object, ListingsTestData.Hosts().Object, ListingsTestData.Bookings().Object, new Mock<IAccountAddresses>().Object);
+        _sut = new GetListingByIdQueryHandler(_repository.Object, ListingsTestData.Hosts().Object, ListingsTestData.Bookings().Object, new Mock<IAccountAddresses>().Object, ListingsTestData.Reviews().Object);
     }
 
     [Fact]
@@ -105,7 +105,7 @@ public sealed class GetListingByIdQueryHandlerTests
             {
                 [ListingsTestData.IndividualHostId] = new(ListingsTestData.IndividualHostId, "Dona Cida", null, IsCompany: false, IsAvailable: true, PayoutsEnabled: false),
             });
-        var sut = new GetListingByIdQueryHandler(_repository.Object, hosts.Object, ListingsTestData.Bookings().Object, new Mock<IAccountAddresses>().Object);
+        var sut = new GetListingByIdQueryHandler(_repository.Object, hosts.Object, ListingsTestData.Bookings().Object, new Mock<IAccountAddresses>().Object, ListingsTestData.Reviews().Object);
 
         // Act
         var byOwner = await sut.HandleAsync(new GetListingByIdQuery(ListingsTestData.OwnerUserId, Roles.Owner, _listing.Id.Value), CancellationToken.None);
@@ -171,7 +171,7 @@ public sealed class SearchListingsQueryHandlerTests
         _addresses.Setup(a => a.GetAsync(ListingsTestData.OwnerUserId, It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ListingBuilder().BuildAddressData());
 
-        _sut = new SearchListingsQueryHandler(_repository.Object, ListingsTestData.Hosts().Object, _addresses.Object, _geocoder.Object, ListingsTestData.Bookings().Object, new FakeTimeProvider(ListingBuilder.DefaultNow));
+        _sut = new SearchListingsQueryHandler(_repository.Object, ListingsTestData.Hosts().Object, _addresses.Object, _geocoder.Object, ListingsTestData.Bookings().Object, ListingsTestData.Reviews().Object, new FakeTimeProvider(ListingBuilder.DefaultNow));
     }
 
     [Fact]
@@ -280,7 +280,7 @@ public sealed class SearchListingsQueryHandlerTests
     {
         // Arrange
         var geocoder = ListingsTestData.Geocoder(new GeocodingResult(status));
-        var sut = new SearchListingsQueryHandler(_repository.Object, ListingsTestData.Hosts().Object, _addresses.Object, geocoder.Object, ListingsTestData.Bookings().Object, new FakeTimeProvider(ListingBuilder.DefaultNow));
+        var sut = new SearchListingsQueryHandler(_repository.Object, ListingsTestData.Hosts().Object, _addresses.Object, geocoder.Object, ListingsTestData.Bookings().Object, ListingsTestData.Reviews().Object, new FakeTimeProvider(ListingBuilder.DefaultNow));
 
         // Act
         var result = await sut.HandleAsync(new SearchListingsQuery(ListingsTestData.OwnerUserId), CancellationToken.None);

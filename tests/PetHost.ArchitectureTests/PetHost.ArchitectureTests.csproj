@@ -47,6 +47,10 @@
     <ProjectReference Include="..\..\src\Modules\Conversations\PetHost.Modules.Conversations.Application\PetHost.Modules.Conversations.Application.csproj" />
     <ProjectReference Include="..\..\src\Modules\Conversations\PetHost.Modules.Conversations.Infrastructure\PetHost.Modules.Conversations.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Modules\Conversations\PetHost.Modules.Conversations.Presentation\PetHost.Modules.Conversations.Presentation.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Reviews\PetHost.Modules.Reviews.Domain\PetHost.Modules.Reviews.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Reviews\PetHost.Modules.Reviews.Application\PetHost.Modules.Reviews.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Reviews\PetHost.Modules.Reviews.Infrastructure\PetHost.Modules.Reviews.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Reviews\PetHost.Modules.Reviews.Presentation\PetHost.Modules.Reviews.Presentation.csproj" />
     <ProjectReference Include="..\..\src\Modules\Payments\PetHost.Modules.Payments.Domain\PetHost.Modules.Payments.Domain.csproj" />
     <ProjectReference Include="..\..\src\Modules\Payments\PetHost.Modules.Payments.Application\PetHost.Modules.Payments.Application.csproj" />
     <ProjectReference Include="..\..\src\Modules\Payments\PetHost.Modules.Payments.Infrastructure\PetHost.Modules.Payments.Infrastructure.csproj" />

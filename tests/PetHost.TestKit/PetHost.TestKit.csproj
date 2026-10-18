@@ -7,6 +7,7 @@
     <ProjectReference Include="..\..\src\Modules\Bookings\PetHost.Modules.Bookings.Domain\PetHost.Modules.Bookings.Domain.csproj" />
     <ProjectReference Include="..\..\src\Modules\Conversations\PetHost.Modules.Conversations.Domain\PetHost.Modules.Conversations.Domain.csproj" />
     <ProjectReference Include="..\..\src\Modules\Payments\PetHost.Modules.Payments.Domain\PetHost.Modules.Payments.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Reviews\PetHost.Modules.Reviews.Domain\PetHost.Modules.Reviews.Domain.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -37,6 +37,13 @@ public sealed class RateLimitingOptions
         // Chat: uma conversa animada fica em 10 a 15 mensagens por minuto, e 30 ainda cabe uma
         // sequência de fotos do pet. Acima disso é robô ou spam (uma mensagem a cada 2 s, sem parar).
         [RateLimitPolicies.ChatMessages] = new() { PermitLimit = 30, WindowSeconds = 60 },
+
+        // Avaliação: uma por lado por reserva, então quem escreve, ajusta e responde algumas
+        // estadias cabe folgado em 20 a cada 15 minutos.
+        [RateLimitPolicies.ReviewWrites] = new() { PermitLimit = 20, WindowSeconds = 900 },
+
+        // Denúncia: cada uma manda e-mail ao admin. 10 por hora é muito para uso honesto.
+        [RateLimitPolicies.Reports] = new() { PermitLimit = 10, WindowSeconds = 3600 },
     };
 }
 

@@ -34,6 +34,9 @@ using PetHost.Modules.Bookings.Presentation;
 using PetHost.Modules.Conversations.Application;
 using PetHost.Modules.Conversations.Infrastructure;
 using PetHost.Modules.Conversations.Presentation;
+using PetHost.Modules.Reviews.Application;
+using PetHost.Modules.Reviews.Infrastructure;
+using PetHost.Modules.Reviews.Presentation;
 using PetHost.Modules.Payments.Application;
 using PetHost.Modules.Payments.Infrastructure;
 using PetHost.Modules.Payments.Presentation;
@@ -83,6 +86,7 @@ builder.Services
     .AddListingsPresentation()
     .AddBookingsPresentation()
     .AddConversationsPresentation()
+    .AddReviewsPresentation()
     .AddPaymentsPresentation()
     .AddAuditPresentation()
     .AddStripeWebhooks();
@@ -148,6 +152,10 @@ builder.Services.AddBookingsInfrastructure(builder.Configuration);
 // --- Módulo Conversations (chat): conversa por dupla tutor–anfitrião, texto e foto, hub em tempo real ---
 builder.Services.AddConversationsApplication();
 builder.Services.AddConversationsInfrastructure(builder.Configuration);
+
+// --- Módulo Reviews (avaliações): o tutor avalia a estadia concluída; leitura pública por anfitrião e cantinho ---
+builder.Services.AddReviewsApplication();
+builder.Services.AddReviewsInfrastructure(builder.Configuration);
 
 
 // --- Módulo Payments (pagamentos): parcelas com Pix/cartão, webhook, reembolso, repasse e contestação ---
@@ -294,6 +302,9 @@ await app.Services.InitializeBookingsModuleAsync(
     applyMigrations: app.Environment.IsDevelopment());
 
 await app.Services.InitializeConversationsModuleAsync(
+    applyMigrations: app.Environment.IsDevelopment());
+
+await app.Services.InitializeReviewsModuleAsync(
     applyMigrations: app.Environment.IsDevelopment());
 
 await app.Services.InitializePaymentsModuleAsync(

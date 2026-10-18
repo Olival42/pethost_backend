@@ -9,7 +9,8 @@ namespace PetHost.Modules.Listings.Application.Listings.Responses;
 /// </summary>
 /// <param name="DistanceKm">Distância em linha reta até a origem da busca, com 1 casa. Omitida quando a busca não é por raio (só estado/cidade/bairro).</param>
 /// <param name="CoverPhotoUrl">A primeira foto. Omitida se o cantinho não tem foto.</param>
-/// <param name="Badges">Selos automáticos: <c>neighbor</c>, <c>fast_responder</c>, <c>yard</c>, <c>experienced</c>.</param>
+/// <param name="Badges">Selos automáticos: <c>neighbor</c>, <c>fast_responder</c>, <c>yard</c>, <c>experienced</c>, <c>well_rated</c>.</param>
+/// <param name="Rating">Nota dos tutores (média com 1 casa e contagem). Omitida enquanto ninguém avaliou.</param>
 public sealed record ListingSummaryResponse(
     Guid Id,
     Guid HostId,
@@ -29,9 +30,14 @@ public sealed record ListingSummaryResponse(
     bool AcceptsLarge,
     IReadOnlyList<string> AvailableWeekdays,
     string? CoverPhotoUrl,
-    IReadOnlyList<string> Badges)
+    IReadOnlyList<string> Badges,
+    ListingRatingResponse? Rating = null)
 {
-    public static ListingSummaryResponse From(FoundListing found, ListingHostSummary? host, IReadOnlyList<string> badges)
+    public static ListingSummaryResponse From(
+        FoundListing found,
+        ListingHostSummary? host,
+        IReadOnlyList<string> badges,
+        ListingRating? rating = null)
     {
         ArgumentNullException.ThrowIfNull(found);
 
@@ -57,6 +63,7 @@ public sealed record ListingSummaryResponse(
             details.AcceptsLarge,
             WeekdaysValues.ToWire(details.AvailableWeekdays),
             listing.Photos is [var cover, ..] ? cover.Url : null,
-            badges);
+            badges,
+            ListingRatingResponse.From(rating));
     }
 }

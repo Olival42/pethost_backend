@@ -61,6 +61,7 @@ public static class DependencyInjection
         services.AddScoped<IBookingParties, BookingParties>();
         services.AddScoped<IBookingListings, BookingListings>();
         services.AddScoped<IBookingPets, BookingPets>();
+        services.AddScoped<IBookingReviews, BookingReviews>();
         services.AddScoped<IBookingPayments, BookingPayments>();
         services.AddScoped<BookingResponseBuilder>();
         services.AddScoped<IBookingNotifier, BookingEmailNotifier>();
