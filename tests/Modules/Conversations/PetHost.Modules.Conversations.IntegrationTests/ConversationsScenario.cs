@@ -121,6 +121,7 @@ internal sealed class ConversationsScenario(ConversationsApiFixture fixture, Htt
             petIds = new[] { petId },
             checkIn = Iso(today),
             checkOut = Iso(today.AddDays(2)),
+            careTermsAccepted = true,
         });
         response.StatusCode.Should().Be(HttpStatusCode.Created);
 

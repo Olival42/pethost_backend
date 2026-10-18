@@ -136,5 +136,6 @@ public sealed class BookingResponseBuilder(
             booking.RefundPercentage,
             contact,
             booking.CreatedAt,
-            booking.UpdatedAt);
+            booking.UpdatedAt,
+            CareTermsAcceptedAt: booking.CareTermsAcceptedAt);
 }

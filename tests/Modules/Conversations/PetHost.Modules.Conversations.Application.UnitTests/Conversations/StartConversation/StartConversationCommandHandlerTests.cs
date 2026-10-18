@@ -43,6 +43,7 @@ public sealed class StartConversationCommandHandlerTests
         _parties.Setup(p => p.GetOwnersAsync(It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>())).ReturnsAsync(ConversationsTestData.Owners());
         _parties.Setup(p => p.GetHostsAsync(It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>())).ReturnsAsync(ConversationsTestData.Hosts());
         _listings.Setup(l => l.FindListableHostIdAsync(ConversationBuilder.ListingId, It.IsAny<CancellationToken>())).ReturnsAsync(ConversationBuilder.HostId);
+        GivenContacts(ownerEmail: "camila@pethost.test", hostEmail: "cida@pethost.test");
         _repository.Setup(r => r.Add(It.IsAny<Conversation>())).Callback<Conversation>(c => _added = c);
         _queries
             .Setup(q => q.GetAsync(It.IsAny<ConversationId>(), ConversationParty.Owner, It.IsAny<CancellationToken>()))
@@ -165,6 +166,35 @@ public sealed class StartConversationCommandHandlerTests
         // Assert
         result.FirstError.Should().Be(ConversationsErrors.OwnerDeactivated);
         _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task HandleAsync_Should_ReturnOwnListing_When_TheHostAccountIsTheSamePerson()
+    {
+        // Arrange: a conta de anfitrião do cantinho tem o mesmo e-mail da tutora (maiúsculas não importam).
+        GivenContacts(ownerEmail: "camila@pethost.test", hostEmail: "CAMILA@pethost.test");
+
+        // Act
+        var result = await _sut.HandleAsync(Command, CancellationToken.None);
+
+        // Assert
+        result.FirstError.Should().Be(ConversationsErrors.OwnListing);
+        _repository.Verify(r => r.Add(It.IsAny<Conversation>()), Times.Never);
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    private void GivenContacts(string ownerEmail, string hostEmail)
+    {
+        _parties.Setup(p => p.GetContactsAsync(ConversationParty.Owner, It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<Guid, PartyContact>
+            {
+                [ConversationBuilder.OwnerId] = new(ConversationBuilder.OwnerId, ConversationBuilder.OwnerUserId, "Camila Souza", ownerEmail, CanBeNotified: true),
+            });
+        _parties.Setup(p => p.GetContactsAsync(ConversationParty.Host, It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<Guid, PartyContact>
+            {
+                [ConversationBuilder.HostId] = new(ConversationBuilder.HostId, Guid.CreateVersion7(), "Dona Cida", hostEmail, CanBeNotified: true),
+            });
     }
 
     private void GivenExisting(Conversation? existing) =>

@@ -9,6 +9,7 @@ using PetHost.Modules.Bookings.Application.Bookings.CheckOutBooking;
 using PetHost.Modules.Bookings.Application.Bookings.CreateBooking;
 using PetHost.Modules.Bookings.Application.Bookings.DeclineBooking;
 using PetHost.Modules.Bookings.Application.Bookings.GetBookingById;
+using PetHost.Modules.Bookings.Application.Bookings.ListBookings;
 using PetHost.Modules.Bookings.Application.Bookings.ListMyBookings;
 using PetHost.Modules.Bookings.Application.Bookings.Responses;
 using PetHost.Shared.Contracts.Authorization;
@@ -32,12 +33,14 @@ public sealed class BookingsController(
     ICommandHandler<CheckInBookingCommand, BookingResponse> checkInBooking,
     ICommandHandler<CheckOutBookingCommand, BookingResponse> checkOutBooking,
     IQueryHandler<GetBookingByIdQuery, BookingResponse> getBookingById,
-    IQueryHandler<ListMyBookingsQuery, PagedResult<BookingResponse>> listMyBookings) : ControllerBase
+    IQueryHandler<ListMyBookingsQuery, PagedResult<BookingResponse>> listMyBookings,
+    IQueryHandler<ListBookingsQuery, PagedResult<BookingResponse>> listBookings) : ControllerBase
 {
     /// <summary>O tutor pede uma estadia num cantinho para um ou mais pets dele.</summary>
     /// <remarks>
     /// Corpo: <c>listingId</c>, <c>petIds</c> (1 a 10, sem repetição), <c>checkIn</c> e
-    /// <c>checkOut</c> (<c>"2026-12-20"</c>). Período: chegada a partir de hoje (horário de
+    /// <c>checkOut</c> (<c>"2026-12-20"</c>) e <c>careTermsAccepted: true</c> (o tutor leva a ração e
+    /// entrega os remédios — escopo, regra 8). Período: chegada a partir de hoje (horário de
     /// Brasília) e até 365 dias à frente, saída depois da chegada, até 30 noites — erros de formato
     /// voltam juntos num só 400. Nasce <c>requested</c>; o anfitrião tem 24h para responder. Valor
     /// = diária × noites × pets.
@@ -49,6 +52,7 @@ public sealed class BookingsController(
     /// <c>BOOKING_PET_PERIOD_CONFLICT</c>. Algum dia do período fora dos dias em que o cantinho
     /// recebe: 422 <c>BOOKING_WEEKDAY_NOT_AVAILABLE</c>. Sem vaga em alguma noite: 422
     /// <c>BOOKING_CAPACITY_EXCEEDED</c>. Tutor com parcela em atraso: 422 <c>BOOKING_OWNER_PAYMENT_OVERDUE</c>.
+    /// Cantinho da própria pessoa (conta de anfitrião com o mesmo e-mail): 422 <c>BOOKING_OWN_LISTING</c>.
     /// </para>
     /// </remarks>
     [HttpPost]
@@ -65,7 +69,7 @@ public sealed class BookingsController(
         ArgumentNullException.ThrowIfNull(request);
 
         var result = await createBooking.HandleAsync(
-            new CreateBookingCommand(User.GetUserId(), request.ListingId, request.PetIds, request.CheckIn, request.CheckOut),
+            new CreateBookingCommand(User.GetUserId(), request.ListingId, request.PetIds, request.CheckIn, request.CheckOut, request.CareTermsAccepted),
             cancellationToken);
 
         return result.IsSuccess
@@ -93,6 +97,31 @@ public sealed class BookingsController(
 
         var result = await listMyBookings.HandleAsync(
             new ListMyBookingsQuery(User.GetUserId(), CurrentRole(), request.Status, request.Page, request.PageSize),
+            cancellationToken);
+
+        return result.ToActionResult();
+    }
+
+    /// <summary>Todas as reservas, para o admin, com filtros que se somam.</summary>
+    /// <remarks>
+    /// Filtros opcionais: <c>status</c> (repetido ou separado por vírgula, mesmos valores de
+    /// <c>/bookings/me</c>), <c>ownerId</c> (id do tutor), <c>hostId</c> (id do anfitrião) e
+    /// <c>listingId</c>. Sem filtro, todas. Da chegada mais recente para a mais antiga; sem o contato
+    /// de nenhum lado (como o detalhe para o admin). Paginado: <c>page</c> a partir de 1,
+    /// <c>pageSize</c> até 100.
+    /// </remarks>
+    [HttpGet]
+    [Authorize(Roles = Roles.Admin)]
+    [ProducesResponseType<ApiResponse<PagedResult<BookingResponse>>>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ApiResponse<PagedResult<BookingResponse>>>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ApiResponse<PagedResult<BookingResponse>>>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ApiResponse<PagedResult<BookingResponse>>>(StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> ListAsync([FromQuery] BookingsAdminRequest request, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var result = await listBookings.HandleAsync(
+            new ListBookingsQuery(request.Status, request.OwnerId, request.HostId, request.ListingId, request.Page, request.PageSize),
             cancellationToken);
 
         return result.ToActionResult();

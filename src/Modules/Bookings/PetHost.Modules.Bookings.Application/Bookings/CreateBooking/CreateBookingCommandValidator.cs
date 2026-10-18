@@ -5,8 +5,9 @@ using PetHost.Modules.Bookings.Domain.Errors;
 namespace PetHost.Modules.Bookings.Application.Bookings.CreateBooking;
 
 /// <summary>
-/// Formato do pedido: cantinho, pets (1 a 10, sem repetição) e o período, conferido pela regra do
-/// próprio domínio (<see cref="StayPeriod"/>). Todos os erros voltam juntos num só 400.
+/// Formato do pedido: cantinho, pets (1 a 10, sem repetição), o período, conferido pela regra do
+/// próprio domínio (<see cref="StayPeriod"/>), e a confirmação de ração e remédios (escopo, regra 8).
+/// Todos os erros voltam juntos num só 400.
 /// </summary>
 public sealed class CreateBookingCommandValidator : AbstractValidator<CreateBookingCommand>
 {
@@ -26,6 +27,9 @@ public sealed class CreateBookingCommandValidator : AbstractValidator<CreateBook
                     .Must(ids => ids!.Count <= Booking.MaxPets).WithMessage(BookingsErrors.PetIdsTooMany.Message)
                     .Must(ids => !ids!.Contains(Guid.Empty) && ids!.Distinct().Count() == ids!.Count).WithMessage(BookingsErrors.PetIdsInvalid.Message);
             });
+
+        RuleFor(x => x.CareTermsAccepted)
+            .Equal(true).WithMessage(BookingsErrors.CareTermsNotAccepted.Message);
 
         RuleFor(x => x.CheckIn)
             .Cascade(CascadeMode.Stop)

@@ -15,8 +15,10 @@ namespace PetHost.Modules.Bookings.Application.Bookings.CreateBooking;
 /// <remarks>
 /// A capacidade é conferida aqui só para não deixar o tutor pedir o impossível: o pedido não
 /// ocupa vaga. Quem decide é o aceite, que confere de novo com o cantinho travado. Tutor com
-/// parcela em atraso não pede: <c>422 BOOKING_OWNER_PAYMENT_OVERDUE</c>. Gravado o pedido, o
-/// anfitrião recebe um e-mail com o prazo para responder.
+/// parcela em atraso não pede: <c>422 BOOKING_OWNER_PAYMENT_OVERDUE</c>. A mesma pessoa não reserva
+/// o próprio cantinho (contas de tutor e de anfitrião com o mesmo e-mail): <c>422 BOOKING_OWN_LISTING</c>
+/// — pagaria a si mesma e depois se avaliaria. Gravado o pedido, o anfitrião recebe um e-mail com o
+/// prazo para responder.
 /// </remarks>
 public sealed class CreateBookingCommandHandler(
     IBookingRepository bookingRepository,
@@ -57,6 +59,9 @@ public sealed class CreateBookingCommandHandler(
         var listing = await bookingListings.FindAsync(command.ListingId, cancellationToken).ConfigureAwait(false);
         if (listing is null)
             return Result<BookingResponse>.Failure(BookingsErrors.ListingNotFound(command.ListingId));
+
+        if (await BookingAccess.IsSamePersonAsync(bookingParties, owner.Value!.Id, listing.HostId, cancellationToken).ConfigureAwait(false))
+            return Result<BookingResponse>.Failure(BookingsErrors.OwnListing);
 
         IReadOnlyList<Guid> petIds = command.PetIds ?? [];
         var pets = await bookingPets.GetAsync(petIds, cancellationToken).ConfigureAwait(false);

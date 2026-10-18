@@ -7,8 +7,12 @@ namespace PetHost.Modules.Bookings.Presentation.Bookings;
 /// campo, junto com os outros, em vez de um erro genérico do corpo.
 /// </param>
 /// <param name="CheckOut">Dia de saída, <c>"2026-12-25"</c>.</param>
+/// <param name="CareTermsAccepted">
+/// <c>true</c>: o tutor confirma que leva a ração e entrega os remédios ao anfitrião (escopo, regra 8).
+/// </param>
 public sealed record CreateBookingRequest(
     Guid ListingId,
     IReadOnlyList<Guid>? PetIds,
     string? CheckIn,
-    string? CheckOut);
+    string? CheckOut,
+    bool? CareTermsAccepted = null);

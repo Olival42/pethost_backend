@@ -758,6 +758,9 @@ Uma estadia: um tutor, um cantinho, um período e um ou mais pets. Guarda o cicl
 | `checked_in_at` | `timestamptz` |  | sim | Quando o anfitrião marcou "chegou". |
 | `checked_out_at` | `timestamptz` |  | sim | Quando marcou "voltou pra casa" (o anfitrião, o admin ou a plataforma, 3 dias depois do dia de saída sem check-out). Libera repasse e avaliações. |
 | `check_in_reminded_at` | `timestamptz` |  | sim | Quando tutor e anfitrião foram lembrados da estadia (na véspera do check-in, uma vez só). |
+| `care_terms_accepted_at` | `timestamptz` |  | sim | Quando o tutor confirmou que leva a ração e entrega os remédios (escopo, regra 8). Nulo só nas reservas pedidas antes dessa confirmação existir. |
+| `response_reminded_at` | `timestamptz` |  | sim | Quando o anfitrião foi lembrado de responder o pedido (4h antes do fim do prazo, uma vez só). |
+| `payment_reminded_at` | `timestamptz` |  | sim | Quando o tutor foi lembrado de pagar a 1ª parcela (6h antes do fim do prazo, uma vez só). |
 | `check_out_reminded_at` | `timestamptz` |  | sim | Quando o anfitrião foi lembrado de fazer o check-out (no dia de saída, uma vez só). |
 | `expired_at` | `timestamptz` |  | sim | Quando expirou sem resposta. |
 | `cancelled_at` | `timestamptz` |  | sim | Quando foi cancelada. |

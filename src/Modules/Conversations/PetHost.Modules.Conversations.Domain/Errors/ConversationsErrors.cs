@@ -124,6 +124,9 @@ public static class ConversationsErrors
         new("CONVERSATION_HOST_NOT_FOUND", "This account has no verified host profile yet.");
 
     /// <summary>403: o tutor está inativo ou suspenso e não pode puxar conversa nem enviar mensagem.</summary>
+    public static readonly Error OwnListing =
+        new("CONVERSATION_OWN_LISTING", "You cannot start a conversation with your own host account.");
+
     public static readonly Error OwnerDeactivated =
         new("CONVERSATION_OWNER_DEACTIVATED", "This owner profile is deactivated or suspended.");
 

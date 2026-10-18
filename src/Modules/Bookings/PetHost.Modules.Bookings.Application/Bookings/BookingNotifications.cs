@@ -99,6 +99,24 @@ public sealed class BookingNotifications(
             await notifier.NotifyCheckOutReminderAsync(Notice(host, BookingParty.Host, booking, response, owner), cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>Pedido parado perto do fim do prazo: lembrete ao anfitrião.</summary>
+    public async Task ResponseReminderAsync(Booking booking, BookingResponse response, CancellationToken cancellationToken)
+    {
+        var (owner, host) = await PartiesAsync(booking, cancellationToken).ConfigureAwait(false);
+
+        if (host is not null)
+            await notifier.NotifyResponseReminderAsync(Notice(host, BookingParty.Host, booking, response, owner), cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Aceite sem pagamento perto do fim do prazo: lembrete ao tutor.</summary>
+    public async Task PaymentReminderAsync(Booking booking, BookingResponse response, CancellationToken cancellationToken)
+    {
+        var (owner, host) = await PartiesAsync(booking, cancellationToken).ConfigureAwait(false);
+
+        if (owner is not null)
+            await notifier.NotifyPaymentReminderAsync(Notice(owner, BookingParty.Owner, booking, response, host), cancellationToken).ConfigureAwait(false);
+    }
+
     /// <summary>Check-out feito pela plataforma: aviso aos dois lados.</summary>
     public async Task AutoCheckedOutAsync(Booking booking, BookingResponse response, CancellationToken cancellationToken)
     {
