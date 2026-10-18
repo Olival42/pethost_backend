@@ -41,16 +41,15 @@ namespace PetHost.Modules.Owners.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamptz")
                         .HasColumnName("deactivated_at");
 
+                    b.Property<DateTimeOffset?>("ErasedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("erased_at");
+
                     b.Property<bool>("IsActive")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
                         .HasDefaultValue(true)
                         .HasColumnName("is_active");
-
-                    b.Property<string>("StripeCustomerId")
-                        .HasMaxLength(255)
-                        .HasColumnType("character varying(255)")
-                        .HasColumnName("stripe_customer_id");
 
                     b.Property<DateTimeOffset?>("SuspendedAt")
                         .HasColumnType("timestamptz")
@@ -71,17 +70,13 @@ namespace PetHost.Modules.Owners.Infrastructure.Persistence.Migrations
                         .IsUnique()
                         .HasDatabaseName("uq_owners_cpf");
 
-                    b.HasIndex("StripeCustomerId")
-                        .IsUnique()
-                        .HasDatabaseName("uq_owners_stripe_customer_id");
-
                     b.HasIndex("UserId")
                         .IsUnique()
                         .HasDatabaseName("uq_owners_user_id");
 
                     b.ToTable("owners", "owner", t =>
                         {
-                            t.HasCheckConstraint("ck_owners_cpf_only_null_when_suspended", "cpf IS NOT NULL OR suspended_at IS NOT NULL");
+                            t.HasCheckConstraint("ck_owners_cpf_only_null_when_suspended_or_erased", "cpf IS NOT NULL OR suspended_at IS NOT NULL OR erased_at IS NOT NULL");
                         });
                 });
 #pragma warning restore 612, 618

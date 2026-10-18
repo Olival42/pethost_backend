@@ -1,5 +1,6 @@
 using PetHost.Modules.Hosts.Domain.Errors;
 using PetHost.Modules.Hosts.Domain.Hosts;
+using PetHost.Modules.Hosts.Domain.IdentityBlocks;
 using PetHost.Shared.Kernel.Domain;
 using PetHost.Shared.Kernel.Errors;
 using PetHost.Shared.Kernel.Results;
@@ -180,6 +181,21 @@ public sealed class HostApplication : Entity<HostApplicationId>
 
         return Result<HostApplication>.Success(
             new HostApplication(userId, cpf, documentType, company, noticeVersion, ip, attempt, now));
+    }
+
+    /// <summary>
+    /// O histórico da conta bloqueia a identidade de vez? Recusa por fraude: <see cref="IdentityBlockReason.Fraud"/>;
+    /// <see cref="MaxAttempts"/> recusas: <see cref="IdentityBlockReason.AttemptsExhausted"/>; senão, <c>null</c>.
+    /// Quem chama grava o bloqueio do CPF (<see cref="IdentityBlock"/>), que vale para qualquer conta.
+    /// </summary>
+    public static IdentityBlockReason? IdentityBlockFor(IReadOnlyCollection<HostApplication> history)
+    {
+        ArgumentNullException.ThrowIfNull(history);
+
+        if (history.Any(a => a.Status == HostApplicationStatus.RejectedFinal))
+            return IdentityBlockReason.Fraud;
+
+        return RejectedCount(history) >= MaxAttempts ? IdentityBlockReason.AttemptsExhausted : null;
     }
 
     /// <summary>A conta pode abrir uma solicitação nova agora?</summary>

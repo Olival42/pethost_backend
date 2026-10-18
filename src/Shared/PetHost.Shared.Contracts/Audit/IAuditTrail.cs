@@ -91,6 +91,9 @@ public static class AuditActions
     public const string AccountSuspended = "account.suspended";
     public const string AccountSuspensionLifted = "account.suspension_lifted";
 
+    /// <summary>Conta excluída a pedido do titular (LGPD): anonimizada, sem volta.</summary>
+    public const string AccountErased = "account.erased";
+
     // --- Sessão e senha (Auth) ---
     public const string LoginSucceeded = "session.login_succeeded";
     public const string LoginFailed = "session.login_failed";
@@ -107,6 +110,7 @@ public static class AuditActions
     public const string OwnerSuspended = "owner.suspended";
     public const string OwnerSuspensionLifted = "owner.suspension_lifted";
     public const string OwnerCpfReleased = "owner.cpf_released";
+    public const string OwnerErased = "owner.erased";
 
     /// <summary>Admin abriu os dados de um tutor (CPF completo): acesso a dado pessoal (LGPD).</summary>
     public const string OwnerViewed = "owner.viewed";
@@ -127,6 +131,7 @@ public static class AuditActions
     public const string HostSuspended = "host.suspended";
     public const string HostSuspensionLifted = "host.suspension_lifted";
     public const string HostIdentityReleased = "host.identity_released";
+    public const string HostErased = "host.erased";
 
     /// <summary>O anfitrião abriu o cadastro de recebimento: a conta conectada foi criada no Stripe.</summary>
     public const string HostStripeAccountCreated = "host.stripe_account_created";
@@ -177,6 +182,12 @@ public static class AuditActions
 
     /// <summary>Fotos apagadas do bucket privado (prazo de guarda).</summary>
     public const string HostApplicationDocumentsPurged = "host_application.documents_purged";
+
+    /// <summary>A recusa (fraude ou tentativas esgotadas) bloqueou o CPF para qualquer conta.</summary>
+    public const string HostIdentityBlocked = "host_application.identity_blocked";
+
+    /// <summary>O admin liberou um CPF bloqueado (ex.: alguém usou o CPF de outra pessoa).</summary>
+    public const string HostIdentityUnblocked = "host_application.identity_unblocked";
 
     // --- Cantinho (Listings) ---
     public const string ListingCreated = "listing.created";

@@ -43,4 +43,7 @@ public interface IOwnerAccounts
 
     /// <summary>Tira a suspensão da conta (admin).</summary>
     Task<Result> LiftSuspensionAsync(Guid userId, CancellationToken cancellationToken);
+
+    /// <summary>Exclui a conta (LGPD): anonimiza, inutiliza a senha e derruba as sessões. Sem volta.</summary>
+    Task<Result> EraseAsync(Guid userId, CancellationToken cancellationToken);
 }

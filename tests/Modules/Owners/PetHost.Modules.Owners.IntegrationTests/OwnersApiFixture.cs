@@ -9,6 +9,7 @@ using PetHost.Modules.Auth.Infrastructure;
 using PetHost.Modules.Auth.Infrastructure.Persistence;
 using PetHost.Modules.Hosts.Infrastructure;
 using PetHost.Modules.Hosts.Infrastructure.Persistence;
+using PetHost.Modules.Owners.Application.Abstractions;
 using PetHost.Modules.Owners.Infrastructure;
 using PetHost.Modules.Owners.Infrastructure.Persistence;
 using PetHost.Shared.Infrastructure.Email;
@@ -71,6 +72,7 @@ public sealed class OwnersApiFixture : IAsyncLifetime
             builder.UseSetting("Jwt:Issuer", "https://api.pethost.test");
             builder.UseSetting("Jwt:Audience", "pethost-app");
             builder.UseSetting("Jwt:Key", "chave-de-teste-com-mais-de-32-bytes-para-hmac-sha256");
+            builder.UseSetting("HostVerification:CpfFingerprintKey", "chave-de-teste-da-impressao-do-cpf-hmac-sha256");
             builder.UseSetting("Jwt:AccessTokenLifetimeMinutes", "15");
             builder.UseSetting("Jwt:RefreshTokenLifetimeDays", "30");
 
@@ -92,7 +94,10 @@ public sealed class OwnersApiFixture : IAsyncLifetime
                 builder.UseSetting(key, value);
 
             builder.ConfigureTestServices(services =>
-                services.AddSingleton<IEmailSender, NoOpEmailSender>());
+            {
+                services.AddSingleton<IEmailSender, NoOpEmailSender>();
+                services.AddScoped<IOwnerPayments>(_ => Payments);
+            });
         });
 
         await Services.InitializeEmailAsync(applyMigrations: true);
@@ -122,8 +127,13 @@ public sealed class OwnersApiFixture : IAsyncLifetime
     }
 
     /// <summary>Limpa os schemas e recria o admin do seed.</summary>
+    /// <summary>Quais tutores "já pagaram" (marco da trava de CPF e nascimento).</summary>
+    public FakeOwnerPayments Payments { get; } = new();
+
     public async Task ResetAsync()
     {
+        Payments.Clear();
+
         if (_respawner is not null && _connection is not null)
             await _respawner.ResetAsync(_connection);
 

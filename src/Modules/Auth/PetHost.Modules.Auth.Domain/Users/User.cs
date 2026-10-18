@@ -87,6 +87,20 @@ public sealed class User : Entity<UserId>
 
     public bool IsSuspended => SuspendedAt is not null;
 
+    /// <summary>
+    /// Quando a conta foi excluída a pedido do titular (LGPD). A linha fica, anonimizada, porque
+    /// reservas, pagamentos e avaliações apontam para ela; não há volta.
+    /// </summary>
+    public DateTimeOffset? ErasedAt { get; private set; }
+
+    public bool IsErased => ErasedAt is not null;
+
+    /// <summary>Nome que fica no lugar do da pessoa, e que o outro lado vê no histórico.</summary>
+    public const string ErasedFullName = "Conta excluída";
+
+    /// <summary>Domínio reservado (RFC 2606) do e-mail da conta excluída: nenhum e-mail chega lá.</summary>
+    public const string ErasedEmailDomain = "pethost.invalid";
+
     public DateTimeOffset CreatedAt { get; private set; }
     public DateTimeOffset UpdatedAt { get; private set; }
 
@@ -254,9 +268,53 @@ public sealed class User : Entity<UserId>
         return Result.Success();
     }
 
-    /// <summary>Reativa a conta. Idempotente: reativar uma conta ativa não muda nada.</summary>
+    /// <summary>
+    /// Exclui a conta a pedido do titular (LGPD, art. 18, VI): troca nome e e-mail por valores que
+    /// não identificam ninguém, apaga telefone, nascimento, endereço e foto, troca o hash da senha
+    /// por <paramref name="unusablePasswordHash"/> (de um segredo que ninguém conhece) e inativa.
+    /// O e-mail novo é único por conta (<c>uq_users_email_role</c>) e cai num domínio reservado.
+    /// Idempotente; o admin não pode ser excluído.
+    /// </summary>
+    /// <remarks>Quem chama apaga a foto do bucket e derruba as sessões.</remarks>
+    public Result Erase(PasswordHash unusablePasswordHash, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(unusablePasswordHash);
+
+        if (Role is UserRole.Admin)
+            return Result.Failure(AuthErrors.AdminErasureForbidden);
+
+        if (IsErased)
+            return Result.Success();
+
+        FullName = FullName.Create(ErasedFullName).Value!;
+        Email = Email.Create($"excluida-{Id.Value:N}@{ErasedEmailDomain}").Value!;
+        PasswordHash = unusablePasswordHash;
+        Phone = null;
+        BirthDate = null;
+        Address = null;
+        AvatarUrl = null;
+
+        if (IsActive)
+        {
+            IsActive = false;
+            DeactivatedAt = now;
+        }
+
+        ErasedAt = now;
+        UpdatedAt = now;
+
+        return Result.Success();
+    }
+
+    /// <summary>
+    /// Reativa a conta. Idempotente: reativar uma conta ativa não muda nada. Conta excluída não
+    /// volta (<c>AUTH_ACCOUNT_ERASED</c>).
+    /// </summary>
     public Result Reactivate(DateTimeOffset now)
     {
+        if (IsErased)
+            return Result.Failure(AuthErrors.AccountErased);
+
         if (IsActive)
             return Result.Success();
 

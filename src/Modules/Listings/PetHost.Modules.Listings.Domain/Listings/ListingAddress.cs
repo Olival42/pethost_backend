@@ -97,6 +97,27 @@ public sealed class ListingAddress : ValueObject
         });
     }
 
+    /// <summary>Rua que fica no lugar da verdadeira quando a conta do anfitrião é excluída.</summary>
+    public const string RedactedStreet = "Endereço removido";
+
+    /// <summary>CEP de endereço removido: o <see cref="Create"/> recusa, então nunca é de um cantinho de verdade.</summary>
+    public const string RedactedZipCode = "00000000";
+
+    /// <summary>
+    /// O mesmo endereço sem o que leva à casa (CEP, rua, número, complemento): ficam bairro, cidade e
+    /// UF, o que o tutor já via na busca. Para a exclusão da conta do anfitrião (LGPD).
+    /// </summary>
+    public ListingAddress Redact() => new()
+    {
+        ZipCode = RedactedZipCode,
+        Street = RedactedStreet,
+        Number = "S/N",
+        Complement = null,
+        Neighborhood = Neighborhood,
+        City = City,
+        State = State,
+    };
+
     /// <summary>O endereço de volta no formato de entrada: base para mesclar um PATCH.</summary>
     public ListingAddressData ToData() => new(ZipCode, Street, Number, Complement, Neighborhood, City, State);
 

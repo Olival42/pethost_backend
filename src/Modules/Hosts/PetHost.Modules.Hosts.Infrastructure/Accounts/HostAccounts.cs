@@ -8,7 +8,7 @@ namespace PetHost.Modules.Hosts.Infrastructure.Accounts;
 /// <summary>
 /// Adaptador da porta <see cref="IHostAccounts"/> sobre os contratos públicos do Auth: ler
 /// (<see cref="IUserDirectory"/>), alterar o perfil (<see cref="IAccountProfileEditor"/>) e
-/// mudar o status (<see cref="IAccountStatusManager"/>).
+/// mudar o status e excluir (<see cref="IAccountStatusManager"/>).
 /// </summary>
 internal sealed class HostAccounts(
     IUserDirectory userDirectory,
@@ -37,4 +37,10 @@ internal sealed class HostAccounts(
 
     public Task<Result> LiftSuspensionAsync(Guid userId, CancellationToken cancellationToken) =>
         accountStatusManager.LiftSuspensionAsync(userId, cancellationToken);
+
+    public Task<bool> VerifyPasswordAsync(Guid userId, string? password, CancellationToken cancellationToken) =>
+        accountProfileEditor.VerifyPasswordAsync(userId, password, cancellationToken);
+
+    public Task<Result> EraseAsync(Guid userId, CancellationToken cancellationToken) =>
+        accountStatusManager.EraseAsync(userId, cancellationToken);
 }

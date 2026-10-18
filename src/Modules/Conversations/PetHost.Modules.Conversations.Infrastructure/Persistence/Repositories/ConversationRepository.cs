@@ -54,6 +54,24 @@ internal sealed class ConversationRepository(ConversationsDbContext dbContext) :
         return deleted > 0;
     }
 
+    public async Task<IReadOnlyList<Conversation>> ListByPartyAsync(ConversationParty party, Guid partyId, CancellationToken cancellationToken) =>
+        await (party == ConversationParty.Owner
+                ? dbContext.Conversations.Where(c => c.OwnerId == partyId)
+                : dbContext.Conversations.Where(c => c.HostId == partyId))
+            .AsNoTracking()
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+    public async Task<bool> DeleteAsync(ConversationId id, CancellationToken cancellationToken)
+    {
+        var deleted = await dbContext.Conversations
+            .Where(c => c.Id == id)
+            .ExecuteDeleteAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return deleted > 0;
+    }
+
     public async Task MarkUnreadNotifiedAsync(ConversationId id, ConversationParty recipient, DateTimeOffset at, CancellationToken cancellationToken)
     {
         var conversation = dbContext.Conversations.Where(c => c.Id == id);

@@ -1,3 +1,5 @@
+using PetHost.Modules.Hosts.Domain.Errors;
+using PetHost.Modules.Hosts.Domain.IdentityBlocks;
 using FluentAssertions;
 using Microsoft.Extensions.Time.Testing;
 using Moq;
@@ -25,6 +27,7 @@ public sealed class StartHostApplicationTests
     private readonly Mock<IHostsUnitOfWork> _unitOfWork = UnitOfWork();
     private readonly Mock<IAuditTrail> _auditTrail = new();
     private readonly Mock<ICpfOwnership> _cpfOwnership = new();
+    private readonly Mock<IIdentityBlockRepository> _identityBlocks = new();
     private readonly FakeTimeProvider _time = new(Now);
     private readonly List<HostApplication> _history = [];
 
@@ -34,10 +37,49 @@ public sealed class StartHostApplicationTests
     }
 
     private StartHostApplicationCommandHandler Start() =>
-        new(_applications.Object, _hosts.Object, _unitOfWork.Object, _cpfOwnership.Object, _auditTrail.Object, _time);
+        new(_applications.Object, _hosts.Object, _unitOfWork.Object, _cpfOwnership.Object, _identityBlocks.Object, Fingerprint(), _auditTrail.Object, _time);
 
     private UpdateMyHostApplicationCommandHandler Update() =>
-        new(_applications.Object, _hosts.Object, _unitOfWork.Object, _cpfOwnership.Object, _auditTrail.Object, _time);
+        new(_applications.Object, _hosts.Object, _unitOfWork.Object, _cpfOwnership.Object, _identityBlocks.Object, Fingerprint(), _auditTrail.Object, _time);
+
+    private void Blocked(string cpfText) =>
+        _identityBlocks
+            .Setup(b => b.FindAsync(FingerprintOf(cpfText), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(IdentityBlock.Create(FingerprintOf(cpfText), IdentityBlockReason.Fraud, Guid.CreateVersion7(), Now));
+
+    // ----- CPF bloqueado (fraude ou tentativas esgotadas, em qualquer conta) -----
+
+    [Fact]
+    public async Task Start_Should_ReturnIdentityBlocked_When_TheCpfWasBlockedByAnotherAccount()
+    {
+        // Arrange: a conta é nova (sem histórico), mas o CPF foi recusado por fraude em outra.
+        Blocked(CpfText);
+
+        // Act
+        var result = await Start().HandleAsync(Command(), CancellationToken.None);
+
+        // Assert
+        result.FirstError.Should().Be(HostsErrors.IdentityBlocked);
+        _applications.Verify(r => r.Add(It.IsAny<HostApplication>()), Times.Never);
+        _cpfOwnership.Verify(o => o.IsHeldByAnotherPersonAsync(It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Update_Should_ReturnIdentityBlocked_When_TheNewCpfIsBlocked()
+    {
+        // Arrange
+        var draft = Draft();
+        _history.Add(draft);
+        Blocked(OtherCpfText);
+
+        // Act
+        var result = await Update().HandleAsync(new UpdateMyHostApplicationCommand(UserId, OtherCpfText, null), CancellationToken.None);
+
+        // Assert
+        result.FirstError.Should().Be(HostsErrors.IdentityBlocked);
+        draft.Cpf.Value.Should().Be("52998224725");
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
 
     private static StartHostApplicationCommand Command(string? cpf = CpfText) =>
         new(UserId, cpf, "cnh", true, "203.0.113.7");

@@ -17,6 +17,17 @@ internal sealed class PetRepository(PetsDbContext dbContext) : IPetRepository
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
+    public async Task<IReadOnlyList<Pet>> ListByKeeperForUpdateAsync(PetKeeper keeper, CancellationToken cancellationToken)
+    {
+        var pets = dbContext.Pets.Include(PetsDbContext.PhotosField);
+
+        return await (keeper.Type == KeeperType.Owner
+                ? pets.Where(p => p.OwnerId == keeper.Id)
+                : pets.Where(p => p.HostId == keeper.Id))
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+    }
+
     public async Task<IReadOnlyList<Pet>> ListActiveByKeeperAsync(PetKeeper keeper, CancellationToken cancellationToken) =>
         await ByKeeper(keeper)
             .Where(p => p.IsActive)

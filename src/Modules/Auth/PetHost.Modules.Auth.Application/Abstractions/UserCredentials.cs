@@ -33,7 +33,8 @@ public static class UserCredentials
             .GetByEmailAndRoleAsync(email, role, cancellationToken)
             .ConfigureAwait(false);
 
-        if (user is null)
+        // Conta excluída: o e-mail já foi trocado, mas a conferência não depende disso.
+        if (user is null || user.IsErased)
         {
             passwordHasher.Hash(string.IsNullOrEmpty(password) ? TimingEqualizerPassword : password);
             return null;

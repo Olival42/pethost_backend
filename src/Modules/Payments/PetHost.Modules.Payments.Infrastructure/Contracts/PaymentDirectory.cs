@@ -12,6 +12,9 @@ internal sealed class PaymentDirectory(IPaymentRepository paymentRepository) : I
     public Task<bool> HasOverdueInstallmentAsync(Guid ownerId, CancellationToken cancellationToken) =>
         paymentRepository.HasOverdueInstallmentAsync(ownerId, cancellationToken);
 
+    public Task<bool> HasPaidAnyInstallmentAsync(Guid ownerId, CancellationToken cancellationToken) =>
+        paymentRepository.HasPaidAnyInstallmentAsync(ownerId, cancellationToken);
+
     /// <summary>A conta fica no domínio (<see cref="HostEarningsReport"/>); aqui só a leitura e o formato do contrato.</summary>
     public async Task<HostEarningsSummary> GetHostEarningsAsync(Guid hostId, DateOnly month, CancellationToken cancellationToken)
     {

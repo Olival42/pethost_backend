@@ -12,6 +12,12 @@ public interface IPetRepository
     /// </summary>
     Task<IReadOnlyList<Pet>> ListByKeeperAsync(PetKeeper keeper, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Todos os pets de um tutor ou anfitrião, com as fotos. Rastreados: quem chama altera e grava
+    /// (exclusão da conta).
+    /// </summary>
+    Task<IReadOnlyList<Pet>> ListByKeeperForUpdateAsync(PetKeeper keeper, CancellationToken cancellationToken);
+
     /// <summary>Só os pets ativos de um tutor ou anfitrião (o que os outros podem ver).</summary>
     Task<IReadOnlyList<Pet>> ListActiveByKeeperAsync(PetKeeper keeper, CancellationToken cancellationToken);
 

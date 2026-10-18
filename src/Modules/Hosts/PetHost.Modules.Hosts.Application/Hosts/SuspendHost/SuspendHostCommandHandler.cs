@@ -176,7 +176,7 @@ public sealed class ReleaseHostIdentityCommandHandler(
             if (saved.IsFailure)
                 return Result<HostResponse>.FromFailure(saved);
 
-            var details = new Dictionary<string, string?> { ["cpf"] = host.Cpf.ToString() };
+            var details = new Dictionary<string, string?> { ["cpf"] = host.Cpf?.ToString() };
             if (host.Cnpj is not null)
                 details["cnpj"] = host.Cnpj.Value;
 

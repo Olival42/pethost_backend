@@ -26,6 +26,7 @@ public sealed class UpdateMyOwnerCommandHandler(
     IOwnerRepository ownerRepository,
     IOwnersUnitOfWork unitOfWork,
     IOwnerAccounts ownerAccounts,
+    IOwnerPayments ownerPayments,
     IAuditTrail auditTrail,
     ICpfOwnership cpfOwnership,
     TimeProvider timeProvider) : ICommandHandler<UpdateMyOwnerCommand, OwnerResponse>
@@ -79,7 +80,8 @@ public sealed class UpdateMyOwnerCommandHandler(
         {
             try
             {
-                var changed = owner.ChangeCpf(newCpf!, timeProvider.GetUtcNow());
+                // A trava já foi conferida antes (CheckSensitiveChangeAsync); aqui só a troca.
+                var changed = owner.ChangeCpf(newCpf!, hasPaid: false, timeProvider.GetUtcNow());
                 if (changed.IsFailure)
                 {
                     await UndoAsync(command.UserId, previous).ConfigureAwait(false);
@@ -140,10 +142,13 @@ public sealed class UpdateMyOwnerCommandHandler(
         UpdateMyOwnerCommand command,
         CancellationToken cancellationToken)
     {
-        if (newCpf is not null && !owner.CanChangeCpf)
+        // Só pergunta ao Payments quando há troca sensível: o PATCH comum não paga a consulta.
+        var hasPaid = await ownerPayments.HasPaidAsync(owner.Id.Value, cancellationToken).ConfigureAwait(false);
+
+        if (newCpf is not null && hasPaid)
             return Result.Failure(OwnersErrors.CpfLocked);
 
-        if (birthDateChanges && !owner.CanChangeBirthDate)
+        if (birthDateChanges && !Owner.CanChangeBirthDate(hasPaid))
             return Result.Failure(OwnersErrors.BirthDateLocked);
 
         if (string.IsNullOrEmpty(command.CurrentPassword))

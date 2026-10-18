@@ -1,3 +1,4 @@
+using PetHost.Modules.Hosts.Domain.IdentityBlocks;
 using FluentAssertions;
 using Microsoft.Extensions.Time.Testing;
 using Moq;
@@ -30,6 +31,7 @@ public sealed class HostApplicationReviewTests
     private readonly Mock<IHostAccounts> _accounts = Accounts();
     private readonly Mock<IHostApplicationNotifier> _notifier = new();
     private readonly Mock<IAuditTrail> _auditTrail = new();
+    private readonly Mock<IIdentityBlockRepository> _identityBlocks = new();
     private readonly FakeTimeProvider _time = new(Now.AddHours(1));
     private readonly HostApplication _application = Submitted();
 
@@ -44,8 +46,90 @@ public sealed class HostApplicationReviewTests
             _accounts.Object, _notifier.Object, _auditTrail.Object, _time);
 
     private RejectHostApplicationCommandHandler Reject() =>
-        new(_applications.Object, _unitOfWork.Object, _storage.Object, Policy(TimeSpan.Zero),
+        new(_applications.Object, _identityBlocks.Object, Fingerprint(), _unitOfWork.Object, _storage.Object, Policy(TimeSpan.Zero),
             _accounts.Object, _notifier.Object, _auditTrail.Object, _time);
+
+    // ----- bloqueio do CPF na recusa -----
+
+    [Fact]
+    public async Task Reject_Should_BlockTheCpf_When_TheReasonIsSuspectedFraud()
+    {
+        // Act
+        var result = await Reject().HandleAsync(
+            new RejectHostApplicationCommand(AdminId, _application.Id.Value, "suspected_fraud", "Documento adulterado"),
+            CancellationToken.None);
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        _identityBlocks.Verify(
+            b => b.Add(It.Is<IdentityBlock>(x => x.CpfFingerprint == FingerprintOf(CpfText) && x.Reason == IdentityBlockReason.Fraud && x.ApplicationId == _application.Id.Value)),
+            Times.Once);
+        _auditTrail.Verify(
+            t => t.RecordAsync(It.Is<AuditRecord>(r => r.Action == AuditActions.HostIdentityBlocked && r.Details!["blockReason"] == "fraud" && r.Details["cpf"] == "***.***.247-25"), It.IsAny<CancellationToken>()),
+            Times.Once);
+        _auditTrail.Verify(
+            t => t.RecordAsync(It.Is<AuditRecord>(r => r.Action == AuditActions.HostApplicationRejected && r.Details!["identityBlocked"] == "fraud"), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task Reject_Should_BlockTheCpf_When_ItIsTheLastAttempt()
+    {
+        // Arrange: duas recusas comuns antes desta.
+        _applications.Setup(r => r.ListByUserIdAsync(UserId, It.IsAny<CancellationToken>())).ReturnsAsync([_application, Rejected(), Rejected()]);
+
+        // Act
+        await Reject().HandleAsync(new RejectHostApplicationCommand(AdminId, _application.Id.Value, "document_illegible", "Foto borrada"), CancellationToken.None);
+
+        // Assert
+        _identityBlocks.Verify(b => b.Add(It.Is<IdentityBlock>(x => x.Reason == IdentityBlockReason.AttemptsExhausted)), Times.Once);
+    }
+
+    [Fact]
+    public async Task Reject_Should_NotBlockTheCpf_When_ThePersonCanTryAgain()
+    {
+        // Act
+        await Reject().HandleAsync(new RejectHostApplicationCommand(AdminId, _application.Id.Value, "document_illegible", "Foto borrada"), CancellationToken.None);
+
+        // Assert
+        _identityBlocks.Verify(b => b.Add(It.IsAny<IdentityBlock>()), Times.Never);
+        _auditTrail.Verify(t => t.RecordAsync(It.Is<AuditRecord>(r => r.Action == AuditActions.HostIdentityBlocked), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Reject_Should_KeepTheExistingBlock_When_TheCpfIsAlreadyBlocked()
+    {
+        // Arrange
+        _identityBlocks
+            .Setup(b => b.FindAsync(FingerprintOf(CpfText), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(IdentityBlock.Create(FingerprintOf(CpfText), IdentityBlockReason.AttemptsExhausted, Guid.CreateVersion7(), Now));
+
+        // Act
+        await Reject().HandleAsync(new RejectHostApplicationCommand(AdminId, _application.Id.Value, "suspected_fraud", "Documento adulterado"), CancellationToken.None);
+
+        // Assert
+        _identityBlocks.Verify(b => b.Add(It.IsAny<IdentityBlock>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Reject_Should_DropTheBlockFromTheContext_When_SavingItConflicts()
+    {
+        // Arrange: a recusa grava; o bloqueio esbarra no índice único (outra recusa ao mesmo tempo).
+        _unitOfWork
+            .SetupSequence(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result.Success())
+            .ReturnsAsync(Result.Failure(new Error("HOST_CONFLICT", "conflict")))
+            .ReturnsAsync(Result.Success());
+
+        // Act
+        var result = await Reject().HandleAsync(
+            new RejectHostApplicationCommand(AdminId, _application.Id.Value, "suspected_fraud", "Documento adulterado"),
+            CancellationToken.None);
+
+        // Assert
+        result.IsSuccess.Should().BeTrue("a recusa já foi gravada; o bloqueio da conta vale");
+        _identityBlocks.Verify(b => b.Remove(It.IsAny<IdentityBlock>()), Times.Once);
+    }
 
     // ----- aprovar -----
 

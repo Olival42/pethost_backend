@@ -22,6 +22,10 @@ public static class OwnersErrors
     public static readonly Error CurrentPasswordIncorrect =
         Error.Validation("currentPassword", "Current password is incorrect.");
 
+    /// <summary>400: excluir a conta pede a senha atual.</summary>
+    public static readonly Error DeletionPasswordRequired =
+        Error.Validation("currentPassword", "Current password is required to delete the account.");
+
     // --- Regras de negócio ---
 
     /// <summary>
@@ -32,8 +36,8 @@ public static class OwnersErrors
         new("OWNER_CPF_ALREADY_REGISTERED", "An owner account with this CPF already exists. If this CPF is yours, contact support.");
 
     /// <summary>
-    /// 422: o CPF não pode mais ser trocado — o tutor já pagou ao menos uma vez e o
-    /// CPF está no Customer do Stripe e nos pagamentos.
+    /// 422: o CPF não pode mais ser trocado — o tutor já pagou ao menos uma vez e fica
+    /// registrado com o CPF de quando pagou.
     /// </summary>
     public static readonly Error CpfLocked =
         new("OWNER_CPF_LOCKED", "The CPF cannot be changed after the first payment.");
@@ -72,5 +76,5 @@ public static class OwnersErrors
     /// Cancele ou conclua as estadias antes de inativar o perfil.
     /// </summary>
     public static readonly Error HasOpenBooking =
-        new("OWNER_HAS_OPEN_BOOKING", "This owner has open bookings. Cancel or finish them before deactivating the profile.");
+        new("OWNER_HAS_OPEN_BOOKING", "This owner has open bookings. Cancel or finish them before deactivating or deleting the profile.");
 }

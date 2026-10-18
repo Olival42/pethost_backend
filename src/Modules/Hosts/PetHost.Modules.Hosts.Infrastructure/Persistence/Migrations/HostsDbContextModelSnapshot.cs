@@ -283,7 +283,6 @@ namespace PetHost.Modules.Hosts.Infrastructure.Persistence.Migrations
                         .HasColumnName("cnpj");
 
                     b.Property<string>("Cpf")
-                        .IsRequired()
                         .HasColumnType("char(11)")
                         .HasColumnName("cpf");
 
@@ -294,6 +293,10 @@ namespace PetHost.Modules.Hosts.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset?>("DeactivatedAt")
                         .HasColumnType("timestamptz")
                         .HasColumnName("deactivated_at");
+
+                    b.Property<DateTimeOffset?>("ErasedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("erased_at");
 
                     b.Property<DateTimeOffset?>("IdentityReleasedAt")
                         .HasColumnType("timestamptz")
@@ -473,7 +476,47 @@ namespace PetHost.Modules.Hosts.Infrastructure.Persistence.Migrations
                         {
                             t.HasCheckConstraint("ck_hosts_company_data", "(person_type = 'pj' AND cnpj IS NOT NULL AND legal_name IS NOT NULL AND trade_name IS NOT NULL AND company_zip_code IS NOT NULL AND company_street IS NOT NULL AND company_street_number IS NOT NULL AND company_neighborhood IS NOT NULL AND company_city IS NOT NULL AND company_state IS NOT NULL) OR (person_type = 'pf' AND cnpj IS NULL AND legal_name IS NULL AND trade_name IS NULL AND company_zip_code IS NULL AND company_street IS NULL AND company_street_number IS NULL AND company_complement IS NULL AND company_neighborhood IS NULL AND company_city IS NULL AND company_state IS NULL)");
 
+                            t.HasCheckConstraint("ck_hosts_cpf_only_null_when_erased", "cpf IS NOT NULL OR erased_at IS NOT NULL");
+
                             t.HasCheckConstraint("ck_hosts_person_type", "person_type IN ('pf', 'pj')");
+                        });
+                });
+
+            modelBuilder.Entity("PetHost.Modules.Hosts.Domain.IdentityBlocks.IdentityBlock", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("ApplicationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("application_id");
+
+                    b.Property<DateTimeOffset>("BlockedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("blocked_at");
+
+                    b.Property<string>("CpfFingerprint")
+                        .IsRequired()
+                        .HasColumnType("char(64)")
+                        .HasColumnName("cpf_fingerprint");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("reason");
+
+                    b.HasKey("Id")
+                        .HasName("pk_identity_blocks");
+
+                    b.HasIndex("CpfFingerprint")
+                        .IsUnique()
+                        .HasDatabaseName("uq_identity_blocks_cpf_fingerprint");
+
+                    b.ToTable("identity_blocks", "host", t =>
+                        {
+                            t.HasCheckConstraint("ck_identity_blocks_reason", "reason IN ('fraud', 'attempts_exhausted')");
                         });
                 });
 

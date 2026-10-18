@@ -35,6 +35,16 @@ public interface IConversationRepository
     /// </summary>
     Task<bool> DeleteIfInactiveAsync(ConversationId id, DateTimeOffset cutoff, CancellationToken cancellationToken);
 
+    /// <summary>Todas as conversas de um lado (o tutor ou o anfitrião), sem rastreamento. Para a exclusão da conta.</summary>
+    Task<IReadOnlyList<Conversation>> ListByPartyAsync(ConversationParty party, Guid partyId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Apaga a conversa sem condição (as mensagens e as denúncias vão junto, pelo <c>ON DELETE
+    /// CASCADE</c>). Só para a exclusão da conta: a retenção usa <see cref="DeleteIfInactiveAsync"/>.
+    /// Devolve se apagou.
+    /// </summary>
+    Task<bool> DeleteAsync(ConversationId id, CancellationToken cancellationToken);
+
     /// <summary>
     /// Registra que <paramref name="recipient"/> recebeu o e-mail de mensagens não lidas desta conversa
     /// em <paramref name="at"/>. Grava na hora, só essa coluna (um envio ao mesmo tempo não a sobrescreve).

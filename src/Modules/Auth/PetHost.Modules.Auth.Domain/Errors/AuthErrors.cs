@@ -196,6 +196,14 @@ public static class AuthErrors
     public static readonly Error AdminDeactivationForbidden =
         new("AUTH_ADMIN_DEACTIVATION_FORBIDDEN", "The admin account cannot be deactivated.");
 
+    /// <summary>403: o admin não pode ser excluído (o seed não o recriaria).</summary>
+    public static readonly Error AdminErasureForbidden =
+        new("AUTH_ADMIN_ERASURE_FORBIDDEN", "The admin account cannot be deleted.");
+
+    /// <summary>422: a conta foi excluída a pedido do titular e não volta.</summary>
+    public static readonly Error AccountErased =
+        new("AUTH_ACCOUNT_ERASED", "This account was deleted and cannot be reactivated.");
+
     /// <summary>
     /// 404 na troca de conta: não existe conta ativa com o mesmo e-mail no papel pedido,
     /// ou a senha não confere. Mesma resposta nos dois casos.

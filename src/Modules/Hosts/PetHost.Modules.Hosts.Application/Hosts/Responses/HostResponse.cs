@@ -10,7 +10,7 @@ namespace PetHost.Modules.Hosts.Application.Hosts.Responses;
 /// conta, lidos do Auth. Mesmo formato para o próprio anfitrião e para o admin.
 /// </summary>
 /// <param name="Id">Id do anfitrião (o que os outros módulos guardam).</param>
-/// <param name="Cpf">Só dígitos. É o da própria pessoa (na empresa, o do representante).</param>
+/// <param name="Cpf">Só dígitos. É o da própria pessoa (na empresa, o do representante). Nulo depois que a conta foi excluída.</param>
 /// <param name="Company">Dados da empresa. Só pessoa jurídica.</param>
 /// <param name="IsActive">Status do perfil. Anda junto com <c>user.isActive</c>.</param>
 /// <param name="SuspendedAt">Quando o admin suspendeu. O motivo vem em <c>user.suspensionReason</c>.</param>
@@ -22,7 +22,7 @@ public sealed record HostResponse(
     Guid Id,
     Guid UserId,
     string PersonType,
-    string Cpf,
+    string? Cpf,
     CompanyResponse? Company,
     DateTimeOffset VerifiedAt,
     bool IsActive,
@@ -42,7 +42,7 @@ public sealed record HostResponse(
             host.Id.Value,
             host.UserId,
             PersonTypeValues.ToWire(host.PersonType),
-            host.Cpf.Value,
+            host.Cpf?.Value,
             CompanyResponse.From(host.Company),
             host.VerifiedAt,
             host.IsActive,

@@ -2,6 +2,7 @@ using PetHost.Modules.Hosts.Application.Abstractions;
 using PetHost.Modules.Hosts.Domain.Errors;
 using PetHost.Modules.Hosts.Domain.HostApplications;
 using PetHost.Modules.Hosts.Domain.Hosts;
+using PetHost.Modules.Hosts.Domain.IdentityBlocks;
 using PetHost.Shared.Contracts.Identity;
 using PetHost.Shared.Contracts.Storage;
 using PetHost.Shared.Kernel.Results;
@@ -38,6 +39,21 @@ internal static class HostApplicationSupport
         return await cpfOwnership.IsHeldByAnotherPersonAsync(cpf.Value, userId, cancellationToken).ConfigureAwait(false)
             ? Result.Failure(HostsErrors.CpfAlreadyRegistered)
             : Result.Success();
+    }
+
+    /// <summary>
+    /// O CPF não está bloqueado (recusa por fraude ou tentativas esgotadas, em qualquer conta)?
+    /// Bloqueado: <c>422 HOST_IDENTITY_BLOCKED</c>.
+    /// </summary>
+    public static async Task<Result> EnsureNotBlockedAsync(
+        Cpf cpf,
+        IIdentityBlockRepository identityBlocks,
+        ICpfFingerprint fingerprint,
+        CancellationToken cancellationToken)
+    {
+        var block = await identityBlocks.FindAsync(fingerprint.Of(cpf), cancellationToken).ConfigureAwait(false);
+
+        return block is null ? Result.Success() : Result.Failure(HostsErrors.IdentityBlocked);
     }
 
     /// <summary>O CNPJ está livre? Recusa CNPJ de anfitrião ou de solicitação aberta de outra conta.</summary>

@@ -9,7 +9,7 @@ namespace PetHost.Modules.Owners.Infrastructure.Accounts;
 /// Adaptador da porta <see cref="IOwnerAccounts"/> sobre os contratos públicos do Auth:
 /// <see cref="IUserDirectory"/> para ler, <see cref="IAccountRegistrar"/> para criar,
 /// <see cref="IAccountProfileEditor"/> para alterar e <see cref="IAccountStatusManager"/>
-/// para inativar e reativar.
+/// para inativar, reativar e excluir.
 /// </summary>
 internal sealed class OwnerAccounts(
     IUserDirectory userDirectory,
@@ -51,4 +51,7 @@ internal sealed class OwnerAccounts(
 
     public Task<Result> LiftSuspensionAsync(Guid userId, CancellationToken cancellationToken) =>
         accountStatusManager.LiftSuspensionAsync(userId, cancellationToken);
+
+    public Task<Result> EraseAsync(Guid userId, CancellationToken cancellationToken) =>
+        accountStatusManager.EraseAsync(userId, cancellationToken);
 }

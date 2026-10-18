@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using PetHost.Modules.Owners.Application.Abstractions;
 using PetHost.Modules.Owners.Application.Owners.ChangeMyAvatar;
 using PetHost.Modules.Owners.Application.Owners.DeactivateMyOwner;
+using PetHost.Modules.Owners.Application.Owners.DeleteMyOwner;
 using PetHost.Modules.Owners.Application.Owners.GetMyOwner;
 using PetHost.Modules.Owners.Application.Owners.GetOwnerById;
 using PetHost.Modules.Owners.Application.Owners.ListOwners;
@@ -16,8 +17,10 @@ using PetHost.Modules.Owners.Application.Owners.UpdateMyOwner;
 using PetHost.Modules.Owners.Domain.Owners;
 using PetHost.Modules.Owners.Infrastructure.Accounts;
 using PetHost.Modules.Owners.Infrastructure.Bookings;
+using PetHost.Modules.Owners.Infrastructure.Payments;
 using PetHost.Modules.Owners.Infrastructure.Persistence;
 using PetHost.Modules.Owners.Infrastructure.Persistence.Repositories;
+using PetHost.Modules.Owners.Infrastructure.Privacy;
 using PetHost.Shared.Contracts.Identity;
 using PetHost.Shared.Contracts.Owners;
 using PetHost.Shared.Infrastructure.Validation;
@@ -52,6 +55,8 @@ public static class DependencyInjection
         services.AddScoped<IOwnersUnitOfWork, OwnersUnitOfWork>();
         services.AddScoped<IOwnerAccounts, OwnerAccounts>();
         services.AddScoped<IOwnerBookings, OwnerBookings>();
+        services.AddScoped<IOwnerDataErasure, OwnerDataErasure>();
+        services.AddScoped<IOwnerPayments, OwnerPayments>();
 
         // Contrato público de leitura: outros módulos acham o tutor só por aqui (§5).
         services.AddScoped<IOwnerDirectory, OwnerDirectory>();
@@ -64,6 +69,9 @@ public static class DependencyInjection
 
         services.AddValidatedCommandHandler<
             DeactivateMyOwnerCommandHandler, DeactivateMyOwnerCommand, Unit>();
+
+        services.AddValidatedCommandHandler<
+            DeleteMyOwnerCommandHandler, DeleteMyOwnerCommand, Unit>();
 
         services.AddValidatedCommandHandler<
             ReactivateOwnerCommandHandler, ReactivateOwnerCommand, OwnerSessionResponse>();

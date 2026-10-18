@@ -110,6 +110,7 @@ Mesmas regras de camada do §4. `PetHost.ArchitectureTests` (`HostsModuleBoundar
 | `GET` | `/api/v1/host-applications/{applicationId}/documents/{kind}` | admin | Link assinado da foto (`url`, `expiresAt` em Unix time em segundos; vale 5 min), `Cache-Control: no-store` | `200` |
 | `POST` | `/api/v1/host-applications/{applicationId}/approval` | admin | Aprova (com `reason`) e cria o anfitrião | `200` |
 | `POST` | `/api/v1/host-applications/{applicationId}/rejection` | admin | Recusa (`rejectionReason` + `reason`) | `200` |
+| `POST` | `/api/v1/host-applications/identity-blocks/release` | admin | Libera um CPF bloqueado (`cpf` + `reason`; seção 4.1.1). Não bloqueado: `404 HOST_IDENTITY_BLOCK_NOT_FOUND` | `200` |
 
 Anfitrião verificado (seção 4.2):
 
@@ -120,6 +121,7 @@ Anfitrião verificado (seção 4.2):
 | `DELETE` | `/api/v1/hosts/me/avatar` | anfitrião | Tira a foto de perfil. Idempotente | `200` |
 | `POST` | `/api/v1/hosts/me/deactivate` | anfitrião | Inativa perfil e conta (sessões caem na hora). Com reserva em aberto: `422 HOST_HAS_OPEN_BOOKING` | `200` |
 | `POST` | `/api/v1/hosts/reactivate` | anônimo | Reativa conta e perfil com e-mail e senha; já com sessão | `200` |
+| `POST` | `/api/v1/hosts/me/deletion` | anfitrião | Exclui a conta de anfitrião a pedido do titular (LGPD), com a senha atual. Sem volta. Vale também antes da aprovação (seção 4.2.1) | `200` |
 | `GET` | `/api/v1/hosts` | admin | Todos os anfitriões, com a conta. `?stripeStatus=` filtra pela situação do cadastro de recebimento (ex.: `in_progress`, `rejected`; valor desconhecido: `400` em `stripeStatus`) | `200` |
 | `GET` | `/api/v1/hosts/{hostId}` | admin | Um anfitrião, pelo id do anfitrião | `200` |
 | `POST` | `/api/v1/hosts/{hostId}/suspension` | admin | Suspende perfil e conta, com motivo | `200` |
@@ -179,6 +181,7 @@ Pessoa jurídica (empresa de hospedagem): o **CPF, o documento e a selfie são d
 | `422` | `HOST_ALREADY_VERIFIED` | A conta já é anfitriã. |
 | `422` | `HOST_APPLICATION_BLOCKED` | Houve recusa por suspeita de fraude. |
 | `422` | `HOST_APPLICATION_ATTEMPTS_EXCEEDED` | Já foram 3 recusas. |
+| `422` | `HOST_IDENTITY_BLOCKED` | O CPF está bloqueado (recusa por fraude ou 3 recusas, em qualquer conta, mesmo já excluída — seção 4.1.1). Vale também no `PATCH` que troca o CPF. Só o suporte libera. |
 
 ### 3.2 Formato da solicitação (para a própria pessoa)
 
@@ -315,14 +318,14 @@ As reservas, o `held` e o `expected` são sempre os de agora; `?month=` só muda
 
 - **Uma solicitação aberta por conta**, no domínio e no banco (índice único parcial).
 - **Tentativas:** a 1ª solicitação é a tentativa 1; cada recusa comum soma 1. Depois de 3 recusas, só pelo suporte. Desistir e expirar não contam.
-- **Recusa definitiva:** `suspected_fraud` fecha como `rejected_final` e bloqueia novas solicitações.
+- **Recusa definitiva:** `suspected_fraud` fecha como `rejected_final` e bloqueia novas solicitações — da conta e, pelo CPF, de qualquer outra (seção 4.1.1).
 - **CPF da pessoa:** regra da seção 4.1. Formato igual ao do tutor: só dígitos, módulo 11, mascarado no `ToString()` e na trilha.
 - **CNPJ único** entre anfitriões e solicitações abertas de contas diferentes (domínio + índices únicos `uq_hosts_cnpj` e `uq_host_applications_cnpj_open`).
 - **Pessoa física ou jurídica** é escolhida ao abrir e não muda. Na empresa, o CPF, o documento e a selfie são do **representante legal** (a dona da conta); na trilha vão o tipo e o CNPJ (dado público da empresa).
 - **Só o rascunho muda** (dados e fotos). Enviar exige as três fotos.
 - **Aprovar cria o `Host`** — pessoa física ou empresa, com os dados conferidos —, `verified_at`, `verified_by` (o admin) e `application_id`, na mesma transação que fecha a solicitação.
 - **Toda decisão do admin leva motivo** (`reason`, até 500): vai para `review_notes` e para a trilha.
-- **Trilha:** `host_application.started`, `.updated`, `.document_uploaded`, `.submitted`, `.cancelled`, `.approved`, `.rejected`, `.viewed` (admin abriu), `.listed`, `.document_viewed` (admin abriu uma foto), `.expired`, `.documents_purged`. CPF só mascarado.
+- **Trilha:** `host_application.started`, `.updated`, `.document_uploaded`, `.submitted`, `.cancelled`, `.approved`, `.rejected`, `.viewed` (admin abriu), `.listed`, `.document_viewed` (admin abriu uma foto), `.expired`, `.documents_purged`, `.identity_blocked` (a recusa bloqueou o CPF; com o motivo) e `.identity_unblocked` (o admin liberou, com motivo). CPF só mascarado.
 - **Pets da casa** (módulo Pets) só depois da aprovação: o Pets acha o anfitrião pelo `IHostDirectory`, que só enxerga `hosts`.
 - **Endereço da empresa para a busca de cantinhos:** `IHostDirectory.GetCompanyAddressByUserIdAsync` devolve o endereço da empresa (anfitrião PJ; `null` para pessoa física ou conta sem perfil). O Listings usa quando a empresa busca logada como anfitrião ([`modulo-listings.md`](modulo-listings.md), origem da busca e selo Vizinho).
 
@@ -340,6 +343,16 @@ Onde vale: cadastro do tutor (pelo e-mail, antes de a conta existir), troca de C
 
 Consequência: como cada e-mail tem no máximo uma conta de anfitrião, uma pessoa representa no máximo uma empresa no PetHost.
 
+### 4.1.1 CPF bloqueado (fraude ou tentativas esgotadas)
+
+O bloqueio "da conta" vem do histórico das solicitações dela, e não alcançava a mesma pessoa com **outra conta** — nem com a mesma, depois de excluir a conta (a exclusão apaga as solicitações). Por isso a recusa que fecha a identidade de vez também bloqueia o **CPF**:
+
+- **Quando:** recusa por `suspected_fraud` (motivo `fraud`) ou a recusa que completa as 3 tentativas (`attempts_exhausted`) — regra em `HostApplication.IdentityBlockFor`. Grava uma linha em `host.identity_blocks` depois de gravar a recusa; CPF já bloqueado fica como está. Trilha: `host_application.identity_blocked` (CPF mascarado e motivo) e `identityBlocked` nos detalhes da recusa.
+- **Efeito:** abrir solicitação (ou trocar o CPF do rascunho) com esse CPF, em **qualquer conta**, responde `422 HOST_IDENTITY_BLOCKED`. Conferido antes da regra do CPF entre pessoas.
+- **O que fica guardado:** só a **impressão** do CPF — HMAC-SHA256 com a chave `HostVerification:CpfFingerprintKey` (porta `ICpfFingerprint`, `HmacCpfFingerprint`). Sem a chave não se volta ao CPF nem se testam os 10⁹ CPFs possíveis, como daria com um SHA-256 simples. Trocar a chave invalida os bloqueios.
+- **Sobrevive à exclusão da conta** (seção 4.2.1): é dado mínimo para prevenção à fraude (LGPD, art. 11, II, "g", a mesma base da verificação), sem o CPF em si.
+- **Liberar (admin):** `POST /api/v1/host-applications/identity-blocks/release` com `{ "cpf", "reason" }` — para quando o bloqueio pegou o **dono de verdade** do CPF (alguém usou o CPF dele e foi recusado por fraude), depois de o suporte conferir o documento. A conta recusada continua bloqueada pelo histórico dela. Trilha: `host_application.identity_unblocked` com o CPF mascarado.
+
 ### 4.2 Anfitrião verificado: perfil, status e ações do admin
 
 Mesmo molde do tutor ([`modulo-owners.md`](modulo-owners.md) seções 3.3 a 3.7): conta (Auth) e perfil (Hosts) mudam juntos, com compensação se um dos lados falhar.
@@ -349,7 +362,26 @@ Mesmo molde do tutor ([`modulo-owners.md`](modulo-owners.md) seções 3.3 a 3.7)
 - **Inativar** (`POST /hosts/me/deactivate`): perfil e conta; sessões caem na hora; a conta de tutor da mesma pessoa não é afetada. Conta ainda sem perfil (verificação em andamento) inativa só a conta. **Com reserva em aberto** (`requested`, `accepted`, `confirmed` ou `in_progress`): `422 HOST_HAS_OPEN_BOOKING` e nada muda — o anfitrião responde, cancela ou faz o check-out antes. A consulta é pela porta `IHostBookings` sobre o contrato `IBookingDirectory.HasOpenBookingForHostAsync` (Bookings). Sem essa trava, o pedido ficaria sem resposta e a estadia sem check-in nem check-out, já que a conta inativa não entra. **Reativar** (`POST /hosts/reactivate`, anônimo, e-mail e senha): conta e perfil; devolve a sessão com `host` (nulo se ainda não aprovado). Conta suspensa não volta: `403 AUTH_ACCOUNT_SUSPENDED`.
 - **Suspender** (admin, com motivo): perfil e conta; login `403 AUTH_ACCOUNT_SUSPENDED`; a senha não desfaz. Idempotente. Depois de gravar, as reservas dos cantinhos dele que ainda não começaram (`requested`, `accepted`, `confirmed`) são **canceladas pela plataforma**, com **100% de reembolso** ao tutor e e-mail aos dois lados (porta `IHostBookings.CancelForSuspensionAsync`, contrato `IBookingSuspensions` — [`modulo-bookings.md`](modulo-bookings.md) seção 6.1). A estadia em andamento continua e o **admin** faz o check-out (`POST /bookings/{id}/check-out`, com motivo). Se o cancelamento falhar, vai para o log e a suspensão não é desfeita: suspender de novo cancela o que tiver sobrado. **Tirar a suspensão**: volta ao status que tinha e a pessoa recebe um e-mail avisando (pelo Auth); as reservas canceladas não voltam.
 - **Liberar CPF/CNPJ** (admin, com motivo, só de suspenso — `422 HOST_SUSPENSION_REQUIRED`): pessoa física libera o CPF; empresa, o CNPJ e o CPF do representante. Diferente do tutor, os valores **ficam no perfil como evidência** (`identity_released_at`), mas deixam de contar: os índices únicos ignoram o perfil liberado e o `ICpfOwnership` também. A suspensão desse perfil não sai mais (`422 HOST_IDENTITY_RELEASED`).
-- **Trilha:** `host.updated` (campos da empresa, pelo nome), `host.deactivated`, `host.reactivated`, `host.suspended`, `host.suspension_lifted`, `host.identity_released` (CPF mascarado, CNPJ), `host.viewed` e `host.listed` (leitura do admin). Os dados da conta ficam com o Auth (`account.profile_updated`).
+- **Excluir a conta** (`POST /hosts/me/deletion`): seção 4.2.1.
+- **Trilha:** `host.updated` (campos da empresa, pelo nome), `host.deactivated`, `host.reactivated`, `host.erased`, `host.suspended`, `host.suspension_lifted`, `host.identity_released` (CPF mascarado, CNPJ), `host.viewed` e `host.listed` (leitura do admin). Os dados da conta ficam com o Auth (`account.profile_updated`).
+
+### 4.2.1 Excluir a conta — `POST /api/v1/hosts/me/deletion`
+
+LGPD, art. 18, VI: eliminação dos dados a pedido do titular. Mesmo molde do tutor ([`modulo-owners.md`](modulo-owners.md) seção 3.5.1). Corpo `{ "currentPassword": "..." }` (faltando ou errada: `400` no campo `currentPassword`). **Com reserva em aberto:** `422 HOST_HAS_OPEN_BOOKING` e nada muda. Vale também para conta que ainda está na verificação (sem perfil). Sem volta.
+
+| Some ou é anonimizado | Fica (lei ou o outro lado precisa) |
+|---|---|
+| Conta (Auth): nome `Conta excluída`, e-mail `excluida-<id>@pethost.invalid`, telefone, nascimento, endereço e foto apagados, senha inutilizada | Reservas, pagamentos e repasses |
+| Perfil: CPF (da pessoa ou do representante) apagado, perfil inativo, `erased_at` | A conta conectada do Stripe (`stripe_account_id`): repasses feitos e estornos dependem dela |
+| Solicitações de verificação, com os documentos e a selfie do bucket privado (a aprovação continua na trilha). O bloqueio do CPF por fraude ou tentativas esgotadas (seção 4.1.1) **fica**: só a impressão, sem o CPF | Dados da empresa (CNPJ, razão social, nome fantasia, endereço): pessoa jurídica não é dado pessoal na LGPD |
+| Foto de perfil no bucket | Avaliações publicadas — o nome sai, porque vem da conta |
+| Pets: inativos e sem fotos ([`modulo-pets.md`](modulo-pets.md)) | A trilha de auditoria |
+| Cantinhos: inativos, sem fotos e sem o endereço que leva à casa — ficam bairro, cidade e UF, e a coordenada exata vira a aproximada ([`modulo-listings.md`](modulo-listings.md)) | Título, descrição e preço do cantinho, para o histórico |
+| Conversas, com as mensagens, as denúncias e as fotos — o tutor perde o histórico | |
+
+- Todas as sessões caem na hora; login e reativação com o e-mail antigo respondem `401`. O CPF fica livre (o `ICpfOwnership` não acha mais ninguém com ele). A conta de tutor da mesma pessoa não é afetada.
+- **Ordem:** os outros módulos primeiro (contrato `IPersonalDataErasure`), depois as solicitações e o perfil (uma gravação só) e, por último, a conta. Se algo falhar no meio, a pessoa entra e pede de novo; cada passo é idempotente. Documentos e foto saem do bucket só depois que a conta foi anonimizada.
+- Trilha: `host.erased` (só de anfitrião aprovado) e `account.erased` (Auth).
 
 ### 4.3 Cadastro de recebimento (Stripe Connect)
 
@@ -385,7 +417,7 @@ Mesmo molde do tutor ([`modulo-owners.md`](modulo-owners.md) seções 3.3 a 3.7)
 
 ## 6. Banco
 
-Schema `host`. Migrations: `CreateHostsTable`, `AddHostApplications`, `AddStripeOnboardingTracking`, `AddStripeAccountReset`. O espelho `stripe_*` e o índice único `uq_hosts_stripe_account_id` (usado também na busca do webhook pelo `acct_...`) já existiam; `AddStripeOnboardingTracking` acrescentou o acompanhamento dos lembretes — `stripe_account_created_at` (quando o cadastro foi aberto; contas que já existiam recebem `updated_at`), `stripe_reminders_sent` (padrão `0`) e `stripe_reminded_at`; `AddStripeAccountReset`, o reset do admin — `stripe_rejected_account_id` (a conta recusada desligada, histórico) e `stripe_account_resets` (padrão `0`).
+Schema `host`. Migrations: `CreateHostsTable`, `AddHostApplications`, `AddStripeOnboardingTracking`, `AddStripeAccountReset`, `AddErasureToHosts` (`cpf` anulável, `erased_at` e `ck_hosts_cpf_only_null_when_erased`), `AddIdentityBlocks` (`host.identity_blocks`). O espelho `stripe_*` e o índice único `uq_hosts_stripe_account_id` (usado também na busca do webhook pelo `acct_...`) já existiam; `AddStripeOnboardingTracking` acrescentou o acompanhamento dos lembretes — `stripe_account_created_at` (quando o cadastro foi aberto; contas que já existiam recebem `updated_at`), `stripe_reminders_sent` (padrão `0`) e `stripe_reminded_at`; `AddStripeAccountReset`, o reset do admin — `stripe_rejected_account_id` (a conta recusada desligada, histórico) e `stripe_account_resets` (padrão `0`).
 
 ```sql
 CREATE TABLE host.host_applications (
@@ -436,11 +468,22 @@ CREATE TABLE host.host_application_documents (
     CONSTRAINT pk_host_application_documents PRIMARY KEY (id)
 );
 CREATE UNIQUE INDEX uq_host_application_documents_application_id_kind ON host.host_application_documents (application_id, kind);
+
+CREATE TABLE host.identity_blocks (
+    id              uuid         NOT NULL,
+    cpf_fingerprint char(64)     NOT NULL,              -- HMAC-SHA256 do CPF, nunca o CPF
+    reason          varchar(20)  NOT NULL,              -- fraud ou attempts_exhausted
+    application_id  uuid         NOT NULL,              -- a solicitação recusada, sem FK (pode ser apagada)
+    blocked_at      timestamptz  NOT NULL,
+    CONSTRAINT pk_identity_blocks PRIMARY KEY (id),
+    CONSTRAINT ck_identity_blocks_reason CHECK (reason IN ('fraud', 'attempts_exhausted'))
+);
+CREATE UNIQUE INDEX uq_identity_blocks_cpf_fingerprint ON host.identity_blocks (cpf_fingerprint);
 ```
 
 Concorrência otimista pelo `xmin` do Postgres (coluna de sistema, não entra na migration): dois admins decidindo a mesma solicitação → o segundo recebe `409`.
 
-`host.hosts` ganhou: `application_id` (único), `verified_at`, `verified_by`, `identity_released_at` (CPF/CNPJ liberado pelo admin; os índices `uq_hosts_cpf_individual` e `uq_hosts_cnpj` ignoram o perfil liberado) e o espelho da conta conectada no Stripe — `stripe_details_submitted`, `stripe_charges_enabled`, `stripe_payouts_enabled` (padrão `false`), `stripe_disabled_reason`, `stripe_onboarded_at`, `stripe_synced_at`. Detalhes no [`dicionario-de-dados.md`](dicionario-de-dados.md).
+`host.hosts` ganhou: `application_id` (único), `verified_at`, `verified_by`, `identity_released_at` (CPF/CNPJ liberado pelo admin; os índices `uq_hosts_cpf_individual` e `uq_hosts_cnpj` ignoram o perfil liberado), `erased_at` (conta excluída; `cpf` passa a nulo, e só nesse caso — `ck_hosts_cpf_only_null_when_erased`) e o espelho da conta conectada no Stripe — `stripe_details_submitted`, `stripe_charges_enabled`, `stripe_payouts_enabled` (padrão `false`), `stripe_disabled_reason`, `stripe_onboarded_at`, `stripe_synced_at`. Detalhes no [`dicionario-de-dados.md`](dicionario-de-dados.md).
 
 ```bash
 dotnet dotnet-ef migrations add <Nome> --project src/Modules/Hosts/PetHost.Modules.Hosts.Infrastructure --startup-project src/Host/PetHost.Api --context HostsDbContext --output-dir Persistence/Migrations
@@ -455,6 +498,7 @@ dotnet dotnet-ef migrations add <Nome> --project src/Modules/Hosts/PetHost.Modul
 | `HostVerification:DraftLifetimeDays` | `HOST_VERIFICATION_DRAFT_LIFETIME_DAYS` | `7` | Rascunho mais velho que isso expira. |
 | `HostVerification:PurgeEnabled` | — | `true` | Liga a limpeza em segundo plano (os testes desligam). |
 | `HostVerification:PurgeIntervalMinutes` | — | `60` | Intervalo da limpeza. |
+| `HostVerification:CpfFingerprintKey` | `HOST_CPF_FINGERPRINT_KEY` | — (**obrigatória**, 32+ caracteres) | Chave do HMAC da impressão do CPF bloqueado (seção 4.1.1). Segredo, como o `Jwt:Key`; trocar invalida os bloqueios. Gere com `openssl rand -hex 32`. |
 | `Seed:DemoHost:*` | `SEED_DEMO_HOST_*` | desligado | Seção 8. |
 | `Stripe:SecretKey` | `STRIPE_SECRET_KEY` | vazio | Chave secreta **de teste** (`sk_test_...`). Vazia: a API sobe, mas o cadastro de recebimento responde `503 HOST_STRIPE_UNAVAILABLE`. |
 | `Stripe:PublishableKey` | `STRIPE_PUBLISHABLE_KEY` | vazio | `pk_test_...`; vai na resposta da sessão embutida. |
@@ -467,7 +511,7 @@ dotnet dotnet-ef migrations add <Nome> --project src/Modules/Hosts/PetHost.Modul
 | `HostPayouts:AdminAlertEmail` | `HOST_PAYOUTS_ADMIN_ALERT_EMAIL` | vazio | Quem recebe o alerta de conta recusada pelo Stripe. Vazio = só trilha e filtro. |
 | `Stripe:ConnectReturnUrl` / `:ConnectRefreshUrl` | `STRIPE_CONNECT_RETURN_URL` / `_REFRESH_URL` | `http://localhost:3000/anfitriao/recebimentos?stripe=...` | Para onde o Stripe devolve no fim do onboarding hospedado / quando o link venceu. Fixos na configuração (nunca do cliente: seria redirecionamento aberto). |
 
-Configuração inválida (prazo negativo, intervalo zero, bucket privado igual ao público) **derruba a subida**.
+Configuração inválida (prazo negativo, intervalo zero, bucket privado igual ao público, chave da impressão do CPF ausente ou curta) **derruba a subida**.
 
 ## 8. Anfitrião de demonstração
 
@@ -547,9 +591,9 @@ As duas respostas vão com `Cache-Control: no-store`; o segredo e o link não s�
 
 | Projeto | O que cobre | Resultado |
 |---|---|---|
-| `Hosts.Domain.UnitTests` | Cadastro de recebimento (situação `rejected` para `rejected.*`, lembrete devido conforme a agenda — conta da aprovação se nem abriu, para em análise/recusado/inativo/suspenso, acaba depois do último —, pode abrir só ativo e sem suspensão, ligar a mesma conta de novo, recusar outra conta, espelho do Stripe: liberar/bloquear repasses, data da 1ª liberação, motivo normalizado, situação `not_started`…`enabled`, `IsListable`); `HostApplication` (abrir com histórico, tentativas, bloqueio, rascunho, fotos, foto repetida, enviar, aprovar criando o `Host`, recusar comum/definitiva, desistir, expirar, apagar fotos), valores dos enums, `Host` (verificação, `LinkStripeAccount`), `Cpf`, `Cnpj`, `CompanyAddress`, `CompanyDetails`; solicitação de empresa (abrir, corrigir os dados, recusar dados de empresa em pessoa física, aprovar criando o anfitrião empresa); ciclo do `Host` (inativar/reativar idempotentes, suspender, liberar CPF/CNPJ só de suspenso, suspensão que não sai depois da liberação, contato da empresa) | 171 ✅ |
-| `Hosts.Application.UnitTests` | Todos os casos de uso: abrir (CPF em uso, já anfitriã, corrida), corrigir, fotos (posse antes do upload, troca apaga a anterior, compensação quando gravar falha ou lança), enviar, desistir (prazo de guarda), fila/detalhe/foto do admin com trilha, aprovar (cria o host, apaga fotos, e-mail, conflito), recusar (pode ou não tentar de novo), limpeza, validadores, pessoa jurídica (CNPJ em uso, campos de empresa todos juntos na abertura, correção parcial da empresa completada com o rascunho, dado de empresa em pessoa física), CPF de outra pessoa pelo `ICpfOwnership`; perfil com a identidade travada (valor igual passa), contato da empresa, compensação, foto, inativar/reativar (com e sem perfil; com reserva em aberto recusa sem gravar nada), suspender/tirar/liberar com compensação e trilha (suspender cancela as reservas; conta que não pôde ser suspensa não cancela nada), leitura do admin; cadastro de recebimento (404 antes da aprovação, recusa de suspenso sem chamar o Stripe, conta criada uma vez e preenchida — PF e empresa —, reaproveitada depois, Stripe fora do ar sem gravar nada, link hospedado, sincronização liberando cantinhos com e-mail e trilha uma vez só, bloqueio na trilha, bloqueio com reservas em aberto alertando o admin uma vez com a lista, webhook de conta desconhecida); manutenção (releitura liberando quem perdeu o webhook, para no Stripe fora do ar, pula recusado e quem não tem conta, lembrete uma vez por etapa e não repetido se gravar falhar, lembrete para quem nem começou), recusa definitiva avisando anfitrião e admin uma vez só, filtro `stripeStatus` do admin (e 400), reset da conta recusada (nova tentativa com trilha e motivo, recusa de conta não recusada, 404, motivo obrigatório); painel (404 antes da aprovação sem ler reservas nem ganhos, reservas e ganhos em reais com composição, guardado por motivo, previsto e estadias concluídas no mês de Brasília, mês de Brasília na virada do UTC, `month` no passado, 400 de formato e de mês no futuro) | 139 ✅ |
-| `Hosts.IntegrationTests` | Ponta a ponta com Postgres, Redis e RustFS: fluxo completo até a aprovação, fotos no bucket privado e não no público, bucket privado sem leitura anônima, resposta da pessoa sem link, link assinado do admin abrindo a foto direto do bucket (`no-store`, vence em 5 min, URL adulterada dá 403), 403 para não admin, 400/409/422 das regras, recusa e nova tentativa, bloqueio por fraude, desistência apagando fotos, limpeza de rascunho abandonado, trilha, seed de demonstração (verificado, com Stripe, idempotente), empresa ponta a ponta até o anfitrião PJ, 400/409 de empresa, restrição 9 nos dois sentidos (tutor e anfitrião: mesmo e-mail pode, outro e-mail não), o ciclo do anfitrião (PATCH com trava, foto no bucket, inativar e reativar, suspensão que a senha não desfaz, liberação do CPF para a dona verdadeira, 403 para não admin, trilha) e o cadastro de recebimento com o **SDK do Stripe de verdade contra uma API do Stripe de mentira** (`FakeStripeApi`): 404 antes da aprovação, 403 para tutor, conta criada uma vez com o que foi enviado ao Stripe (país, CPF, nome, telefone, endereço, capacidades, chave de idempotência), link hospedado, 503 sem gravar nada, webhook assinado liberando o anfitrião na busca, bloqueio escondendo de novo, assinatura errada 400, conta desconhecida 200, Stripe fora na releitura 500; manutenção liberando o anfitrião sem webhook, lembrete por e-mail uma vez (dia 3), recusa (`rejected.fraud`) com e-mail ao anfitrião e ao admin, filtro `?stripeStatus=` do admin (e 400), recusado bloqueado no cadastro até o admin dar nova chance — conta nova com outra chave de idempotência, a recusada no histórico; painel (404 antes da aprovação, vazio depois) | 57 ✅ |
+| `Hosts.Domain.UnitTests` | Cadastro de recebimento (situação `rejected` para `rejected.*`, lembrete devido conforme a agenda — conta da aprovação se nem abriu, para em análise/recusado/inativo/suspenso, acaba depois do último —, pode abrir só ativo e sem suspensão, ligar a mesma conta de novo, recusar outra conta, espelho do Stripe: liberar/bloquear repasses, data da 1ª liberação, motivo normalizado, situação `not_started`…`enabled`, `IsListable`); `HostApplication` (abrir com histórico, tentativas, bloqueio, rascunho, fotos, foto repetida, enviar, aprovar criando o `Host`, recusar comum/definitiva, desistir, expirar, apagar fotos), valores dos enums, `Host` (verificação, `LinkStripeAccount`), `Cpf`, `Cnpj`, `CompanyAddress`, `CompanyDetails`; solicitação de empresa (abrir, corrigir os dados, recusar dados de empresa em pessoa física, aprovar criando o anfitrião empresa); ciclo do `Host` (inativar/reativar idempotentes, suspender, liberar CPF/CNPJ só de suspenso, suspensão que não sai depois da liberação, contato da empresa, exclusão: CPF apagado, dados da empresa mantidos, idempotente, sem reativar); bloqueio do CPF (fraude, 3 recusas, ainda pode tentar; o bloqueio e os valores do motivo) | 183 ✅ |
+| `Hosts.Application.UnitTests` | Todos os casos de uso: abrir (CPF em uso, já anfitriã, corrida), corrigir, fotos (posse antes do upload, troca apaga a anterior, compensação quando gravar falha ou lança), enviar, desistir (prazo de guarda), fila/detalhe/foto do admin com trilha, aprovar (cria o host, apaga fotos, e-mail, conflito), recusar (pode ou não tentar de novo), limpeza, validadores, pessoa jurídica (CNPJ em uso, campos de empresa todos juntos na abertura, correção parcial da empresa completada com o rascunho, dado de empresa em pessoa física), CPF de outra pessoa pelo `ICpfOwnership`; perfil com a identidade travada (valor igual passa), contato da empresa, compensação, foto, inativar/reativar (com e sem perfil; com reserva em aberto recusa sem gravar nada), suspender/tirar/liberar com compensação e trilha (suspender cancela as reservas; conta que não pôde ser suspensa não cancela nada), leitura do admin; cadastro de recebimento (404 antes da aprovação, recusa de suspenso sem chamar o Stripe, conta criada uma vez e preenchida — PF e empresa —, reaproveitada depois, Stripe fora do ar sem gravar nada, link hospedado, sincronização liberando cantinhos com e-mail e trilha uma vez só, bloqueio na trilha, bloqueio com reservas em aberto alertando o admin uma vez com a lista, webhook de conta desconhecida); manutenção (releitura liberando quem perdeu o webhook, para no Stripe fora do ar, pula recusado e quem não tem conta, lembrete uma vez por etapa e não repetido se gravar falhar, lembrete para quem nem começou), recusa definitiva avisando anfitrião e admin uma vez só, filtro `stripeStatus` do admin (e 400), reset da conta recusada (nova tentativa com trilha e motivo, recusa de conta não recusada, 404, motivo obrigatório); painel (404 antes da aprovação sem ler reservas nem ganhos, reservas e ganhos em reais com composição, guardado por motivo, previsto e estadias concluídas no mês de Brasília, mês de Brasília na virada do UTC, `month` no passado, 400 de formato e de mês no futuro); excluir a conta (ordem módulos → solicitações e perfil → conta → documentos e foto, conta ainda sem perfil, senha errada e reserva em aberto recusam sem tocar em nada, arquivos mantidos se a conta não pôde ser excluída, para antes da conta se o perfil não grava); CPF bloqueado (abrir e trocar o CPF recusam sem gravar e antes da regra entre pessoas; recusa por fraude e a 3ª recusa bloqueiam com trilha, recusa comum não, CPF já bloqueado fica, conflito tira o bloqueio do contexto sem derrubar a recusa; liberar com trilha mascarada, 404, validador) | 155 ✅ |
+| `Hosts.IntegrationTests` | Ponta a ponta com Postgres, Redis e RustFS: fluxo completo até a aprovação, fotos no bucket privado e não no público, bucket privado sem leitura anônima, resposta da pessoa sem link, link assinado do admin abrindo a foto direto do bucket (`no-store`, vence em 5 min, URL adulterada dá 403), 403 para não admin, 400/409/422 das regras, recusa e nova tentativa, bloqueio por fraude, desistência apagando fotos, limpeza de rascunho abandonado, trilha, seed de demonstração (verificado, com Stripe, idempotente), empresa ponta a ponta até o anfitrião PJ, 400/409 de empresa, restrição 9 nos dois sentidos (tutor e anfitrião: mesmo e-mail pode, outro e-mail não), o ciclo do anfitrião (PATCH com trava, foto no bucket, inativar e reativar, suspensão que a senha não desfaz, liberação do CPF para a dona verdadeira, 403 para não admin, trilha) e o cadastro de recebimento com o **SDK do Stripe de verdade contra uma API do Stripe de mentira** (`FakeStripeApi`): 404 antes da aprovação, 403 para tutor, conta criada uma vez com o que foi enviado ao Stripe (país, CPF, nome, telefone, endereço, capacidades, chave de idempotência), link hospedado, 503 sem gravar nada, webhook assinado liberando o anfitrião na busca, bloqueio escondendo de novo, assinatura errada 400, conta desconhecida 200, Stripe fora na releitura 500; manutenção liberando o anfitrião sem webhook, lembrete por e-mail uma vez (dia 3), recusa (`rejected.fraud`) com e-mail ao anfitrião e ao admin, filtro `?stripeStatus=` do admin (e 400), recusado bloqueado no cadastro até o admin dar nova chance — conta nova com outra chave de idempotência, a recusada no histórico; painel (404 antes da aprovação, vazio depois); exclusão da conta (anfitrião aprovado perde o CPF e a solicitação, sessões caem, login `401`; conta na verificação tem a solicitação apagada e o CPF fica livre para outra pessoa; `400` com senha errada); CPF bloqueado (fraude bloqueia o CPF só pela impressão, o bloqueio sobrevive à exclusão da conta e vale para o mesmo e-mail e para outro; o admin libera para a dona de verdade, a conta do fraudador continua bloqueada, liberar de novo `404`, `403` para não admin, `400` sem CPF válido ou motivo) | 64 ✅ |
 
 ## 11. Decisões e pendências
 
@@ -577,3 +621,7 @@ As duas respostas vão com `Cache-Control: no-store`; o segredo e o link não s�
 | Chegada atrasada (paga, sem check-in, dia de chegada passado) num grupo próprio do painel | Na lista de próximas estadias ela parecia futura; separada, o anfitrião vê que precisa marcar "Chegou" — ou que o pet não veio. |
 | Painel numa rota do Hosts, com reservas e ganhos por contrato | A tela é do anfitrião; o Hosts não referencia outros módulos, então pergunta ao Bookings e ao Payments pelo `Shared.Contracts`. O "recebido no mês" sai pronto, pela data do repasse em Brasília, em vez de o app somar páginas de `/payouts/me`. |
 | Criar cantinho só depois do Stripe aprovar | Decisão sua: o cantinho só existe quando já pode ser reservado e pago. A ordem fica verificação → recebimento → cantinho. |
+| Excluir a conta anonimiza em vez de apagar a linha | LGPD, art. 18, VI, com o que a lei manda guardar (art. 16): reservas, pagamentos e repasses apontam para o anfitrião. Decisão sua: pets e cantinhos ficam inativos sem fotos (o cantinho também sem o endereço exato); conversas somem; o CPF vira nulo (coluna anulável só para isso); as solicitações somem com os documentos. |
+| Dados da empresa ficam na exclusão | Pessoa jurídica não é titular na LGPD, e a conta conectada do Stripe (repasses feitos) foi aberta com eles. O CPF do representante, que é de uma pessoa, sai. |
+| Bloqueio pelo CPF, só com a impressão (HMAC) | Pedido seu, depois do teste que mostrou o recomeço: quem era recusado por fraude excluía a conta (ou abria outra) e voltava a ter 3 tentativas. HMAC com chave, e não SHA-256 simples, porque o CPF tem só 10⁹ valores e um hash simples se reverte testando todos. Sobrevive à exclusão (prevenção à fraude). |
+| Admin libera o CPF bloqueado | Sem isso, quem teve o CPF usado por um fraudador ficaria sem poder ser anfitrião. A conta recusada continua bloqueada. |

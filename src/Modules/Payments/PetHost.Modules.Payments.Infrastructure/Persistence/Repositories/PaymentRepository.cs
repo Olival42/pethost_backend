@@ -72,5 +72,10 @@ internal sealed class PaymentRepository(PaymentsDbContext dbContext) : IPaymentR
             .AsNoTracking()
             .AnyAsync(p => p.OwnerId == ownerId && p.Installments.Any(i => i.Status == InstallmentStatus.Overdue), cancellationToken);
 
+    public Task<bool> HasPaidAnyInstallmentAsync(Guid ownerId, CancellationToken cancellationToken) =>
+        dbContext.Payments
+            .AsNoTracking()
+            .AnyAsync(p => p.OwnerId == ownerId && p.Installments.Any(i => i.PaidAt != null), cancellationToken);
+
     public void Add(Payment payment) => dbContext.Payments.Add(payment);
 }

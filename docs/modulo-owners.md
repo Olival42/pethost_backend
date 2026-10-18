@@ -2,7 +2,7 @@
 
 _Documento do que foi implementado · outubro de 2026 · complementa o [`PROJECT_STANDARDS.md`](PROJECT_STANDARDS.md) e o [`modulo-auth.md`](modulo-auth.md)_
 
-O tutor inteiro: o perfil de tutor (o que só o tutor tem — hoje, o CPF, o status e o vínculo com o Customer do Stripe) **e** a conta dele, que vive no módulo Auth (nome, e-mail, telefone, nascimento, endereço). O Owners trata os dois juntos: cadastra, edita, inativa e reativa conta e perfil num pedido só, falando com o Auth pelos contratos de `Shared.Contracts`.
+O tutor inteiro: o perfil de tutor (o que só o tutor tem — hoje, o CPF e o status) **e** a conta dele, que vive no módulo Auth (nome, e-mail, telefone, nascimento, endereço). O Owners trata os dois juntos: cadastra, edita, inativa e reativa conta e perfil num pedido só, falando com o Auth pelos contratos de `Shared.Contracts`.
 
 ## Sumário
 
@@ -56,6 +56,7 @@ Mesmas regras de camada do §4. `PetHost.ArchitectureTests` garante que Owners e
 | `DELETE` | `/api/v1/owners/me/avatar` | token de tutor | Tira a foto de perfil | `200` |
 | `POST` | `/api/v1/owners/me/deactivate` | token de tutor | Inativa perfil e conta, juntos | `200` |
 | `POST` | `/api/v1/owners/reactivate` | anônimo | Reativa conta e perfil com e-mail e senha; já com sessão | `200` |
+| `POST` | `/api/v1/owners/me/deletion` | token de tutor | Exclui a conta de tutor a pedido do titular (LGPD), com a senha atual. Sem volta | `200` |
 | `GET` | `/api/v1/owners/{ownerId}` | admin | Um tutor, pelo **id do tutor** | `200` |
 | `GET` | `/api/v1/owners` | admin | Todos os tutores | `200` |
 | `POST` | `/api/v1/owners/{ownerId}/suspension` | admin | Suspende perfil e conta, com motivo | `200` |
@@ -64,7 +65,7 @@ Mesmas regras de camada do §4. `PetHost.ArchitectureTests` garante que Owners e
 
 Toda ação relevante vai para a trilha de auditoria ([`modulo-audit.md`](modulo-audit.md)): cadastro, troca de CPF/nascimento, inativar/reativar, as ações do admin com o motivo, e até a leitura do admin (`owner.viewed`, `owner.listed`), porque ele vê CPF completo de outra pessoa.
 
-Rate limit (`PROJECT_STANDARDS` §13): `register` usa a política `registration`; `reactivate`, `credentials`; `me/deactivate`, `account-sensitive`; `PATCH me`, `account-update` (20 a cada 15 min por tutor, o que também limita tentativas de senha na troca de CPF). Estourou: `429 TOO_MANY_REQUESTS`.
+Rate limit (`PROJECT_STANDARDS` §13): `register` usa a política `registration`; `reactivate`, `credentials`; `me/deactivate` e `me/deletion`, `account-sensitive`; `PATCH me`, `account-update` (20 a cada 15 min por tutor, o que também limita tentativas de senha na troca de CPF). Estourou: `429 TOO_MANY_REQUESTS`.
 
 A senha do tutor muda em `POST /api/v1/users/me/password` (Auth, [`modulo-auth.md`](modulo-auth.md) seção 2.9), igual para qualquer conta.
 
@@ -177,6 +178,23 @@ Por dentro, os dois status nunca ficam diferentes: ao inativar, o perfil é grav
 
 Não existe inativar/reativar em `/users`: estas são as únicas rotas, e mudam conta e perfil juntos.
 
+### 3.5.1 Excluir a conta — `POST /api/v1/owners/me/deletion`
+
+LGPD, art. 18, VI: eliminação dos dados a pedido do titular. Corpo `{ "currentPassword": "..." }` (faltando ou errada: `400` no campo `currentPassword`). **Com reserva em aberto:** `422 OWNER_HAS_OPEN_BOOKING`, como na inativação, e nada muda. Sem volta.
+
+| Some ou é anonimizado | Fica (lei ou o outro lado precisa) |
+|---|---|
+| Conta (Auth): nome vira `Conta excluída`, e-mail vira `excluida-<id>@pethost.invalid`, telefone, nascimento, endereço e foto apagados, senha inutilizada ([`modulo-auth.md`](modulo-auth.md) seção 2.10) | Reservas e pagamentos (obrigação fiscal; contestação no Stripe) |
+| Perfil de tutor: CPF apagado, perfil inativo, `erased_at` | O que está nas cobranças do Stripe (fiscal e contestação). O PetHost não cria Customer no Stripe, então não há cadastro do tutor lá para apagar |
+| Foto de perfil no bucket | Avaliações publicadas — o nome sai, porque vem da conta |
+| Pets: inativos e sem fotos (o bucket também); a ficha fica para o histórico das reservas ([`modulo-pets.md`](modulo-pets.md)) | A trilha de auditoria |
+| Conversas, com as mensagens, as denúncias e as fotos ([`modulo-conversations.md`](modulo-conversations.md)) — o anfitrião perde o histórico | |
+
+- Todas as sessões caem na hora; login e reativação com o e-mail antigo respondem `401`. O e-mail e o CPF ficam livres: a pessoa pode se cadastrar de novo do zero.
+- A conta de anfitrião da mesma pessoa não é afetada (cada papel tem a sua).
+- **Ordem:** os outros módulos primeiro (pelo contrato `IPersonalDataErasure`, [`PROJECT_STANDARDS.md`](PROJECT_STANDARDS.md) §5), depois o perfil e, por último, a conta. Cada passo é idempotente: se algo falhar no meio (`500`), a pessoa ainda entra e pede de novo. A foto de perfil sai do bucket depois que a conta foi anonimizada.
+- Trilha: `owner.erased` (Owners) e `account.erased` (Auth).
+
 ### 3.6 Admin: `GET /api/v1/owners` e `GET /api/v1/owners/{ownerId}`
 
 Formato da 3.1 (a lista é um array dele). `{ownerId}` é o **id do tutor**, não o da conta. A lista vem do mais novo para o mais antigo, sem paginação nem filtro (lista administrativa, §13), e busca as contas no Auth numa consulta só. As duas leituras ficam na trilha.
@@ -206,44 +224,44 @@ Por dentro, perfil e conta mudam juntos, com compensação: o perfil é gravado 
 
 - **CPF:** só dígitos no banco; aceita máscara na entrada; confere os dois dígitos verificadores (módulo 11); recusa todos os dígitos iguais. Nas respostas vem completo; só o `ToString()` mascara (`***.***.247-25`), para não vazar em log (LGPD).
 - **Um CPF por conta de tutor** e **um tutor por conta** (índices únicos em `cpf` e `user_id`). **Entre papéis** (restrição 9): o CPF pode ser também o do anfitrião da mesma pessoa (mesmo e-mail), nunca o de outro e-mail — conferido no cadastro e na troca de CPF pelo `ICpfOwnership`.
-- **CPF e data de nascimento editáveis até o primeiro pagamento, com a senha:** o marco é o `stripe_customer_id` (`Owner.HasPaid`), criado no primeiro pagamento. Depois dele, `OWNER_CPF_LOCKED` / `OWNER_BIRTH_DATE_LOCKED`. Antes, a troca pede `currentPassword`. A data fica na conta (Auth); quem aplica a trava é o caso de uso do Owners.
+- **CPF e data de nascimento editáveis até o primeiro pagamento, com a senha:** o marco é o tutor ter **alguma parcela paga** (mesmo que reembolsada depois). Quem sabe é o Payments: o caso de uso pergunta pela porta `IOwnerPayments` (adaptador `OwnerPayments` sobre o contrato `IPaymentDirectory.HasPaidAnyInstallmentAsync`), só quando o pedido troca CPF ou nascimento, e passa a resposta para `Owner.ChangeCpf(cpf, hasPaid, now)` / `Owner.CanChangeBirthDate(hasPaid)`. Depois dele, `OWNER_CPF_LOCKED` / `OWNER_BIRTH_DATE_LOCKED`. Antes, a troca pede `currentPassword`. A data fica na conta (Auth); quem aplica a trava é o caso de uso do Owners.
 - **Status próprio, junto com a conta:** `Owner.Deactivate` / `Owner.Reactivate`, idempotentes. O caso de uso muda perfil e conta juntos.
-- **Suspensão (admin):** `Owner.Suspend` / `Owner.LiftSuspension`, junto com a suspensão da conta. `Owner.ReleaseCpf` só em tutor suspenso; depois dele a suspensão não sai mais. CPF nulo só em tutor suspenso (constraint no banco).
+- **Exclusão (LGPD):** `Owner.Erase` apaga o CPF, inativa e grava `erased_at`; idempotente. Perfil excluído não reativa.
+- **Suspensão (admin):** `Owner.Suspend` / `Owner.LiftSuspension`, junto com a suspensão da conta. `Owner.ReleaseCpf` só em tutor suspenso; depois dele a suspensão não sai mais. CPF nulo só em tutor suspenso ou excluído (constraint no banco).
 - **Id próprio:** o tutor tem `id` (UUID v7 gerado pelo domínio); a conta entra só como referência (`user_id`).
 
 | Código | HTTP | Mensagem |
 |---|---|---|
-| `VALIDATION_ERROR` (`currentPassword`) | 400 | Current password is required to change the CPF or the birth date. / Current password is incorrect. |
+| `VALIDATION_ERROR` (`currentPassword`) | 400 | Current password is required to change the CPF or the birth date. / Current password is required to delete the account. / Current password is incorrect. |
 | `OWNER_CPF_ALREADY_REGISTERED` | 409 | An owner account with this CPF already exists. If this CPF is yours, contact support. |
 | `OWNER_CPF_LOCKED` | 422 | The CPF cannot be changed after the first payment. |
 | `OWNER_BIRTH_DATE_LOCKED` | 422 | The birth date cannot be changed after the first payment. |
 | `VALIDATION_ERROR` (`reason`) | 400 | A reason is required. / Reason must be at most 500 characters. |
 | `OWNER_SUSPENSION_REQUIRED` | 422 | The CPF can only be released from a suspended owner. |
 | `OWNER_CPF_RELEASED` | 422 | This owner's CPF was released, so the suspension cannot be lifted. |
-| `OWNER_HAS_OPEN_BOOKING` | 422 | This owner has open bookings. Cancel or finish them before deactivating the profile. |
+| `OWNER_HAS_OPEN_BOOKING` | 422 | This owner has open bookings. Cancel or finish them before deactivating or deleting the profile. |
 | `OWNER_NOT_FOUND` | 404 | Owner '{id}' was not found. / This account has no owner profile yet. |
 
 ## 5. Banco
 
-Schema `owner`, histórico em `owner.__ef_migrations_history`. Migrations: `CreateOwnersTable`, `AddOwnIdToOwners`, `AddStatusToOwners`, `AddSuspensionToOwners`.
+Schema `owner`, histórico em `owner.__ef_migrations_history`. Migrations: `CreateOwnersTable`, `AddOwnIdToOwners`, `AddStatusToOwners`, `AddSuspensionToOwners`, `AddErasedAtToOwners`, `DropStripeCustomerIdFromOwners` (a coluna nunca foi preenchida; o marco do primeiro pagamento vem do Payments).
 
 ```sql
 CREATE TABLE owner.owners (
     id                 uuid         NOT NULL,
     user_id            uuid         NOT NULL,
     cpf                char(11),
-    stripe_customer_id varchar(255),
     is_active          boolean      NOT NULL DEFAULT true,
     deactivated_at     timestamptz,
     suspended_at       timestamptz,
+    erased_at          timestamptz,
     created_at         timestamptz  NOT NULL,
     updated_at         timestamptz  NOT NULL,
     CONSTRAINT pk_owners PRIMARY KEY (id),
-    CONSTRAINT ck_owners_cpf_only_null_when_suspended CHECK (cpf IS NOT NULL OR suspended_at IS NOT NULL)
+    CONSTRAINT ck_owners_cpf_only_null_when_suspended_or_erased CHECK (cpf IS NOT NULL OR suspended_at IS NOT NULL OR erased_at IS NOT NULL)
 );
 CREATE UNIQUE INDEX uq_owners_user_id ON owner.owners (user_id);
 CREATE UNIQUE INDEX uq_owners_cpf ON owner.owners (cpf);
-CREATE UNIQUE INDEX uq_owners_stripe_customer_id ON owner.owners (stripe_customer_id);
 ```
 
 **`user_id` é FK lógica para `auth.users.id`, sem constraint física:** cada módulo tem o seu schema, e o §5/§11 proíbe restrição e JOIN entre schemas. A ligação é garantida pela aplicação — o `user_id` sai sempre da conta criada no cadastro ou do token.
@@ -284,26 +302,15 @@ O Auth usa por dentro o mesmo validador e handler do `/users/register`, a regra 
 
 ## 7. Stripe
 
-O tutor é o pagador. No primeiro pagamento, o módulo de pagamentos cria o **Customer** com:
-
-| Stripe | Vem de |
-|---|---|
-| `name`, `email` | `users.full_name`, `users.email` |
-| `phone` | `users.phone` em E.164 (`+5544999990000`) |
-| `address.line1` / `line2` | `street` + `street_number` / `complement` |
-| `address.postal_code`, `city`, `state` | `zip_code`, `city`, `state` |
-| `address.country` | sempre `BR` |
-| tax ID `br_cpf` | `owners.cpf` |
-
-O `cus_...` volta para `owners.stripe_customer_id` (`Owner.LinkStripeCustomer`) e trava o CPF.
+O tutor é o pagador, mas o PetHost **não cria Customer** no Stripe: cada parcela é uma cobrança avulsa ([`modulo-payments.md`](modulo-payments.md)). Por isso não fica cadastro do tutor no Stripe, e a exclusão da conta não tem nada para apagar lá além do que está nas próprias cobranças (fiscal e contestação). O marco do primeiro pagamento, que trava CPF e nascimento, vem do Payments (seção 4).
 
 ## 8. Testes
 
 | Projeto | O que cobre | Resultado |
 |---|---|---|
-| `Owners.Domain.UnitTests` | `Cpf` (válidos, inválidos, máscara no `ToString`), `Owner` (id próprio, referência à conta, troca do CPF antes e depois do primeiro pagamento, inativar/reativar idempotentes, suspender, liberar CPF só de suspenso, suspensão que não sai depois do CPF liberado) | 28 ✅ |
-| `Owners.Application.UnitTests` | Cadastro unificado (sucesso, CPF de outro, e-mail de outro, **compensação**), PATCH (só conta, só CPF, data de nascimento, senha ausente/errada, travado, CPF de outro, valor igual sem senha nem trava, **compensação**), validadores que juntam erros do CPF e da conta, inativar/reativar (com **compensação** nos dois sentidos; inativar com reserva em aberto recusa sem gravar nada; perfil já inativo não consulta as reservas), suspender/tirar/liberar CPF (com **compensação**, motivo e CPF mascarado na trilha; suspender pede o cancelamento das reservas a cada vez e nunca quando a conta não pôde ser suspensa), consultas do admin, trocar/tirar a foto (só a URL vai no patch, foto antiga apagada, imagem nova apagada se a conta recusar, nada enviado sem perfil de tutor) | 49 ✅ |
-| `Owners.IntegrationTests` | Os fluxos pela API com Postgres e Redis em container: cadastro de anfitrião em `/users/register` (papel sempre `host`), cadastro unificado de tutor, PATCH parcial, com CPF e com data de nascimento (senha, trava no pagamento, reenvio do mesmo valor), `400` da data pelo `/users/me` para tutor, recusas sem gravar nada, inativar/reativar (sessões caem, login `403`, sessão nova vale), `/me` e rotas de admin. `OwnerAdminTests`: suspensão (sessões caem, login e reativação `403`), tirar a suspensão, disputa de CPF ponta a ponta, `422` das regras, `400` sem motivo, `403` para não admin, e a trilha (quem suspendeu e por quê, login recusado, leitura do admin, CPF mascarado). `OwnerAvatarTests`: foto no bucket e link público, troca apaga a anterior, `400` sem arquivo ou com arquivo que não é imagem, remoção idempotente, `avatarUrl` do PATCH ignorado. Inativar com reserva em aberto (`422 OWNER_HAS_OPEN_BOOKING`) e a suspensão cancelando a reserva paga sem reembolso ficam no `Bookings.IntegrationTests`, que tem o caminho da reserva | 46 ✅ |
+| `Owners.Domain.UnitTests` | `Cpf` (válidos, inválidos, máscara no `ToString`), `Owner` (id próprio, referência à conta, troca do CPF antes e depois do primeiro pagamento, inativar/reativar idempotentes, suspender, liberar CPF só de suspenso, suspensão que não sai depois do CPF liberado, troca do CPF travada quando o Payments diz que houve pagamento, nascimento idem, exclusão: CPF apagado, idempotente, sem reativar) | 32 ✅ |
+| `Owners.Application.UnitTests` | Cadastro unificado (sucesso, CPF de outro, e-mail de outro, **compensação**), PATCH (só conta, só CPF, data de nascimento, senha ausente/errada, travado, CPF de outro, valor igual sem senha nem trava, **compensação**), validadores que juntam erros do CPF e da conta, inativar/reativar (com **compensação** nos dois sentidos; inativar com reserva em aberto recusa sem gravar nada; perfil já inativo não consulta as reservas), suspender/tirar/liberar CPF (com **compensação**, motivo e CPF mascarado na trilha; suspender pede o cancelamento das reservas a cada vez e nunca quando a conta não pôde ser suspensa), consultas do admin, trocar/tirar a foto (só a URL vai no patch, foto antiga apagada, imagem nova apagada se a conta recusar, nada enviado sem perfil de tutor), excluir a conta (ordem módulos → perfil → conta → foto, senha errada e reserva em aberto recusam sem tocar em nada, foto mantida se a conta não pôde ser excluída, repetição depois de falha completa só a conta) | 58 ✅ |
+| `Owners.IntegrationTests` | Os fluxos pela API com Postgres e Redis em container: cadastro de anfitrião em `/users/register` (papel sempre `host`), cadastro unificado de tutor, PATCH parcial, com CPF e com data de nascimento (senha, trava no pagamento, reenvio do mesmo valor), `400` da data pelo `/users/me` para tutor, recusas sem gravar nada, inativar/reativar (sessões caem, login `403`, sessão nova vale), `/me` e rotas de admin. `OwnerAdminTests`: suspensão (sessões caem, login e reativação `403`), tirar a suspensão, disputa de CPF ponta a ponta, `422` das regras, `400` sem motivo, `403` para não admin, e a trilha (quem suspendeu e por quê, login recusado, leitura do admin, CPF mascarado). `OwnerAvatarTests`: foto no bucket e link público, troca apaga a anterior, `400` sem arquivo ou com arquivo que não é imagem, remoção idempotente, `avatarUrl` do PATCH ignorado. `OwnerDeletionTests`: exclusão anonimiza a conta e apaga o CPF no banco, sessões caem, login e reativação `401`, e-mail e CPF livres para um cadastro novo, `400` com senha errada ou sem senha. Inativar com reserva em aberto (`422 OWNER_HAS_OPEN_BOOKING`) e a suspensão cancelando a reserva paga sem reembolso ficam no `Bookings.IntegrationTests`, que tem o caminho da reserva | 51 ✅ |
 
 ## 9. Decisões e pendências
 
@@ -318,7 +325,7 @@ O `cus_...` volta para `owners.stripe_customer_id` (`Owner.LinkStripeCustomer`) 
 | Perfil de tutor com status próprio | Pedido seu: inativar/reativar o tutor muda perfil e conta juntos. |
 | Tutor com id próprio; `user_id` só como referência | Decisão sua. Um tutor por conta continua garantido pelo índice único. |
 | `user_id` sem FK física | §5/§11: sem constraint entre schemas de módulos. Se quiser a constraint, abrir exceção no padrão. |
-| CPF editável só até o primeiro pagamento | Decisão sua. Corrige erro de digitação sem quebrar o vínculo com o Stripe. |
+| CPF editável só até o primeiro pagamento | Decisão sua. Corrige erro de digitação; quem pagou fica com o CPF de quando pagou. |
 | CPF completo e dados da conta em toda resposta | Decisão sua: o front tem tudo do tutor numa chamada só. Em log o CPF continua mascarado. |
 | Lista do admin sem paginação | Permitido pelo §13 para listas administrativas pequenas. |
 | Suspensão separada da inativação | Pedido seu: o admin precisa tirar uma conta do ar sem que a pessoa a reative com a senha. |
@@ -327,3 +334,6 @@ O `cus_...` volta para `owners.stripe_customer_id` (`Owner.LinkStripeCustomer`) 
 | Disputa de CPF pelo e-mail do suporte | Decisão do MVP: o app mostra o e-mail (`GET /api/v1/support`) e o admin resolve com as rotas da seção 3.7. Um pedido pela API teria de ser anônimo (quem disputa não tem conta), com foto de documento — spam e LGPD sem ganho para um caso raro. A tela do admin fica no front, que é um projeto separado. |
 | Não inativa com reserva em aberto (`422`) | Mesmo critério do pet. A conta inativa perde as sessões e não entra nem para cancelar: a reserva ficaria sem ninguém do lado do tutor. A suspensão (admin) não é barrada: ela cancela as reservas que ainda não começaram. |
 | Suspensão do tutor cancela as reservas sem reembolso | Os 100% ficam com a outra parte: o anfitrião não teve culpa e segurou a vaga. A estadia em andamento continua (o pet está com o anfitrião). |
+| Excluir a conta anonimiza em vez de apagar a linha | LGPD, art. 18, VI, com o que a lei manda guardar (art. 16): reservas e pagamentos apontam para o tutor e o Stripe pode abrir contestação meses depois. Decisão sua: pets ficam inativos sem fotos; conversas somem inteiras. |
+| Exclusão por papel, com a senha, em `POST /owners/me/deletion` | Decisão sua: mesmo molde da inativação (a conta de anfitrião é outra). `POST` em vez de `DELETE` porque leva corpo (a senha), e o §13 evita `DELETE` com corpo. Barrada com reserva em aberto, como a inativação. |
+| Marco do primeiro pagamento pelo Payments, sem Customer no Stripe | Decisão sua. O marco antigo (`stripe_customer_id`) nunca era preenchido: o Payments não cria Customer, e a trava não ligava. Perguntar ao Payments se há parcela paga corrige a trava sem guardar o tutor no Stripe, o que também deixa a exclusão da conta sem nada para apagar lá. A coluna saiu (`DropStripeCustomerIdFromOwners`). |

@@ -38,6 +38,9 @@ internal sealed class HostConfiguration : IEntityTypeConfiguration<Host>
                 "ck_hosts_company_data",
                 $"(person_type = '{PersonTypeValues.Company}' AND {CompanyColumnsFilled})"
                 + $" OR (person_type = '{PersonTypeValues.Individual}' AND {CompanyColumnsEmpty})");
+
+            // CPF nulo só depois da exclusão da conta (LGPD).
+            table.HasCheckConstraint("ck_hosts_cpf_only_null_when_erased", "cpf IS NOT NULL OR erased_at IS NOT NULL");
         });
 
         builder.HasKey(h => h.Id);
@@ -57,11 +60,11 @@ internal sealed class HostConfiguration : IEntityTypeConfiguration<Host>
             .HasMaxLength(10)
             .IsRequired();
 
+        // Anulável só para a conta excluída (LGPD); todo anfitrião aprovado tem CPF.
         builder.Property(h => h.Cpf)
             .HasColumnName("cpf")
             .HasConversion<CpfConverter>()
-            .HasColumnType($"char({Cpf.Length})")
-            .IsRequired();
+            .HasColumnType($"char({Cpf.Length})");
 
         builder.Property(h => h.Cnpj)
             .HasColumnName("cnpj")
@@ -193,6 +196,10 @@ internal sealed class HostConfiguration : IEntityTypeConfiguration<Host>
 
         builder.Property(h => h.IdentityReleasedAt)
             .HasColumnName("identity_released_at")
+            .HasColumnType("timestamptz");
+
+        builder.Property(h => h.ErasedAt)
+            .HasColumnName("erased_at")
             .HasColumnType("timestamptz");
 
         builder.Property(h => h.CreatedAt)

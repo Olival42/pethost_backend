@@ -53,7 +53,7 @@ pethost_backend/
 │   ├── Shared/
 │   │   ├── PetHost.Shared.Kernel/            ← Result, Error, Entity, ValueObject, abstrações
 │   │   ├── PetHost.Shared.Contracts/         ← ApiResponse, ErrorResponse, integration events, IImageStorage
-│   │   └── PetHost.Shared.Infrastructure/    ← cross-cutting: EF base, outbox, decorators, storage S3, conexão Redis (`AddRedis`), Stripe (`AddStripe`: cliente + webhook), tempo real (`AddRealtime`: SignalR + backplane Redis), CORS do front (`AddFrontendCors`)
+│   │   └── PetHost.Shared.Infrastructure/    ← cross-cutting: EF base, outbox, decorators, storage S3, conexão Redis (`AddRedis`), Stripe (`AddStripe`: cliente + webhook), tempo real (`AddRealtime`: SignalR + backplane Redis), CORS do front (`AddFrontendCors`), CPF entre papéis (`AddCpfOwnership`), exclusão de conta (`AddPersonalDataErasure`)
 │   └── Modules/<Module>/
 │       ├── PetHost.Modules.<Module>.Domain/
 │       ├── PetHost.Modules.<Module>.Application/
@@ -120,6 +120,8 @@ Proibido: referenciar projeto de outro módulo, compartilhar `DbContext`, fazer 
 **Webhook de serviço externo** (Stripe) tem **um** endpoint para a API inteira, no `Shared.Infrastructure` (`POST /api/v1/stripe/webhooks`): ele confere a assinatura uma vez e entrega o evento a cada `IStripeWebhookHandler` que o módulo registrou para o tipo (`AddScoped<IStripeWebhookHandler, ...>`). O handler trata o evento como **aviso** e relê o objeto na API do serviço — idempotente e imune a evento repetido ou fora de ordem. Exceção no handler = `500`, e o serviço reenvia. Hoje: o Hosts trata `account.updated`; o Payments, os eventos de cobrança, reembolso e contestação (e guarda os ids tratados em `payment.stripe_events`).
 
 **Regra que atravessa módulos** (ex.: o CPF identifica a pessoa entre tutor e anfitrião): cada módulo implementa um contrato de consulta pequeno em `Shared.Contracts` (`ICpfHolderLookup`), registrado com `AddScoped` — todos são lidos —, e a regra mora num lugar só (`ICpfOwnership`, implementado em `Shared.Infrastructure`). Nenhum módulo conhece o outro.
+
+**Ação que cada módulo cumpre na sua parte** (ex.: excluir a conta a pedido do titular, LGPD): mesmo molde. Cada módulo com dado pessoal implementa `IPersonalDataEraser` (`Shared.Contracts/Privacy`, `AddScoped`) e apaga ou anonimiza o que é dele; `IPersonalDataErasure` (`Shared.Infrastructure/Privacy`) chama todos, em sequência. Quem dispara é o módulo do papel (Owners, Hosts), que confere as regras antes (senha, reserva em aberto), faz a própria parte depois dos outros e deixa a conta (Auth, `IAccountStatusManager.EraseAsync`) **por último** — assim, se algo falhar no meio, a pessoa ainda entra e repete. Todo eraser é **idempotente**, grava antes de apagar arquivo do bucket e lança em erro de infraestrutura (o pedido volta `500` e pode ser repetido). Hoje: Pets (pets inativos, sem fotos), Listings (cantinhos inativos, sem fotos nem endereço exato), Conversations (as conversas). Reservas, pagamentos, avaliações e a trilha não têm eraser: ficam (obrigação legal e o outro lado), e o nome some porque vem da conta.
 
 ---
 
@@ -590,6 +592,7 @@ O time pensa em português, o código fala inglês. Esta é a tradução oficial
 | Puxar conversa (no cantinho) | `StartConversation` | Quem enviou (tutor ou anfitrião) | `SentBy` (`ConversationParty`: `owner`/`host`) |
 | Não lidas / marcar como lida | `Unread` (`UnreadCount`) / `ReadMarker` (`MarkConversationRead`) | Mensagens mais antigas (cursor) | `Before` |
 | Aviso em tempo real (hub) | `Realtime` (`ConversationsHub`, `IConversationRealtime`) | Apagar conversas paradas (LGPD) | `Retention` (`PurgeInactiveConversations`) |
+| Excluir a conta a pedido do titular (LGPD) | `Erase` / `Erasure` (`ErasedAt`, `IPersonalDataEraser`, rota `/me/deletion`) *(❌ Delete, quando é anonimização)* | Inativar (a pessoa volta com a senha) | `Deactivate` |
 | Avaliação da estadia (cada lado, depois do check-out) | `Review` (`ReviewedStay`: a estadia vista pelo Bookings) | Prazo para avaliar e editar (7 dias do check-out) | `WindowDays` (`EditableUntil`, `REVIEW_WINDOW_CLOSED`) |
 | Quem escreveu / quem é avaliado | `AuthorSide` / `SubjectSide` (`ReviewParty`: `owner`/`host`) | Nota do pet (na avaliação do anfitrião) | `ReviewPetRating` (`pets`) |
 | Resposta do avaliado | `Reply` (`ReplyText`, rota `/reply`) | Denúncia de avaliação / ocultar (admin) | `ReviewReport` / `Hide` (`HiddenByModeration`, rota `/moderation-hide`) |

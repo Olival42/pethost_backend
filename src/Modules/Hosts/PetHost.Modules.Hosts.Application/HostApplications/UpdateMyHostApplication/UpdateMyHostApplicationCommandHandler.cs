@@ -2,6 +2,8 @@ using PetHost.Modules.Hosts.Application.HostApplications.Responses;
 using PetHost.Modules.Hosts.Domain.Errors;
 using PetHost.Modules.Hosts.Domain.HostApplications;
 using PetHost.Modules.Hosts.Domain.Hosts;
+using PetHost.Modules.Hosts.Application.Abstractions;
+using PetHost.Modules.Hosts.Domain.IdentityBlocks;
 using PetHost.Shared.Contracts.Audit;
 using PetHost.Shared.Contracts.Identity;
 using PetHost.Shared.Kernel.Messaging;
@@ -18,6 +20,8 @@ public sealed class UpdateMyHostApplicationCommandHandler(
     IHostRepository hostRepository,
     IHostsUnitOfWork unitOfWork,
     ICpfOwnership cpfOwnership,
+    IIdentityBlockRepository identityBlocks,
+    ICpfFingerprint fingerprint,
     IAuditTrail auditTrail,
     TimeProvider timeProvider) : ICommandHandler<UpdateMyHostApplicationCommand, HostApplicationResponse>
 {
@@ -60,6 +64,10 @@ public sealed class UpdateMyHostApplicationCommandHandler(
 
         if (changedFields.Contains("cpf"))
         {
+            var notBlocked = await HostApplicationSupport.EnsureNotBlockedAsync(cpf!, identityBlocks, fingerprint, cancellationToken).ConfigureAwait(false);
+            if (notBlocked.IsFailure)
+                return Result<HostApplicationResponse>.FromFailure(notBlocked);
+
             var available = await HostApplicationSupport
                 .EnsureCpfAvailableAsync(cpf!, command.UserId, cpfOwnership, cancellationToken)
                 .ConfigureAwait(false);

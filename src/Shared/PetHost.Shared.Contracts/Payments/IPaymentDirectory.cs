@@ -13,6 +13,13 @@ public interface IPaymentDirectory
     Task<bool> HasOverdueInstallmentAsync(Guid ownerId, CancellationToken cancellationToken);
 
     /// <summary>
+    /// O tutor <paramref name="ownerId"/> (<c>owner.owners.id</c>) já pagou alguma parcela (mesmo que
+    /// depois reembolsada)? É o marco do "primeiro pagamento": daí em diante o Owners trava o CPF e a
+    /// data de nascimento.
+    /// </summary>
+    Task<bool> HasPaidAnyInstallmentAsync(Guid ownerId, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Os ganhos do anfitrião <paramref name="hostId"/> (<c>host.hosts.id</c>) no mês de
     /// <paramref name="month"/> (qualquer dia do mês; o mês é contado no horário de Brasília), no mês
     /// anterior e no ano até o fim do mês, mais o que está guardado e o que ainda vai entrar agora.

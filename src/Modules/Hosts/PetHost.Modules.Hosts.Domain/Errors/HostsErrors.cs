@@ -131,6 +131,17 @@ public static class HostsErrors
     public static readonly Error ApplicationBlocked =
         new("HOST_APPLICATION_BLOCKED", "A new host application cannot be started for this account. Contact support.");
 
+    /// <summary>
+    /// 422: o CPF está bloqueado para solicitação de anfitrião (recusa por fraude ou tentativas
+    /// esgotadas, em qualquer conta, mesmo excluída). Só o suporte libera.
+    /// </summary>
+    public static readonly Error IdentityBlocked =
+        new("HOST_IDENTITY_BLOCKED", "A host application cannot be started with this CPF. Contact support.");
+
+    /// <summary>404: o CPF informado pelo admin não está bloqueado.</summary>
+    public static readonly Error IdentityBlockNotFound =
+        new("HOST_IDENTITY_BLOCK_NOT_FOUND", "This CPF is not blocked.");
+
     /// <summary>422: as tentativas acabaram.</summary>
     public static readonly Error AttemptsExceeded =
         new("HOST_APPLICATION_ATTEMPTS_EXCEEDED", $"The limit of {HostApplication.MaxAttempts} host applications was reached. Contact support.");
@@ -239,5 +250,13 @@ public static class HostsErrors
     /// Responda, cancele ou conclua as estadias antes de inativar o perfil.
     /// </summary>
     public static readonly Error HasOpenBooking =
-        new("HOST_HAS_OPEN_BOOKING", "This host has open bookings. Answer, cancel or finish them before deactivating the profile.");
+        new("HOST_HAS_OPEN_BOOKING", "This host has open bookings. Answer, cancel or finish them before deactivating or deleting the profile.");
+
+    /// <summary>400: excluir a conta pede a senha atual.</summary>
+    public static readonly Error DeletionPasswordRequired =
+        Error.Validation("currentPassword", "Current password is required to delete the account.");
+
+    /// <summary>400: a senha atual não confere.</summary>
+    public static readonly Error CurrentPasswordIncorrect =
+        Error.Validation("currentPassword", "Current password is incorrect.");
 }

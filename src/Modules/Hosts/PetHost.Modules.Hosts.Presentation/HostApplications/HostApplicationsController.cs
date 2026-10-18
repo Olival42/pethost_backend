@@ -6,11 +6,13 @@ using PetHost.Modules.Hosts.Application.HostApplications.GetHostApplicationById;
 using PetHost.Modules.Hosts.Application.HostApplications.GetHostApplicationDocument;
 using PetHost.Modules.Hosts.Application.HostApplications.ListHostApplications;
 using PetHost.Modules.Hosts.Application.HostApplications.RejectHostApplication;
+using PetHost.Modules.Hosts.Application.HostApplications.ReleaseIdentityBlock;
 using PetHost.Modules.Hosts.Application.HostApplications.Responses;
 using PetHost.Shared.Contracts.Authorization;
 using PetHost.Shared.Contracts.Responses;
 using PetHost.Shared.Infrastructure.Http;
 using PetHost.Shared.Kernel.Messaging;
+using PetHost.Shared.Kernel.Primitives;
 
 namespace PetHost.Modules.Hosts.Presentation.HostApplications;
 
@@ -26,7 +28,8 @@ public sealed class HostApplicationsController(
     IQueryHandler<GetHostApplicationByIdQuery, HostApplicationReviewResponse> getApplication,
     IQueryHandler<GetHostApplicationDocumentQuery, HostApplicationDocumentLinkResponse> getDocument,
     ICommandHandler<ApproveHostApplicationCommand, HostApplicationReviewResponse> approveApplication,
-    ICommandHandler<RejectHostApplicationCommand, HostApplicationReviewResponse> rejectApplication) : ControllerBase
+    ICommandHandler<RejectHostApplicationCommand, HostApplicationReviewResponse> rejectApplication,
+    ICommandHandler<ReleaseIdentityBlockCommand, Unit> releaseIdentityBlock) : ControllerBase
 {
     /// <summary>A fila do admin: solicitações num status (padrão: <c>submitted</c>, as mais antigas primeiro).</summary>
     /// <remarks>Sem paginação (lista administrativa). Status desconhecido: 400 no campo <c>status</c>.</remarks>
@@ -133,7 +136,36 @@ public sealed class HostApplicationsController(
 
         return result.ToActionResult();
     }
+
+    /// <summary>Libera um CPF bloqueado para solicitação de anfitrião. Só admin, com motivo.</summary>
+    /// <remarks>
+    /// Recusa por suspeita de fraude ou a terceira recusa bloqueiam o CPF para qualquer conta, mesmo
+    /// depois de a conta ser excluída (<c>422 HOST_IDENTITY_BLOCKED</c> ao abrir). Isto libera, para
+    /// quando o bloqueio pegou o dono de verdade do CPF. A conta recusada continua bloqueada. CPF que
+    /// não está bloqueado: 404 <c>HOST_IDENTITY_BLOCK_NOT_FOUND</c>. A trilha guarda o CPF mascarado.
+    /// </remarks>
+    [HttpPost("identity-blocks/release")]
+    [ProducesResponseType<ApiResponse<Unit>>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ApiResponse<Unit>>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ApiResponse<Unit>>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ApiResponse<Unit>>(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType<ApiResponse<Unit>>(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> ReleaseIdentityBlockAsync(
+        [FromBody] ReleaseIdentityBlockRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var result = await releaseIdentityBlock.HandleAsync(
+            new ReleaseIdentityBlockCommand(User.GetUserId(), request.Cpf, request.Reason),
+            cancellationToken);
+
+        return result.ToActionResult();
+    }
 }
+
+/// <summary>Corpo da liberação de CPF bloqueado: o CPF (com ou sem máscara) e o motivo.</summary>
+public sealed record ReleaseIdentityBlockRequest(string? Cpf, string? Reason);
 
 /// <summary>Corpo da aprovação: o que o admin conferiu. Vai para a nota e para a trilha.</summary>
 public sealed record ApproveHostApplicationRequest(string? Reason);

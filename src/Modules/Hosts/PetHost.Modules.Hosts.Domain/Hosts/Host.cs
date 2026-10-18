@@ -60,8 +60,9 @@ public sealed class Host : Entity<HostId>
     /// <summary>
     /// Pessoa física: CPF do anfitrião (único entre as pessoas físicas). Pessoa jurídica:
     /// CPF do representante legal — a mesma pessoa pode representar mais de uma empresa.
+    /// Nulo só depois que a conta foi excluída (<see cref="Erase"/>).
     /// </summary>
-    public Cpf Cpf { get; private set; }
+    public Cpf? Cpf { get; private set; }
 
     /// <summary>Só pessoa jurídica. Único.</summary>
     public Cnpj? Cnpj { get; private set; }
@@ -185,6 +186,14 @@ public sealed class Host : Entity<HostId>
 
     public bool IsIdentityReleased => IdentityReleasedAt is not null;
 
+    /// <summary>
+    /// Quando a conta foi excluída a pedido do titular (LGPD). O perfil fica, sem CPF e inativo,
+    /// porque reservas, pagamentos e repasses apontam para ele; não há volta.
+    /// </summary>
+    public DateTimeOffset? ErasedAt { get; private set; }
+
+    public bool IsErased => ErasedAt is not null;
+
     public DateTimeOffset CreatedAt { get; private set; }
     public DateTimeOffset UpdatedAt { get; private set; }
 
@@ -288,10 +297,26 @@ public sealed class Host : Entity<HostId>
         UpdatedAt = now;
     }
 
-    /// <summary>Reativa o perfil. Idempotente.</summary>
+    /// <summary>
+    /// A conta foi excluída (LGPD): apaga o CPF (da pessoa ou do representante) e inativa. Os dados
+    /// da empresa (CNPJ, razão social, endereço) ficam: são de pessoa jurídica, não dado pessoal, e
+    /// a conta conectada do Stripe precisa deles para os repasses feitos. Idempotente.
+    /// </summary>
+    public void Erase(DateTimeOffset now)
+    {
+        if (IsErased)
+            return;
+
+        Cpf = null;
+        Deactivate(now);
+        ErasedAt = now;
+        UpdatedAt = now;
+    }
+
+    /// <summary>Reativa o perfil. Idempotente. Perfil excluído não volta (a conta também não).</summary>
     public void Reactivate(DateTimeOffset now)
     {
-        if (IsActive)
+        if (IsActive || IsErased)
             return;
 
         IsActive = true;

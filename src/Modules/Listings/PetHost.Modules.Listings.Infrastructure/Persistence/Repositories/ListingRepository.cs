@@ -28,6 +28,13 @@ internal sealed class ListingRepository(ListingsDbContext dbContext) : IListingR
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
+    public async Task<IReadOnlyList<Listing>> ListByHostForUpdateAsync(Guid hostId, CancellationToken cancellationToken) =>
+        await dbContext.Listings
+            .Include(ListingsDbContext.PhotosField)
+            .Where(l => l.HostId == hostId)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
     public Task<int> CountByHostAsync(Guid hostId, CancellationToken cancellationToken) =>
         dbContext.Listings.CountAsync(l => l.HostId == hostId, cancellationToken);
 
