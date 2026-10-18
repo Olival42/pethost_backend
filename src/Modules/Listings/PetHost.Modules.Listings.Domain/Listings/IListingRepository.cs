@@ -9,6 +9,9 @@ public interface IListingRepository
     /// <summary>Todos os cantinhos do anfitrião, ativos e inativos, do mais novo para o mais antigo.</summary>
     Task<IReadOnlyList<Listing>> ListByHostAsync(Guid hostId, CancellationToken cancellationToken);
 
+    /// <summary>Todos os cantinhos do anfitrião, com as fotos. Rastreados: quem chama altera e grava (exclusão da conta).</summary>
+    Task<IReadOnlyList<Listing>> ListByHostForUpdateAsync(Guid hostId, CancellationToken cancellationToken);
+
     /// <summary>Quantos cantinhos o anfitrião tem, ativos e inativos.</summary>
     Task<int> CountByHostAsync(Guid hostId, CancellationToken cancellationToken);
 

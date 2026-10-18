@@ -68,7 +68,8 @@ public sealed class HostPayoutSetup(
             account.BirthDate,
             account.Phone,
             account.Address,
-            host.Cpf.Value,
+            // Perfil sem CPF é de conta excluída, que nem chega aqui (inativo não abre cadastro).
+            host.Cpf?.Value ?? throw new InvalidOperationException($"Host '{host.Id.Value}' has no CPF."),
             company?.Cnpj.Value,
             company?.LegalName,
             company?.TradeName,

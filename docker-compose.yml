@@ -169,6 +169,7 @@ services:
       # Dias que as fotos (documento e selfie) ficam depois da decisao. 0 = apaga na hora.
       HostVerification__DocumentRetentionDays: ${HOST_VERIFICATION_DOCUMENT_RETENTION_DAYS:-0}
       HostVerification__DraftLifetimeDays: ${HOST_VERIFICATION_DRAFT_LIFETIME_DAYS:-7}
+      HostVerification__CpfFingerprintKey: ${HOST_CPF_FINGERPRINT_KEY:?defina HOST_CPF_FINGERPRINT_KEY no .env (minimo 32 caracteres)}
 
       # --- chat: retencao das conversas (LGPD) ---
       # Conversa parada ha este numero de dias some, com mensagens e fotos (salvo reserva em aberto).

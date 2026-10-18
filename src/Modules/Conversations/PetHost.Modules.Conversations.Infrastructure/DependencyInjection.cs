@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using PetHost.Modules.Conversations.Application.Abstractions;
 using PetHost.Modules.Conversations.Application.Conversations;
 using PetHost.Modules.Conversations.Application.Conversations.BlockConversation;
+using PetHost.Modules.Conversations.Application.Conversations.EraseConversationsOfParty;
 using PetHost.Modules.Conversations.Application.Conversations.LiftModerationBlock;
 using PetHost.Modules.Conversations.Application.Conversations.GetConversationById;
 using PetHost.Modules.Conversations.Application.Conversations.GetUnreadMessageCount;
@@ -38,8 +39,10 @@ using PetHost.Modules.Conversations.Infrastructure.Parties;
 using PetHost.Modules.Conversations.Infrastructure.Persistence;
 using PetHost.Modules.Conversations.Infrastructure.Persistence.Queries;
 using PetHost.Modules.Conversations.Infrastructure.Persistence.Repositories;
+using PetHost.Modules.Conversations.Infrastructure.Privacy;
 using PetHost.Modules.Conversations.Infrastructure.Retention;
 using PetHost.Modules.Conversations.Infrastructure.UnreadEmail;
+using PetHost.Shared.Contracts.Privacy;
 using PetHost.Shared.Contracts.Responses;
 using PetHost.Shared.Infrastructure.Validation;
 using PetHost.Shared.Kernel.Messaging;
@@ -81,6 +84,9 @@ public static class DependencyInjection
         services.AddScoped<IConversationParties, ConversationParties>();
         services.AddScoped<IConversationListings, ConversationListings>();
         services.AddScoped<IConversationBookings, ConversationBookings>();
+
+        // Exclusão da conta (LGPD): a parte do Conversations (§5).
+        services.AddScoped<IPersonalDataEraser, ConversationPersonalDataEraser>();
         services.AddScoped<ConversationResponseBuilder>();
         services.AddScoped<ConversationNotifications>();
         services.AddScoped<MessageReportResponseBuilder>();
@@ -101,6 +107,7 @@ public static class DependencyInjection
         services.AddValidatedCommandHandler<UpdateNotificationSettingsCommandHandler, UpdateNotificationSettingsCommand, NotificationSettingsResponse>();
         services.AddValidatedCommandHandler<NotifyUnreadMessagesCommandHandler, NotifyUnreadMessagesCommand, NotifyUnreadMessagesResponse>();
         services.AddValidatedCommandHandler<PurgeInactiveConversationsCommandHandler, PurgeInactiveConversationsCommand, PurgeInactiveConversationsResponse>();
+        services.AddValidatedCommandHandler<EraseConversationsOfPartyCommandHandler, EraseConversationsOfPartyCommand, int>();
 
         services.AddScoped<IQueryHandler<ListMyConversationsQuery, PagedResult<ConversationResponse>>, ListMyConversationsQueryHandler>();
         services.AddScoped<IQueryHandler<GetConversationByIdQuery, ConversationResponse>, GetConversationByIdQueryHandler>();

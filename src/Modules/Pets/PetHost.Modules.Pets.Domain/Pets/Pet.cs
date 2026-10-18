@@ -209,6 +209,26 @@ public sealed class Pet : Entity<PetId>
         UpdatedAt = now;
     }
 
+    /// <summary>
+    /// A conta do dono foi excluída (LGPD): desativa e tira todas as fotos. Nome, espécie e o resto
+    /// da ficha ficam, porque reservas e avaliações antigas apontam para o pet. Devolve as URLs
+    /// tiradas, para apagar do bucket. Idempotente: sem fotos e inativo, não muda nada.
+    /// </summary>
+    public IReadOnlyList<string> Erase(DateTimeOffset now)
+    {
+        var urls = _photos.Select(photo => photo.Url).ToList();
+
+        if (urls.Count > 0)
+        {
+            _photos.Clear();
+            UpdatedAt = now;
+        }
+
+        Deactivate(now);
+
+        return urls;
+    }
+
     /// <summary>Reativa. Idempotente: reativar um pet ativo não muda nada.</summary>
     public void Reactivate(DateTimeOffset now)
     {

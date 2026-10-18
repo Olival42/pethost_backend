@@ -84,6 +84,10 @@ internal sealed class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(u => u.SuspendedBy)
             .HasColumnName("suspended_by");
 
+        builder.Property(u => u.ErasedAt)
+            .HasColumnName("erased_at")
+            .HasColumnType("timestamptz");
+
         // Endereço como tipo complexo: colunas na própria users, sem tabela nem join.
         // Opcional porque o admin não tem endereço; tutor e anfitrião sempre têm.
         builder.ComplexProperty(u => u.Address, address =>

@@ -2,7 +2,7 @@
 
 _Documento do que foi implementado · outubro de 2026 · complementa o [`PROJECT_STANDARDS.md`](PROJECT_STANDARDS.md)_
 
-Cadastro da conta base, login, renovação e logout com JWT (access token) + refresh token no Redis, perfil da conta (PATCH), troca de senha logada, inativar e reativar, suspensão pelo admin (os dois pelo contrato que o módulo do papel usa), troca entre a conta de tutor e a de anfitrião, "esqueci a senha" com token por e-mail, senha com Argon2id e admin criado por seed.
+Cadastro da conta base, login, renovação e logout com JWT (access token) + refresh token no Redis, perfil da conta (PATCH), troca de senha logada, inativar e reativar, suspensão pelo admin, exclusão da conta a pedido do titular (LGPD) — os três pelo contrato que o módulo do papel usa —, troca entre a conta de tutor e a de anfitrião, "esqueci a senha" com token por e-mail, senha com Argon2id e admin criado por seed.
 
 > **Conta de tutor é do módulo Owners.** O tutor se cadastra, edita, inativa e reativa em `/api/v1/owners` ([`modulo-owners.md`](modulo-owners.md)), que mexe na conta daqui pelos contratos `IAccountRegistrar`, `IAccountProfileEditor` e `IAccountStatusManager` — assim conta e perfil de tutor nunca ficam fora de sincronia. `POST /api/v1/users/register` cria só conta de **anfitrião**. Não há rota de inativar/reativar em `/users`: só o tutor tem isso, em `/owners`.
 
@@ -248,6 +248,13 @@ O que a inativação faz na conta, venha de onde vier:
 - Vale **só para aquela conta**: a outra conta da mesma pessoa continua ativa. Derruba todas as sessões: login passa a responder `403 AUTH_ACCOUNT_DEACTIVATED`; refresh, `401`; e o access token já emitido é recusado **na hora** com `401` (seção 6.6.1). Idempotente. O admin não pode ser inativado (`AUTH_ADMIN_DEACTIVATION_FORBIDDEN`).
 - A reativação pede as credenciais do login (e-mail, senha, papel) — conta inativa não consegue entrar para pedir isso logada — e já abre a sessão. Credenciais erradas: `401 AUTH_INVALID_CREDENTIALS`. Numa conta ativa, funciona como login. Conta **suspensa** não reativa: `403 AUTH_ACCOUNT_SUSPENDED`.
 
+**Exclusão (LGPD, art. 18, VI).** Também só pelo contrato (`IAccountStatusManager.EraseAsync`), chamado **por último** pelo módulo do papel — `POST /api/v1/owners/me/deletion` ([`modulo-owners.md`](modulo-owners.md) seção 3.5.1) e `POST /api/v1/hosts/me/deletion` ([`modulo-hosts.md`](modulo-hosts.md) seção 4.2.1) —, depois que cada módulo apagou a sua parte ([`PROJECT_STANDARDS.md`](PROJECT_STANDARDS.md) §5). Na conta:
+
+- A linha **fica**, anonimizada, porque reservas, pagamentos e avaliações apontam para ela: nome vira `Conta excluída` (é o que o outro lado vê no histórico), e-mail vira `excluida-<id>@pethost.invalid` (domínio reservado, único por conta, então o e-mail de verdade fica livre para um cadastro novo), telefone, nascimento, endereço e foto ficam nulos, o hash da senha passa a ser o de um segredo aleatório descartado, e a conta é inativada. `erased_at` marca a exclusão.
+- Derruba as sessões na hora. Login com o e-mail antigo responde `401` (não há mais conta com ele), reativação também; um token de "esqueci a senha" pendente passa a valer como inválido.
+- Sem volta: `User.Reactivate` recusa (`AUTH_ACCOUNT_ERASED`). Idempotente. O admin não pode ser excluído (`AUTH_ADMIN_ERASURE_FORBIDDEN`).
+- Vale só para aquela conta: a outra conta da mesma pessoa continua. A foto no bucket é apagada por quem chama (que lê a URL antes).
+
 **Suspensão (admin).** Também só pelo contrato (`IAccountStatusManager.SuspendAsync` / `LiftSuspensionAsync`); o tutor é suspenso em `POST /api/v1/owners/{ownerId}/suspension` ([`modulo-owners.md`](modulo-owners.md) seção 3.7) e o anfitrião em `POST /api/v1/hosts/{hostId}/suspension` ([`modulo-hosts.md`](modulo-hosts.md)); `DELETE` na mesma rota tira a suspensão.
 
 - Grava `suspended_at`, `suspension_reason` (obrigatório, até 500 caracteres) e `suspended_by` (o admin) e derruba as sessões na hora.
@@ -323,6 +330,8 @@ O middleware do JWT também responde no envelope: rota protegida sem token váli
 | `AUTH_PASSWORD_RESET_TOKEN_INVALID` | 401 | The password reset token is invalid, expired or already used. |
 | `AUTH_ACCOUNT_DEACTIVATED` | 403 | This account is deactivated. Reactivate it to sign in again. |
 | `AUTH_ADMIN_DEACTIVATION_FORBIDDEN` | 403 | The admin account cannot be deactivated. |
+| `AUTH_ADMIN_ERASURE_FORBIDDEN` | 403 | The admin account cannot be deleted. |
+| `AUTH_ACCOUNT_ERASED` | 422 | This account was deleted and cannot be reactivated. (Regra de domínio: pela API, a conta excluída já cai no `401` das credenciais.) |
 | `AUTH_ACCOUNT_SUSPENDED` | 403 | This account is suspended. Contact support. |
 | `AUTH_ADMIN_SUSPENSION_FORBIDDEN` | 403 | The admin account cannot be suspended. |
 | `AUTH_LINKED_ACCOUNT_NOT_FOUND` | 404 | No active account with this email was found for the requested role, or the password is incorrect. |
@@ -518,7 +527,7 @@ Ordem no `Program.cs`: Serilog (JSON) → MVC com envelope → JSON camelCase se
 
 ## 7. Banco
 
-Schema `auth`, histórico de migrations em `auth.__ef_migrations_history`. Migrations: `CreateUsersTable`, `AddProfileAndStatusToUsers` (nascimento, endereço completo, `is_active`, `deactivated_at`), `AddSuspensionToUsers`.
+Schema `auth`, histórico de migrations em `auth.__ef_migrations_history`. Migrations: `CreateUsersTable`, `AddProfileAndStatusToUsers` (nascimento, endereço completo, `is_active`, `deactivated_at`), `AddSuspensionToUsers`, `AddErasedAtToUsers`.
 
 ```sql
 CREATE TABLE auth.users (
@@ -542,6 +551,7 @@ CREATE TABLE auth.users (
     suspended_at      timestamptz,
     suspension_reason varchar(500),
     suspended_by      uuid,
+    erased_at      timestamptz,
     created_at     timestamptz  NOT NULL,
     updated_at     timestamptz  NOT NULL,
     CONSTRAINT pk_users PRIMARY KEY (id),
@@ -612,8 +622,8 @@ dotnet run --project src/Host/PetHost.Api
 |---|---|---|
 | `Shared.Kernel.UnitTests` | `Result`, `Map`, `BindAsync`, propagação de erros | 14 ✅ |
 | `Shared.Contracts.UnitTests` | Montagem do envelope e agrupamento de validação | 6 ✅ |
-| `Shared.Infrastructure.UnitTests` | Decorator de validação, código → status HTTP, `ToActionResult`, imagens (formato, remoção de metadados, troca), espera entre tentativas de e-mail | 98 ✅ |
-| `Auth.Domain.UnitTests` | `User` (cadastro, 18+, inativar/reativar, perfil sem tocar `updatedAt` quando nada muda, troca da data de nascimento, suspensão com motivo e admin, sem suspender admin), `UserRoleValues` e todos os value objects (`Email`, `Password`, `PasswordHash`, `FullName`, `PhoneNumber`, `AvatarUrl`, `StateCode`, `ZipCode`, `Address`) | 130 ✅ |
+| `Shared.Infrastructure.UnitTests` | Decorator de validação, código → status HTTP, `ToActionResult`, imagens (formato, remoção de metadados, troca), espera entre tentativas de e-mail, exclusão de conta (chama cada módulo em ordem e para no primeiro que falha) | 100 ✅ |
+| `Auth.Domain.UnitTests` | `User` (cadastro, 18+, inativar/reativar, perfil sem tocar `updatedAt` quando nada muda, troca da data de nascimento, suspensão com motivo e admin, sem suspender admin, exclusão: anonimiza, inativa, e-mail único por conta, idempotente, sem excluir admin nem reativar), `UserRoleValues` e todos os value objects (`Email`, `Password`, `PasswordHash`, `FullName`, `PhoneNumber`, `AvatarUrl`, `StateCode`, `ZipCode`, `Address`) | 137 ✅ |
 | `Auth.Application.UnitTests` | Handlers de sessão, senha, troca de senha logada e cadastro, a regra do PATCH de perfil (`ProfilePatch`) e os validadores, incluindo senha forte, endereço aninhado e data de nascimento no PATCH; login de conta suspensa, aviso por e-mail ao tirar a suspensão (conta ativa ou inativa, nada se não estava suspensa) e o que vai para a trilha (com Moq e `FakeTimeProvider`) | 83 ✅ |
 | `Auth.Infrastructure.UnitTests` | Argon2id (hash, verificação, PHC, entrada inválida) e geração de JWT | 32 ✅ |
 | `ArchitectureTests` | Regras de dependência do §4 em todos os módulos, fronteira do §5 (nenhum módulo referencia outro: um `*ModuleBoundaryTests` por módulo), `sealed`, sincronia `Roles` ↔ `UserRoleValues` | 77 ✅ |
@@ -623,7 +633,7 @@ dotnet run --project src/Host/PetHost.Api
 
 **2277 testes sem Docker passando** na solução (última execução: unitários e de arquitetura de todos os módulos), build com 0 avisos. Nomes no padrão `MethodName_Should_X_When_Y` (§14).
 
-Como rodar (os de integração precisam do Docker Desktop ligado; a solução inteira tem 2698 testes, 421 deles de integração; os outros módulos estão nos documentos de cada um):
+Como rodar (os de integração precisam do Docker Desktop ligado; a solução inteira tem 2778 testes, 433 deles de integração; os outros módulos estão nos documentos de cada um):
 
 ```bash
 dotnet test --solution PetHost.slnx
@@ -693,4 +703,3 @@ Bugs encontrados durante o desenvolvimento:
 | # | O quê | Impacto |
 |---|---|---|
 | 1 | E-mail não é verificado. | É o que obriga a troca de conta a pedir senha. A verificação seria: token por e-mail no cadastro (mesmo molde do "esqueci a senha"), `email_verified_at` em `users`, e só contas verificadas trocariam sem senha. |
-| 2 | Não dá para **excluir a conta** (LGPD, art. 18, VI: eliminação dos dados a pedido do titular); só inativar. | Para o projeto da faculdade (só dados de teste) fica registrado. A exclusão teria de anonimizar a pessoa (nome, e-mail, telefone, CPF, endereço, fotos no bucket) e manter o que a lei manda guardar ou o que o outro lado precisa: reservas e pagamentos (obrigação fiscal e contestação no Stripe), avaliações publicadas (sem o nome) e a trilha de auditoria. Barrada com reserva em aberto, como a inativação. Pede um contrato novo em `Shared.Contracts` para cada módulo apagar ou anonimizar a sua parte. |

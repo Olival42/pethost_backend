@@ -36,4 +36,7 @@ public interface IHostApplicationRepository
     Task<IReadOnlyList<HostApplication>> ListWithDocumentsClosedBeforeAsync(DateTimeOffset closedBefore, CancellationToken cancellationToken);
 
     void Add(HostApplication application);
+
+    /// <summary>Apaga a solicitação (os documentos vão junto). Só na exclusão da conta.</summary>
+    void Remove(HostApplication application);
 }

@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using PetHost.Modules.Owners.Application.Owners.ChangeMyAvatar;
 using PetHost.Modules.Owners.Application.Owners.DeactivateMyOwner;
+using PetHost.Modules.Owners.Application.Owners.DeleteMyOwner;
 using PetHost.Modules.Owners.Application.Owners.GetMyOwner;
 using PetHost.Modules.Owners.Application.Owners.GetOwnerById;
 using PetHost.Modules.Owners.Application.Owners.ListOwners;
@@ -32,6 +33,7 @@ public sealed class OwnersController(
     ICommandHandler<ChangeMyAvatarCommand, OwnerResponse> changeMyAvatar,
     ICommandHandler<RemoveMyAvatarCommand, OwnerResponse> removeMyAvatar,
     ICommandHandler<DeactivateMyOwnerCommand, Unit> deactivateMyOwner,
+    ICommandHandler<DeleteMyOwnerCommand, Unit> deleteMyOwner,
     ICommandHandler<ReactivateOwnerCommand, OwnerSessionResponse> reactivateOwner,
     ICommandHandler<SuspendOwnerCommand, OwnerResponse> suspendOwner,
     ICommandHandler<LiftOwnerSuspensionCommand, OwnerResponse> liftOwnerSuspension,
@@ -189,6 +191,38 @@ public sealed class OwnersController(
         return result.ToActionResult();
     }
 
+    /// <summary>Exclui a conta de tutor logada, sem volta (LGPD: eliminação a pedido do titular).</summary>
+    /// <remarks>
+    /// Pede a senha atual (<c>currentPassword</c>; faltando ou errada, 400 no campo). Apaga ou
+    /// anonimiza nome, e-mail, telefone, nascimento, endereço, CPF, a foto de perfil, as fotos dos
+    /// pets e as conversas; ficam as reservas, os pagamentos, as avaliações (com "Conta excluída" no
+    /// lugar do nome) e a trilha de auditoria. Todas as sessões caem na hora e o e-mail fica livre
+    /// para um cadastro novo. A conta de anfitrião da mesma pessoa não é afetada. Com reserva em
+    /// aberto: 422 <c>OWNER_HAS_OPEN_BOOKING</c>.
+    /// </remarks>
+    [HttpPost("me/deletion")]
+    [EnableRateLimiting(RateLimitPolicies.AccountSensitive)]
+    [Authorize(Roles = Roles.Owner)]
+    [ProducesResponseType<ApiResponse<Unit>>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ApiResponse<Unit>>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ApiResponse<Unit>>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ApiResponse<Unit>>(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType<ApiResponse<Unit>>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ApiResponse<Unit>>(StatusCodes.Status422UnprocessableEntity)]
+    [ProducesResponseType<ApiResponse<Unit>>(StatusCodes.Status429TooManyRequests)]
+    public async Task<IActionResult> DeleteMeAsync(
+        [FromBody] OwnerDeletionRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var result = await deleteMyOwner.HandleAsync(
+            new DeleteMyOwnerCommand(User.GetUserId(), request.CurrentPassword),
+            cancellationToken);
+
+        return result.ToActionResult();
+    }
+
     /// <summary>Reativa o tutor (conta e perfil) e já abre a sessão.</summary>
     /// <remarks>
     /// Pede e-mail e senha da conta de tutor, porque conta inativa não consegue entrar
@@ -326,6 +360,9 @@ public sealed record UpdateMyOwnerRequest(
     string? BirthDate,
     string? Cpf,
     string? CurrentPassword);
+
+/// <summary>Corpo da exclusão da conta: a senha atual, para confirmar. O id vem do token.</summary>
+public sealed record OwnerDeletionRequest(string? CurrentPassword);
 
 /// <summary>Corpo das ações do admin que exigem motivo. Vai para a trilha de auditoria.</summary>
 public sealed record AdminReasonRequest(string? Reason);

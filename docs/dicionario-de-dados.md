@@ -151,6 +151,7 @@ erDiagram
         timestamp suspended_at "nullable"
         varchar suspension_reason "nullable"
         uuid suspended_by "nullable"
+        timestamp erased_at "nullable"
         timestamp created_at
         timestamp updated_at
     }
@@ -158,9 +159,9 @@ erDiagram
         uuid id PK
         uuid user_id FK, UK
         char cpf UK "nullable"
-        varchar stripe_customer_id UK "nullable"
         boolean is_active
         timestamp deactivated_at "nullable"
+        timestamp erased_at "nullable"
         timestamp created_at
         timestamp updated_at
     }
@@ -168,7 +169,7 @@ erDiagram
         uuid id PK
         uuid user_id FK, UK
         enum person_type
-        char cpf UK
+        char cpf UK "nullable"
         char cnpj UK "nullable"
         varchar legal_name "nullable"
         varchar trade_name "nullable"
@@ -197,6 +198,7 @@ erDiagram
         boolean is_active
         timestamp deactivated_at "nullable"
         timestamp suspended_at "nullable"
+        timestamp erased_at "nullable"
         timestamp created_at
         timestamp updated_at
     }
@@ -495,6 +497,7 @@ Toda conta do sistema: tutores, anfitriões e administradores — os dados **com
 | `suspended_at` | `timestamptz` |  | sim | Quando o **admin** suspendeu a conta. Diferente de inativar: a pessoa não reativa sozinha. Nulo se não suspensa. |
 | `suspension_reason` | `varchar(500)` |  | sim | Motivo informado pelo admin. Obrigatório ao suspender. |
 | `suspended_by` | `uuid` |  | sim | O admin que suspendeu (users.id). Sem FK: o histórico não depende da conta do admin. |
+| `erased_at` | `timestamptz` |  | sim | Quando a conta foi **excluída a pedido do titular** (LGPD, art. 18, VI). A linha fica, anonimizada: `full_name = 'Conta excluída'`, `email = 'excluida-<id>@pethost.invalid'` (único por conta, domínio reservado), telefone, nascimento, endereço e foto nulos, `password_hash` de um segredo descartado, `is_active = false`. Sem volta. |
 | `created_at` | `timestamp` |  | não | Quando o registro foi criado (UTC). |
 | `updated_at` | `timestamp` |  | não | Última alteração do registro (UTC). |
 
@@ -512,15 +515,15 @@ O que só o tutor tem. 1:1 com `users` de role `owner`: tem id próprio e aponta
 |---|---|---|---|---|
 | `id` | `uuid` | `PK` | não | Identificador do tutor. |
 | `user_id` | `uuid` | `FK UK` | não | A conta do tutor → users.id (FK lógica, sem constraint física). Única: um tutor por conta. |
-| `cpf` | `char(11)` | `UK` | sim | Nulo só em tutor suspenso cujo CPF o admin liberou (disputa de CPF; check `cpf IS NOT NULL OR suspended_at IS NOT NULL`). CPF, só dígitos, com dígitos verificadores conferidos. Um CPF por conta de tutor. Pode ser corrigido **só até o primeiro pagamento** (enquanto `stripe_customer_id` é nulo). Regra entre papéis: o mesmo CPF só pode estar também numa conta de anfitrião do **mesmo e-mail** (escopo, restrição 9). |
-| `stripe_customer_id` | `varchar(255)` | `UK` | sim | Customer no Stripe (cus_...). Criado no primeiro pagamento. |
+| `cpf` | `char(11)` | `UK` | sim | Nulo só em tutor suspenso cujo CPF o admin liberou (disputa de CPF) ou em tutor que excluiu a conta (check `ck_owners_cpf_only_null_when_suspended_or_erased`: `cpf IS NOT NULL OR suspended_at IS NOT NULL OR erased_at IS NOT NULL`). CPF, só dígitos, com dígitos verificadores conferidos. Um CPF por conta de tutor. Pode ser corrigido **só até o primeiro pagamento** (o tutor ainda não tem parcela paga). Regra entre papéis: o mesmo CPF só pode estar também numa conta de anfitrião do **mesmo e-mail** (escopo, restrição 9). |
 | `is_active` | `boolean` | | não | Falso depois de inativado. Default `true`. Anda junto com `users.is_active` da conta. |
 | `deactivated_at` | `timestamptz` | | sim | Quando foi inativado pela última vez. Nulo enquanto ativo. |
 | `suspended_at` | `timestamptz` | | sim | Quando o admin suspendeu. Anda junto com `users.suspended_at`. |
+| `erased_at` | `timestamptz` | | sim | Quando o tutor excluiu a conta (LGPD): o CPF vira nulo e o perfil fica inativo; os pagamentos ficam no Payments. Anda junto com `users.erased_at`. |
 | `created_at` | `timestamp` |  | não | Quando o registro foi criado (UTC). |
 | `updated_at` | `timestamp` |  | não | Última alteração do registro (UTC). |
 
-> **Para o Stripe:** o tutor é o pagador. No primeiro pagamento, o módulo de pagamentos cria o Customer com nome, e-mail, telefone (`+55...`) e endereço de `users`, e o CPF como tax ID `br_cpf`. O id volta para `stripe_customer_id` e é reaproveitado nos pagamentos seguintes (cartão salvo, recibos, histórico).
+> **Para o Stripe:** o tutor é o pagador, mas não há Customer no Stripe: cada parcela é uma cobrança avulsa. O "primeiro pagamento" (que trava CPF e nascimento) é o tutor ter alguma parcela paga em `payment_installments`, perguntado pelo Owners ao Payments (`IPaymentDirectory.HasPaidAnyInstallmentAsync`). A coluna `stripe_customer_id`, que nunca foi preenchida, saiu.
 >
 > O CPF do **anfitrião** também precisa ficar no banco, guardado pelo módulo do anfitrião e enviado ao Stripe Connect no onboarding (que confere CPF, nome e nascimento e coleta documento e conta bancária). Sem ele aqui não dá para aplicar a restrição 9: o Stripe não devolve o número completo do documento. Na hora de gravar o CPF de qualquer papel, a aplicação confere os dois lados: CPF de outro e-mail → `409`. Implementado pelo contrato `ICpfOwnership` ([`modulo-hosts.md`](modulo-hosts.md) seção 4.1).
 
@@ -533,7 +536,7 @@ O que só o anfitrião tem. 1:1 com `users` de role `host`: tem id próprio e ap
 | `id` | `uuid` | `PK` | não | Identificador do anfitrião. É ele que os outros módulos guardam (ex.: `pets.host_id`), nunca o id da conta. |
 | `user_id` | `uuid` | `FK UK` | não | A conta do anfitrião → users.id (FK lógica). Única: um anfitrião por conta. |
 | `person_type` | `enum` |  | não | `pf` (pessoa física) ou `pj` (pessoa jurídica). |
-| `cpf` | `char(11)` | `UK³` | não | Pessoa física: CPF do anfitrião. Pessoa jurídica: CPF do **representante legal**, que o Stripe exige de toda empresa. Só dígitos, dígitos verificadores conferidos. |
+| `cpf` | `char(11)` | `UK³` | sim | Pessoa física: CPF do anfitrião. Pessoa jurídica: CPF do **representante legal**, que o Stripe exige de toda empresa. Só dígitos, dígitos verificadores conferidos. Nulo só depois que a conta foi excluída (check `ck_hosts_cpf_only_null_when_erased`). |
 | `cnpj` | `char(14)` | `UK` | sim | Só pessoa jurídica (obrigatório nela). Aceita o **CNPJ alfanumérico** (julho de 2026): 12 posições letra/dígito + 2 dígitos verificadores. Guardado sem máscara, em maiúsculas. |
 | `legal_name` | `varchar(160)` |  | sim | Razão social. Só pessoa jurídica (obrigatório nela). Stripe: `company.name`. |
 | `trade_name` | `varchar(120)` |  | sim | Nome fantasia: o nome que o tutor vê. Só pessoa jurídica (obrigatório nela). |
@@ -557,6 +560,7 @@ O que só o anfitrião tem. 1:1 com `users` de role `host`: tem id próprio e ap
 | `deactivated_at` | `timestamptz` |  | sim | Quando foi inativado pela última vez. |
 | `suspended_at` | `timestamptz` |  | sim | Quando o admin suspendeu. Anda junto com `users.suspended_at`. |
 | `identity_released_at` | `timestamptz` |  | sim | Quando o admin liberou o CPF/CNPJ deste anfitrião (disputa de documento; só de suspenso). Os valores ficam como evidência, mas deixam de contar nos índices únicos e na restrição 9; a suspensão não sai mais. |
+| `erased_at` | `timestamptz` |  | sim | Quando o anfitrião excluiu a conta (LGPD): o CPF vira nulo, o perfil fica inativo e as solicitações (`host_applications`) são apagadas com os documentos. Dados da empresa e `stripe_account_id` ficam (repasses feitos). Anda junto com `users.erased_at`. |
 | `created_at` | `timestamptz` |  | não | Quando o registro foi criado (UTC). |
 | `updated_at` | `timestamptz` |  | não | Última alteração do registro (UTC). |
 
@@ -612,6 +616,18 @@ Frente e verso do documento e a selfie segurando o documento. Ficam no **bucket 
 | `uploaded_at` | `timestamptz` |  | não | Quando a foto foi enviada (ou trocada). |
 
 > ⁴ Índice único (`application_id`, `kind`). As linhas são apagadas junto com os arquivos quando o prazo de guarda vence (padrão: na decisão).
+
+### `identity_blocks` · CPFs bloqueados para solicitação de anfitrião
+
+CPF que não abre mais solicitação em conta nenhuma: houve recusa por suspeita de fraude ou a conta usou as 3 tentativas ([`modulo-hosts.md`](modulo-hosts.md) seção 4.1.1). Guarda só a **impressão** do CPF, nunca o CPF, e **fica** quando a conta é excluída (prevenção à fraude). O admin libera (a linha é apagada).
+
+| Coluna | Tipo | Chave | Nulo | Descrição |
+|---|---|---|---|---|
+| `id` | `uuid` | `PK` | não | Identificador do bloqueio. |
+| `cpf_fingerprint` | `char(64)` | `UK` | não | HMAC-SHA256 do CPF (só dígitos) com a chave `HostVerification:CpfFingerprintKey`, em hexadecimal. Sem a chave não volta ao CPF. Um bloqueio por CPF. |
+| `reason` | `enum` |  | não | `fraud` ou `attempts_exhausted`. |
+| `application_id` | `uuid` |  | não | A solicitação cuja recusa bloqueou. Sem FK: a solicitação some na exclusão da conta e o bloqueio fica. |
+| `blocked_at` | `timestamptz` |  | não | Quando foi bloqueado. |
 
 
 ### `pets` · Pets

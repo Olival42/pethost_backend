@@ -5,6 +5,9 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using FluentAssertions;
+using PetHost.Shared.Contracts.Payments;
+using PetHost.Modules.Payments.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using PetHost.Modules.Bookings.Application.Bookings.ExpireOverdueBookings;
 using PetHost.Modules.Bookings.Domain.Bookings;
@@ -305,6 +308,8 @@ public sealed class PaymentEndpointsTests(PaymentsApiFixture fixture) : IAsyncLi
         var bookingId = await RequestAndAcceptAsync(stay, nights: 2);
         await SendAsync(HttpMethod.Put, PaymentRoute(bookingId), stay.OwnerToken, new { installmentCount = 1 });
         var intent = Data(await ReadAsync(await SendAsync(HttpMethod.Post, SessionRoute(bookingId, 1), stay.OwnerToken))).GetProperty("paymentIntentId").GetString()!;
+        var ownerId = await OwnerOfAsync(bookingId);
+        (await HasPaidAnyAsync(ownerId)).Should().BeFalse("a cobrança foi aberta, mas ainda não paga");
         fixture.Stripe.Pay(intent);
 
         var synced = await SendAsync(HttpMethod.Post, $"{PaymentRoute(bookingId)}/synchronization", stay.OwnerToken);
@@ -312,6 +317,25 @@ public sealed class PaymentEndpointsTests(PaymentsApiFixture fixture) : IAsyncLi
         synced.StatusCode.Should().Be(HttpStatusCode.OK);
         Data(await ReadAsync(synced)).GetProperty("status").GetString().Should().Be("paid");
         Status(await ReadAsync(await SendAsync(HttpMethod.Get, $"{BookingsRoute}/{bookingId}", stay.OwnerToken))).Should().Be("confirmed");
+        (await HasPaidAnyAsync(ownerId)).Should().BeTrue("é o marco do primeiro pagamento que o Owners usa para travar o CPF");
+    }
+
+    /// <summary>O tutor (<c>owner.owners.id</c>) do pagamento da reserva.</summary>
+    private async Task<Guid> OwnerOfAsync(Guid bookingId)
+    {
+        await using var scope = fixture.Services.CreateAsyncScope();
+        return await scope.ServiceProvider.GetRequiredService<PaymentsDbContext>().Payments
+            .AsNoTracking()
+            .Where(p => p.BookingId == bookingId)
+            .Select(p => p.OwnerId)
+            .SingleAsync(TestContext.Current.CancellationToken);
+    }
+
+    /// <summary>O contrato que o Owners consulta para a trava de CPF e nascimento.</summary>
+    private async Task<bool> HasPaidAnyAsync(Guid ownerId)
+    {
+        await using var scope = fixture.Services.CreateAsyncScope();
+        return await scope.ServiceProvider.GetRequiredService<IPaymentDirectory>().HasPaidAnyInstallmentAsync(ownerId, TestContext.Current.CancellationToken);
     }
 
     // ----- cancelamento e reembolso -----

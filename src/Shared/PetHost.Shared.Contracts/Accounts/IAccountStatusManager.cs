@@ -30,4 +30,12 @@ public interface IAccountStatusManager
 
     /// <summary>Tira a suspensão. Idempotente.</summary>
     Task<Result> LiftSuspensionAsync(Guid userId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Exclui a conta a pedido do titular (LGPD): anonimiza nome e e-mail, apaga telefone,
+    /// nascimento, endereço e a URL da foto, inutiliza a senha, inativa e derruba as sessões. Não
+    /// há volta. Idempotente. A foto no bucket é de quem chama (ele a lê antes, pelo
+    /// <see cref="IUserDirectory"/>). Conta inexistente: <c>404 AUTH_USER_NOT_FOUND</c>.
+    /// </summary>
+    Task<Result> EraseAsync(Guid userId, CancellationToken cancellationToken);
 }

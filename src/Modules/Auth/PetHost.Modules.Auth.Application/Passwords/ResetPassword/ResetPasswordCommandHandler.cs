@@ -47,9 +47,9 @@ public sealed class ResetPasswordCommandHandler(
             .GetByIdAsync(userId.Value, cancellationToken)
             .ConfigureAwait(false);
 
-        // Token válido de uma conta que não existe mais: mesma resposta de token
-        // inválido, sem revelar que a conta foi removida.
-        if (user is null)
+        // Token válido de uma conta que não existe mais (ou foi excluída a pedido do
+        // titular): mesma resposta de token inválido, sem revelar que a conta foi removida.
+        if (user is null || user.IsErased)
             return Result<Unit>.Failure(AuthErrors.PasswordResetTokenInvalid);
 
         var passwordHash = PasswordHash.FromHash(passwordHasher.Hash(newPassword.Value!.Value));

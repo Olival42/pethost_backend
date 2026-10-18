@@ -1,3 +1,4 @@
+using PetHost.Modules.Hosts.Domain.IdentityBlocks;
 using Moq;
 using PetHost.Modules.Hosts.Application.Abstractions;
 using PetHost.Modules.Hosts.Domain.HostApplications;
@@ -73,6 +74,16 @@ internal static class HostsTestData
             .ReturnsAsync((IReadOnlyCollection<Guid> ids, CancellationToken _) => [.. ids.Select(Account)]);
         return accounts;
     }
+
+    /// <summary>Impressão de mentira, determinística: o CPF completado com zeros até 64 caracteres.</summary>
+    public static ICpfFingerprint Fingerprint()
+    {
+        var fingerprint = new Mock<ICpfFingerprint>();
+        fingerprint.Setup(f => f.Of(It.IsAny<Cpf>())).Returns((Cpf cpf) => cpf.Value.PadLeft(IdentityBlock.FingerprintLength, '0'));
+        return fingerprint.Object;
+    }
+
+    public static string FingerprintOf(string cpfText) => Cpf.Create(cpfText).Value!.Value.PadLeft(IdentityBlock.FingerprintLength, '0');
 
     public static ImageUpload Image() => new(new MemoryStream([1, 2, 3]), "x.jpg", "image/jpeg");
 }

@@ -44,6 +44,7 @@ Cada registro tem: `occurredAt`, `action`, `targetType` + `targetId`, `actorId` 
 | `account.profile_updated` | conta | PATCH de perfil que mudou algo | `fields` (nomes, nunca valores) |
 | `account.deactivated` / `account.reactivated` | conta | Status da conta mudou | — |
 | `account.suspended` / `account.suspension_lifted` | conta | Admin suspendeu / tirou a suspensão | motivo em `reason` |
+| `account.erased` | conta | Conta excluída a pedido do titular (LGPD): anonimizada, sem volta | — |
 | `session.login_succeeded` | conta | Login | `role` |
 | `session.login_failed` | conta (se existir) | Login recusado | `role`, `reason` (`invalid_credentials`, `deactivated`, `suspended`) |
 | `session.switched` | conta de destino | Troca entre tutor e anfitrião | `fromAccountId`, `toRole` |
@@ -54,11 +55,14 @@ Cada registro tem: `occurredAt`, `action`, `targetType` + `targetId`, `actorId` 
 | `owner.deactivated` / `owner.reactivated` | tutor | Status do tutor mudou | — |
 | `owner.suspended` / `owner.suspension_lifted` | tutor | Admin suspendeu / tirou | motivo em `reason` |
 | `owner.cpf_released` | tutor | Admin liberou o CPF (disputa) | motivo; `cpf` **mascarado** |
+| `owner.erased` | tutor | O tutor excluiu a conta (CPF apagado) | — |
 | `owner.viewed` | tutor | Admin abriu um tutor (CPF completo) | — |
 | `owner.listed` | — | Admin listou os tutores | `count` |
 | `audit.searched` | — | Admin consultou a trilha | filtros usados |
 
 **Nunca vai para a trilha:** senha, token, hash, CPF completo, e-mail digitado no login. Campo alterado vai pelo **nome**, não pelo valor. A leitura de dado pessoal pelo admin (`owner.viewed`, `owner.listed`) é registrada porque a LGPD pede rastreio de quem acessou.
+
+**A trilha fica na exclusão da conta.** Excluir a conta (LGPD, art. 18, VI) não apaga os registros: a trilha é o que mostra quem fez o quê, e o art. 16 permite guardar para cumprir obrigação legal e exercer direitos. Ela só tem ids, nomes de campo e CPF mascarado; depois da exclusão, o id não leva mais a nome nem e-mail.
 
 **Fora da trilha (de propósito):** refresh e logout. São frequentes demais e não mudam nada além da sessão. O log da API já mostra cada request.
 

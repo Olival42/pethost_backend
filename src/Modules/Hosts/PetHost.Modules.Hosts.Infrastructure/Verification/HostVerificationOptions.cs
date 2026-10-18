@@ -25,6 +25,15 @@ public sealed class HostVerificationOptions
 
     /// <summary>De quantos em quantos minutos a tarefa de limpeza roda.</summary>
     public int PurgeIntervalMinutes { get; init; } = 60;
+
+    /// <summary>Tamanho mínimo da chave da impressão do CPF.</summary>
+    public const int CpfFingerprintKeyMinLength = 32;
+
+    /// <summary>
+    /// Chave do HMAC da impressão do CPF no bloqueio de identidade (<c>host.identity_blocks</c>).
+    /// Segredo, como o <c>Jwt:Key</c>: trocar invalida os bloqueios já gravados.
+    /// </summary>
+    public string CpfFingerprintKey { get; init; } = string.Empty;
 }
 
 /// <summary>Configuração inválida derruba a subida.</summary>
@@ -42,6 +51,9 @@ internal sealed class HostVerificationOptionsValidator : IValidateOptions<HostVe
 
         if (options.PurgeIntervalMinutes <= 0)
             failures.Add($"{HostVerificationOptions.SectionName}:{nameof(HostVerificationOptions.PurgeIntervalMinutes)} must be greater than zero.");
+
+        if (string.IsNullOrWhiteSpace(options.CpfFingerprintKey) || options.CpfFingerprintKey.Length < HostVerificationOptions.CpfFingerprintKeyMinLength)
+            failures.Add($"{HostVerificationOptions.SectionName}:{nameof(HostVerificationOptions.CpfFingerprintKey)} must have at least {HostVerificationOptions.CpfFingerprintKeyMinLength} characters.");
 
         return failures.Count > 0 ? ValidateOptionsResult.Fail(failures) : ValidateOptionsResult.Success;
     }

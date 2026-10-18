@@ -15,10 +15,10 @@ internal sealed class OwnerConfiguration : IEntityTypeConfiguration<Owner>
 {
     public void Configure(EntityTypeBuilder<Owner> builder)
     {
-        // CPF nulo só em tutor suspenso: o admin libera o CPF de uma conta indevida.
+        // CPF nulo só em tutor suspenso (o admin libera o CPF de uma conta indevida) ou excluído (LGPD).
         builder.ToTable("owners", table => table.HasCheckConstraint(
-            "ck_owners_cpf_only_null_when_suspended",
-            "cpf IS NOT NULL OR suspended_at IS NOT NULL"));
+            "ck_owners_cpf_only_null_when_suspended_or_erased",
+            "cpf IS NOT NULL OR suspended_at IS NOT NULL OR erased_at IS NOT NULL"));
 
         builder.HasKey(o => o.Id);
 
@@ -36,10 +36,6 @@ internal sealed class OwnerConfiguration : IEntityTypeConfiguration<Owner>
             .HasConversion<CpfConverter>()
             .HasColumnType($"char({Cpf.Length})");
 
-        builder.Property(o => o.StripeCustomerId)
-            .HasColumnName("stripe_customer_id")
-            .HasMaxLength(Owner.StripeCustomerIdMaxLength);
-
         builder.Property(o => o.IsActive)
             .HasColumnName("is_active")
             .HasDefaultValue(true)
@@ -51,6 +47,10 @@ internal sealed class OwnerConfiguration : IEntityTypeConfiguration<Owner>
 
         builder.Property(o => o.SuspendedAt)
             .HasColumnName("suspended_at")
+            .HasColumnType("timestamptz");
+
+        builder.Property(o => o.ErasedAt)
+            .HasColumnName("erased_at")
             .HasColumnType("timestamptz");
 
         builder.Property(o => o.CreatedAt)
@@ -69,10 +69,6 @@ internal sealed class OwnerConfiguration : IEntityTypeConfiguration<Owner>
 
         builder.HasIndex(o => o.Cpf)
             .HasDatabaseName("uq_owners_cpf")
-            .IsUnique();
-
-        builder.HasIndex(o => o.StripeCustomerId)
-            .HasDatabaseName("uq_owners_stripe_customer_id")
             .IsUnique();
 
         builder.Ignore(o => o.DomainEvents);

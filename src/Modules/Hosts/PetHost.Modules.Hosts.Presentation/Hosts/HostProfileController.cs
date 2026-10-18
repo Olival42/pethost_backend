@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using PetHost.Modules.Hosts.Application.Hosts.ChangeMyHostAvatar;
 using PetHost.Modules.Hosts.Application.Hosts.DeactivateMyHost;
+using PetHost.Modules.Hosts.Application.Hosts.DeleteMyHost;
 using PetHost.Modules.Hosts.Application.Hosts.ReactivateHost;
 using PetHost.Modules.Hosts.Application.Hosts.Responses;
 using PetHost.Modules.Hosts.Application.Hosts.UpdateMyHost;
@@ -19,7 +20,7 @@ namespace PetHost.Modules.Hosts.Presentation.Hosts;
 
 /// <summary>
 /// O anfitrião cuidando da própria conta e perfil: editar (com a identidade travada), foto,
-/// inativar e reativar. Mesmo molde do tutor.
+/// inativar, reativar e excluir. Mesmo molde do tutor.
 /// </summary>
 [ApiController]
 [Route("api/v1/hosts")]
@@ -28,6 +29,7 @@ public sealed class HostProfileController(
     ICommandHandler<ChangeMyHostAvatarCommand, HostResponse> changeMyAvatar,
     ICommandHandler<RemoveMyHostAvatarCommand, HostResponse> removeMyAvatar,
     ICommandHandler<DeactivateMyHostCommand, Unit> deactivateMyHost,
+    ICommandHandler<DeleteMyHostCommand, Unit> deleteMyHost,
     ICommandHandler<ReactivateHostCommand, HostSessionResponse> reactivateHost) : ControllerBase
 {
     /// <summary>Altera o anfitrião logado — só o que vier muda.</summary>
@@ -129,6 +131,36 @@ public sealed class HostProfileController(
         return result.ToActionResult();
     }
 
+    /// <summary>Exclui a conta de anfitrião logada, sem volta (LGPD: eliminação a pedido do titular).</summary>
+    /// <remarks>
+    /// Pede a senha atual (<c>currentPassword</c>; faltando ou errada, 400 no campo). Apaga ou
+    /// anonimiza nome, e-mail, telefone, nascimento, endereço, CPF, a foto de perfil, as solicitações
+    /// de verificação (com os documentos), as fotos dos pets e dos cantinhos, o endereço exato dos
+    /// cantinhos e as conversas; ficam as reservas, os pagamentos e repasses, as avaliações (com
+    /// "Conta excluída" no lugar do nome), os dados da empresa e a trilha de auditoria. Vale também
+    /// para conta ainda não aprovada. Todas as sessões caem na hora. A conta de tutor da mesma pessoa
+    /// não é afetada. Com reserva em aberto: 422 <c>HOST_HAS_OPEN_BOOKING</c>.
+    /// </remarks>
+    [HttpPost("me/deletion")]
+    [EnableRateLimiting(RateLimitPolicies.AccountSensitive)]
+    [Authorize(Roles = Roles.Host)]
+    [ProducesResponseType<ApiResponse<Unit>>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ApiResponse<Unit>>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ApiResponse<Unit>>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ApiResponse<Unit>>(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType<ApiResponse<Unit>>(StatusCodes.Status422UnprocessableEntity)]
+    [ProducesResponseType<ApiResponse<Unit>>(StatusCodes.Status429TooManyRequests)]
+    public async Task<IActionResult> DeleteMeAsync([FromBody] HostDeletionRequest request, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var result = await deleteMyHost.HandleAsync(
+            new DeleteMyHostCommand(User.GetUserId(), request.CurrentPassword),
+            cancellationToken);
+
+        return result.ToActionResult();
+    }
+
     /// <summary>Reativa a conta de anfitrião (e o perfil) com e-mail e senha, e já abre a sessão.</summary>
     /// <remarks>
     /// Credenciais erradas: o mesmo 401 do login. Conta suspensa pelo admin não volta: 403
@@ -149,6 +181,9 @@ public sealed class HostProfileController(
         return result.ToActionResult();
     }
 }
+
+/// <summary>Corpo da exclusão da conta: a senha atual, para confirmar. O id vem do token.</summary>
+public sealed record HostDeletionRequest(string? CurrentPassword);
 
 /// <summary>Corpo do <c>PATCH /hosts/me</c>: só o que vier muda. O id vem do token, não daqui.</summary>
 /// <param name="FullName">Travado: só passa se for igual ao atual.</param>

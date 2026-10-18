@@ -110,7 +110,7 @@ public sealed class HostLifecycleTests
         // Assert
         released.IsSuccess.Should().BeTrue();
         host.IdentityReleasedAt.Should().Be(Later);
-        host.Cpf.Value.Should().Be("52998224725", "o CPF fica como evidência");
+        host.Cpf!.Value.Should().Be("52998224725", "o CPF fica como evidência");
         lifted.FirstError!.Code.Should().Be("HOST_IDENTITY_RELEASED");
         host.IsSuspended.Should().BeTrue();
     }
@@ -129,6 +129,66 @@ public sealed class HostLifecycleTests
         // Assert
         result.IsSuccess.Should().BeTrue();
         host.IdentityReleasedAt.Should().Be(Now);
+    }
+
+    [Fact]
+    public void Erase_Should_DropTheCpfAndDeactivate_When_Called()
+    {
+        // Arrange
+        var host = Individual();
+
+        // Act
+        host.Erase(Later);
+
+        // Assert
+        host.Cpf.Should().BeNull();
+        host.IsActive.Should().BeFalse();
+        host.IsErased.Should().BeTrue();
+        host.ErasedAt.Should().Be(Later);
+        host.UpdatedAt.Should().Be(Later);
+    }
+
+    [Fact]
+    public void Erase_Should_KeepTheCompanyData_When_HostIsACompany()
+    {
+        // Arrange
+        var host = Company();
+
+        // Act
+        host.Erase(Later);
+
+        // Assert
+        host.Cpf.Should().BeNull("o CPF é do representante, uma pessoa");
+        host.Cnpj!.Value.Should().Be("11222333000181");
+        host.LegalName.Should().Be("Pet Feliz Hospedagem LTDA");
+    }
+
+    [Fact]
+    public void Erase_Should_KeepTheFirstErasure_When_CalledTwice()
+    {
+        // Arrange
+        var host = Individual();
+        host.Erase(Now);
+
+        // Act
+        host.Erase(Later);
+
+        // Assert
+        host.ErasedAt.Should().Be(Now);
+    }
+
+    [Fact]
+    public void Reactivate_Should_DoNothing_When_Erased()
+    {
+        // Arrange
+        var host = Individual();
+        host.Erase(Now);
+
+        // Act
+        host.Reactivate(Later);
+
+        // Assert
+        host.IsActive.Should().BeFalse();
     }
 
     [Fact]

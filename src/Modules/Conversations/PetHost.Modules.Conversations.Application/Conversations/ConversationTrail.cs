@@ -59,6 +59,24 @@ internal static class ConversationTrail
                 }),
             cancellationToken);
 
+    /// <summary>Apagada porque um dos lados excluiu a conta (LGPD). Quem fez é o titular, pelo token.</summary>
+    public static Task RecordErasedAsync(
+        IAuditTrail auditTrail,
+        Conversation conversation,
+        int photos,
+        CancellationToken cancellationToken) =>
+        auditTrail.RecordAsync(
+            new AuditRecord(
+                AuditActions.ConversationPurged,
+                AuditTargets.Conversation,
+                conversation.Id.Value,
+                Details: new Dictionary<string, string?>
+                {
+                    ["cause"] = "account_erased",
+                    ["photos"] = photos.ToString(CultureInfo.InvariantCulture),
+                }),
+            cancellationToken);
+
     /// <summary>Quem bloqueou, na trilha, quando foi a moderação (denúncia procedente).</summary>
     public const string ModerationActor = "moderation";
 

@@ -524,15 +524,13 @@ public sealed class OwnerRegistrationTests(OwnersApiFixture fixture) : IAsyncLif
         return (await ReadAsync(response)).GetProperty("data").GetProperty("accessToken").GetString()!;
     }
 
-    /// <summary>O módulo de pagamentos ainda não existe: liga o Customer direto no banco.</summary>
+    /// <summary>O Payments passa a dizer que o tutor já pagou (dublê da porta; o caminho real fica no Payments.IntegrationTests).</summary>
     private async Task SimulateFirstPaymentAsync(Guid userId)
     {
         await using var scope = fixture.Services.CreateAsyncScope();
-        var owners = scope.ServiceProvider.GetRequiredService<OwnersDbContext>();
-        var owner = await owners.Owners.SingleAsync(o => o.UserId == userId, Ct);
+        var owner = await scope.ServiceProvider.GetRequiredService<OwnersDbContext>().Owners.AsNoTracking().SingleAsync(o => o.UserId == userId, Ct);
 
-        owner.LinkStripeCustomer("cus_test_123", DateTimeOffset.UtcNow);
-        await owners.SaveChangesAsync(Ct);
+        fixture.Payments.MarkPaid(owner.Id.Value);
     }
 
     private Task<HttpResponseMessage> SendAsync(HttpMethod method, string route, string token, object? body = null)

@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using PetHost.Modules.Pets.Application.Abstractions;
 using PetHost.Modules.Pets.Application.Pets.AddPetPhoto;
 using PetHost.Modules.Pets.Application.Pets.DeactivatePet;
+using PetHost.Modules.Pets.Application.Pets.ErasePetsOfKeeper;
 using PetHost.Modules.Pets.Application.Pets.GetPetById;
 using PetHost.Modules.Pets.Application.Pets.ListHostPets;
 using PetHost.Modules.Pets.Application.Pets.ListMyPets;
@@ -20,7 +21,9 @@ using PetHost.Modules.Pets.Infrastructure.Directory;
 using PetHost.Modules.Pets.Infrastructure.Keepers;
 using PetHost.Modules.Pets.Infrastructure.Persistence;
 using PetHost.Modules.Pets.Infrastructure.Persistence.Repositories;
+using PetHost.Modules.Pets.Infrastructure.Privacy;
 using PetHost.Shared.Contracts.Pets;
+using PetHost.Shared.Contracts.Privacy;
 using PetHost.Shared.Infrastructure.Validation;
 using PetHost.Shared.Kernel.Messaging;
 
@@ -56,6 +59,9 @@ public static class DependencyInjection
         // Contrato público: o Bookings confere os pets da reserva por aqui (§5).
         services.AddScoped<IPetDirectory, PetDirectory>();
 
+        // Exclusão da conta (LGPD): a parte do Pets (§5).
+        services.AddScoped<IPersonalDataEraser, PetPersonalDataEraser>();
+
         services.AddValidatedCommandHandler<RegisterPetCommandHandler, RegisterPetCommand, PetResponse>();
         services.AddValidatedCommandHandler<UpdatePetCommandHandler, UpdatePetCommand, PetResponse>();
         services.AddValidatedCommandHandler<DeactivatePetCommandHandler, DeactivatePetCommand, PetResponse>();
@@ -64,6 +70,7 @@ public static class DependencyInjection
         services.AddValidatedCommandHandler<ReplacePetPhotoCommandHandler, ReplacePetPhotoCommand, PetResponse>();
         services.AddValidatedCommandHandler<RemovePetPhotoCommandHandler, RemovePetPhotoCommand, PetResponse>();
         services.AddValidatedCommandHandler<ReorderPetPhotosCommandHandler, ReorderPetPhotosCommand, PetResponse>();
+        services.AddValidatedCommandHandler<ErasePetsOfKeeperCommandHandler, ErasePetsOfKeeperCommand, int>();
 
         services.AddScoped<IQueryHandler<GetPetByIdQuery, PetResponse>, GetPetByIdQueryHandler>();
         services.AddScoped<IQueryHandler<ListMyPetsQuery, KeeperPetsResponse>, ListMyPetsQueryHandler>();

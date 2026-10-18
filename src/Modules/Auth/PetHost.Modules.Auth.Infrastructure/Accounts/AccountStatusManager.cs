@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using PetHost.Modules.Auth.Application.Abstractions;
 using PetHost.Modules.Auth.Application.Users.SuspendAccount;
 using PetHost.Modules.Auth.Domain.Errors;
@@ -75,7 +76,11 @@ internal sealed class AccountStatusManager(
             return Result<AccountSession>.Failure(AuthErrors.AccountSuspended);
 
         var wasActive = user.IsActive;
-        user.Reactivate(timeProvider.GetUtcNow());
+
+        // Conta excluída nem chega aqui (a conferência já a ignora); se chegasse, o mesmo 401.
+        if (user.Reactivate(timeProvider.GetUtcNow()).IsFailure)
+            return Result<AccountSession>.Failure(AuthErrors.InvalidCredentials);
+
         await unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         if (!wasActive)
@@ -115,5 +120,40 @@ internal sealed class AccountStatusManager(
             .ConfigureAwait(false);
 
         return result.IsFailure ? Result.Failure(result.Errors!) : Result.Success();
+    }
+
+    public async Task<Result> EraseAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        var id = new UserId(userId);
+        var user = await userRepository.GetByIdAsync(id, cancellationToken).ConfigureAwait(false);
+        if (user is null)
+            return Result.Failure(AuthErrors.UserNotFound(id));
+
+        var wasErased = user.IsErased;
+        if (!wasErased)
+        {
+            // Hash de um segredo aleatório, descartado na hora: nenhuma senha confere mais.
+            var unusable = PasswordHash.FromHash(passwordHasher.Hash(Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))));
+            if (unusable.IsFailure)
+                return Result.Failure(unusable.Errors!);
+
+            var erased = user.Erase(unusable.Value!, timeProvider.GetUtcNow());
+            if (erased.IsFailure)
+                return erased;
+
+            await unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        await refreshTokenStore.RevokeAllAsync(id, cancellationToken).ConfigureAwait(false);
+        await accessTokenRevocationStore.RevokeAllAsync(id, cancellationToken).ConfigureAwait(false);
+
+        if (!wasErased)
+        {
+            await auditTrail
+                .RecordAsync(new AuditRecord(AuditActions.AccountErased, AuditTargets.Account, id.Value, ActorId: id.Value), cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        return Result.Success();
     }
 }

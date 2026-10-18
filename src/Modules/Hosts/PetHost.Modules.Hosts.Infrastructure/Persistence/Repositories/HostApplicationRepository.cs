@@ -64,4 +64,6 @@ internal sealed class HostApplicationRepository(HostsDbContext dbContext) : IHos
             .ConfigureAwait(false);
 
     public void Add(HostApplication application) => dbContext.HostApplications.Add(application);
+
+    public void Remove(HostApplication application) => dbContext.HostApplications.Remove(application);
 }

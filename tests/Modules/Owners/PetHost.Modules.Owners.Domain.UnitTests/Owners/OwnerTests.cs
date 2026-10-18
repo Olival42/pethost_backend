@@ -19,7 +19,6 @@ public sealed class OwnerTests
         owner.Id.Value.Should().NotBe(UserId, "o tutor tem id próprio; a conta é só referência");
         owner.UserId.Should().Be(UserId);
         owner.Cpf.Should().Be(AnyCpf);
-        owner.StripeCustomerId.Should().BeNull("o Customer só é criado no primeiro pagamento");
         owner.IsActive.Should().BeTrue();
         owner.DeactivatedAt.Should().BeNull();
         owner.CreatedAt.Should().Be(Now);
@@ -41,24 +40,12 @@ public sealed class OwnerTests
     }
 
     [Fact]
-    public void LinkStripeCustomer_Should_StoreIdAndTouchUpdatedAt_When_Called()
-    {
-        var owner = Owner.Create(UserId, AnyCpf, Now);
-
-        owner.LinkStripeCustomer("cus_123", Now.AddDays(2));
-
-        owner.StripeCustomerId.Should().Be("cus_123");
-        owner.UpdatedAt.Should().Be(Now.AddDays(2));
-        owner.CreatedAt.Should().Be(Now);
-    }
-
-    [Fact]
     public void ChangeCpf_Should_ReplaceCpf_When_NoPaymentWasMade()
     {
         var owner = Owner.Create(UserId, AnyCpf, Now);
         var other = Cpf.Create("11144477735").Value!;
 
-        owner.ChangeCpf(other, Now.AddDays(1)).IsSuccess.Should().BeTrue();
+        owner.ChangeCpf(other, hasPaid: false, Now.AddDays(1)).IsSuccess.Should().BeTrue();
 
         owner.Cpf.Should().Be(other);
         owner.UpdatedAt.Should().Be(Now.AddDays(1));
@@ -68,13 +55,12 @@ public sealed class OwnerTests
     public void ChangeCpf_Should_FailWithLocked_When_FirstPaymentHappened()
     {
         var owner = Owner.Create(UserId, AnyCpf, Now);
-        owner.LinkStripeCustomer("cus_123", Now);
 
-        var result = owner.ChangeCpf(Cpf.Create("11144477735").Value!, Now.AddDays(1));
+        var result = owner.ChangeCpf(Cpf.Create("11144477735").Value!, hasPaid: true, Now.AddDays(1));
 
         result.FirstError!.Code.Should().Be("OWNER_CPF_LOCKED");
         owner.Cpf.Should().Be(AnyCpf);
-        owner.CanChangeCpf.Should().BeFalse();
+        owner.UpdatedAt.Should().Be(Now);
     }
 
     [Fact]
@@ -118,7 +104,7 @@ public sealed class OwnerTests
     {
         var owner = Owner.Create(UserId, AnyCpf, Now);
 
-        owner.ChangeCpf(AnyCpf, Now.AddDays(1)).IsSuccess.Should().BeTrue();
+        owner.ChangeCpf(AnyCpf, hasPaid: false, Now.AddDays(1)).IsSuccess.Should().BeTrue();
 
         owner.UpdatedAt.Should().Be(Now);
     }
@@ -178,5 +164,13 @@ public sealed class OwnerTests
         owner.LiftSuspension(Now.AddDays(1)).IsSuccess.Should().BeTrue();
 
         owner.IsSuspended.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public void CanChangeBirthDate_Should_FollowTheFirstPayment_When_Asked(bool hasPaid, bool expected)
+    {
+        Owner.CanChangeBirthDate(hasPaid).Should().Be(expected);
     }
 }

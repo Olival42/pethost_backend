@@ -10,6 +10,7 @@ using PetHost.Modules.Listings.Application.Listings.AvailabilityBlocks;
 using PetHost.Modules.Listings.Application.Listings.CheckPetCompatibility;
 using PetHost.Modules.Listings.Application.Listings.CreateListing;
 using PetHost.Modules.Listings.Application.Listings.DeactivateListing;
+using PetHost.Modules.Listings.Application.Listings.EraseListingsOfHost;
 using PetHost.Modules.Listings.Application.Listings.GetListingById;
 using PetHost.Modules.Listings.Application.Listings.ListMyListings;
 using PetHost.Modules.Listings.Application.Listings.ReactivateListing;
@@ -29,7 +30,9 @@ using PetHost.Modules.Listings.Infrastructure.Persistence;
 using PetHost.Modules.Listings.Infrastructure.Reviews;
 using PetHost.Modules.Listings.Infrastructure.Persistence.Repositories;
 using PetHost.Modules.Listings.Infrastructure.Pets;
+using PetHost.Modules.Listings.Infrastructure.Privacy;
 using PetHost.Shared.Contracts.Listings;
+using PetHost.Shared.Contracts.Privacy;
 using PetHost.Shared.Contracts.Responses;
 using PetHost.Shared.Infrastructure.Redis;
 using PetHost.Shared.Infrastructure.Validation;
@@ -72,11 +75,15 @@ public static class DependencyInjection
         // Contrato público: o Bookings lê as condições do cantinho por aqui (§5).
         services.AddScoped<IListingDirectory, ListingDirectory>();
 
+        // Exclusão da conta (LGPD): a parte do Listings (§5).
+        services.AddScoped<IPersonalDataEraser, ListingPersonalDataEraser>();
+
         AddGeocoding(services, configuration);
 
         services.AddValidatedCommandHandler<CreateListingCommandHandler, CreateListingCommand, ListingResponse>();
         services.AddValidatedCommandHandler<UpdateListingCommandHandler, UpdateListingCommand, ListingResponse>();
         services.AddValidatedCommandHandler<DeactivateListingCommandHandler, DeactivateListingCommand, ListingResponse>();
+        services.AddValidatedCommandHandler<EraseListingsOfHostCommandHandler, EraseListingsOfHostCommand, int>();
         services.AddValidatedCommandHandler<ReactivateListingCommandHandler, ReactivateListingCommand, ListingResponse>();
         services.AddValidatedCommandHandler<AddListingPhotoCommandHandler, AddListingPhotoCommand, ListingResponse>();
         services.AddValidatedCommandHandler<ReplaceListingPhotoCommandHandler, ReplaceListingPhotoCommand, ListingResponse>();

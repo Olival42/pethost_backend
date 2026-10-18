@@ -78,6 +78,7 @@ public sealed class AuthApiFixture : IAsyncLifetime
             builder.UseSetting("Jwt:Issuer", "https://api.pethost.test");
             builder.UseSetting("Jwt:Audience", "pethost-app");
             builder.UseSetting("Jwt:Key", "chave-de-teste-com-mais-de-32-bytes-para-hmac-sha256");
+            builder.UseSetting("HostVerification:CpfFingerprintKey", "chave-de-teste-da-impressao-do-cpf-hmac-sha256");
             builder.UseSetting("Jwt:AccessTokenLifetimeMinutes", "15");
             builder.UseSetting("Jwt:RefreshTokenLifetimeDays", "30");
 

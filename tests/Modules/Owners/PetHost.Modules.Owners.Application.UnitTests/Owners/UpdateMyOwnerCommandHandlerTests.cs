@@ -24,6 +24,7 @@ public sealed class UpdateMyOwnerCommandHandlerTests
     private readonly Mock<IOwnerRepository> _ownerRepository = new();
     private readonly Mock<IOwnersUnitOfWork> _unitOfWork = new();
     private readonly Mock<IOwnerAccounts> _ownerAccounts = new();
+    private readonly Mock<IOwnerPayments> _ownerPayments = new();
     private readonly Mock<IAuditTrail> _auditTrail = new();
     private readonly Mock<ICpfOwnership> _cpfOwnership = new();
     private readonly Owner _owner = Owner.Create(Id, Cpf.Create("52998224725").Value!, Now);
@@ -48,7 +49,30 @@ public sealed class UpdateMyOwnerCommandHandlerTests
             .ReturnsAsync(Result<AccountProfilePatch>.Success(Previous));
 
         _sut = new UpdateMyOwnerCommandHandler(
-            _ownerRepository.Object, _unitOfWork.Object, _ownerAccounts.Object, _auditTrail.Object, _cpfOwnership.Object, new FakeTimeProvider(Now.AddDays(1)));
+            _ownerRepository.Object, _unitOfWork.Object, _ownerAccounts.Object, _ownerPayments.Object, _auditTrail.Object, _cpfOwnership.Object, new FakeTimeProvider(Now.AddDays(1)));
+    }
+
+    /// <summary>O Payments diz que o tutor já pagou uma parcela.</summary>
+    private void GivenFirstPaymentHappened() =>
+        _ownerPayments.Setup(p => p.HasPaidAsync(_owner.Id.Value, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+
+    [Fact]
+    public async Task HandleAsync_Should_NotAskThePayments_When_NothingSensitiveChanges()
+    {
+        var result = await _sut.HandleAsync(Command(fullName: "Camila Lima"), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _ownerPayments.Verify(p => p.HasPaidAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task HandleAsync_Should_ChangeTheCpf_When_ThePaymentsSayNothingWasPaid()
+    {
+        var result = await _sut.HandleAsync(Command(cpf: "111.444.777-35", currentPassword: Password), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _owner.Cpf!.Value.Should().Be("11144477735");
+        _ownerPayments.Verify(p => p.HasPaidAsync(_owner.Id.Value, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -118,7 +142,7 @@ public sealed class UpdateMyOwnerCommandHandlerTests
     [Fact]
     public async Task HandleAsync_Should_ReturnLocked_When_FirstPaymentHappened()
     {
-        _owner.LinkStripeCustomer("cus_123", Now);
+        GivenFirstPaymentHappened();
 
         var result = await _sut.HandleAsync(Command(cpf: "111.444.777-35", currentPassword: Password), CancellationToken.None);
 
@@ -209,7 +233,7 @@ public sealed class UpdateMyOwnerCommandHandlerTests
     public async Task HandleAsync_Should_ReturnBirthDateLocked_When_FirstPaymentHappened()
     {
         GivenAccountBornOn(new DateOnly(1990, 5, 10));
-        _owner.LinkStripeCustomer("cus_123", Now);
+        GivenFirstPaymentHappened();
 
         var result = await _sut.HandleAsync(Command(birthDate: "1991-02-03", currentPassword: Password), CancellationToken.None);
 
@@ -222,7 +246,7 @@ public sealed class UpdateMyOwnerCommandHandlerTests
     {
         // Mesmo depois do pagamento: mandar a data que já está cadastrada não é troca.
         GivenAccountBornOn(new DateOnly(1990, 5, 10));
-        _owner.LinkStripeCustomer("cus_123", Now);
+        GivenFirstPaymentHappened();
 
         var result = await _sut.HandleAsync(Command(fullName: "Camila Lima", birthDate: "1990-05-10"), CancellationToken.None);
 

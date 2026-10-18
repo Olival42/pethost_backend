@@ -44,6 +44,7 @@ using PetHost.Shared.Infrastructure.Cors;
 using PetHost.Shared.Infrastructure.Email;
 using PetHost.Shared.Infrastructure.Http;
 using PetHost.Shared.Infrastructure.Identity;
+using PetHost.Shared.Infrastructure.Privacy;
 using PetHost.Shared.Infrastructure.RateLimiting;
 using PetHost.Shared.Infrastructure.Realtime;
 using PetHost.Shared.Infrastructure.Storage;
@@ -120,6 +121,9 @@ builder.Services.AddStripe(builder.Configuration);
 
 // --- CPF identifica a pessoa: a mesma pessoa (e-mail) em tutor e anfitrião (restrição 9) ---
 builder.Services.AddCpfOwnership();
+
+// --- Exclusão de conta (LGPD): cada módulo apaga ou anonimiza a sua parte ---
+builder.Services.AddPersonalDataErasure();
 
 // --- Módulo Audit (trilha de auditoria, usada pelos outros módulos) ---
 builder.Services.AddAuditApplication();

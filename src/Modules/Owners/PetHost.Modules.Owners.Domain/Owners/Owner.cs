@@ -9,13 +9,12 @@ namespace PetHost.Modules.Owners.Domain.Owners;
 /// módulo Auth por <see cref="UserId"/> (1:1). Espelha a tabela <c>owner.owners</c>.
 /// </summary>
 /// <remarks>
-/// O tutor é quem paga, então aqui ficam os dados que o Stripe usa para identificar
-/// o pagador: o CPF (tax ID <c>br_cpf</c> do Customer) e o id do Customer criado lá.
-/// Nome, e-mail, telefone e endereço são da conta e vivem no Auth.
+/// O tutor é quem paga; aqui fica o CPF que o identifica como pagador. Nome, e-mail, telefone
+/// e endereço são da conta e vivem no Auth.
 /// <para>
-/// O CPF pode ser corrigido <b>até o primeiro pagamento</b>. Depois dele fica travado:
-/// já foi para o Customer do Stripe e está nos pagamentos feitos. O marco é o
-/// <see cref="StripeCustomerId"/>, criado justamente no primeiro pagamento.
+/// O CPF pode ser corrigido <b>até o primeiro pagamento</b>. Depois dele fica travado: quem
+/// pagou fica registrado com o CPF de quando pagou. Se já houve pagamento é o módulo Payments
+/// que sabe; o caso de uso pergunta e passa a resposta (<c>hasPaid</c>) para cá.
 /// </para>
 /// <para>
 /// O perfil tem status próprio (<see cref="IsActive"/>), que anda junto com o da conta:
@@ -24,9 +23,6 @@ namespace PetHost.Modules.Owners.Domain.Owners;
 /// </remarks>
 public sealed class Owner : Entity<OwnerId>
 {
-    /// <summary>Limite de <c>owners.stripe_customer_id</c> no dicionário de dados.</summary>
-    public const int StripeCustomerIdMaxLength = 255;
-
     /// <summary>Limite do motivo informado pelo admin (suspensão, liberação do CPF).</summary>
     public const int AdminReasonMaxLength = 500;
 
@@ -57,12 +53,6 @@ public sealed class Owner : Entity<OwnerId>
     /// </summary>
     public Cpf? Cpf { get; private set; }
 
-    /// <summary>
-    /// Customer no Stripe (<c>cus_...</c>). Nulo até o primeiro pagamento, quando o
-    /// módulo de pagamentos cria o Customer e chama <see cref="LinkStripeCustomer"/>.
-    /// </summary>
-    public string? StripeCustomerId { get; private set; }
-
     /// <summary>Falso depois de inativado. Nasce ativo.</summary>
     public bool IsActive { get; private set; }
 
@@ -76,6 +66,14 @@ public sealed class Owner : Entity<OwnerId>
 
     /// <summary>Quando foi inativado pela última vez. Nulo enquanto ativo.</summary>
     public DateTimeOffset? DeactivatedAt { get; private set; }
+
+    /// <summary>
+    /// Quando a conta foi excluída a pedido do titular (LGPD). O perfil fica, sem CPF e inativo,
+    /// porque reservas e pagamentos apontam para ele; não há volta.
+    /// </summary>
+    public DateTimeOffset? ErasedAt { get; private set; }
+
+    public bool IsErased => ErasedAt is not null;
 
     public DateTimeOffset CreatedAt { get; private set; }
     public DateTimeOffset UpdatedAt { get; private set; }
@@ -92,29 +90,20 @@ public sealed class Owner : Entity<OwnerId>
     }
 
     /// <summary>
-    /// Já houve pagamento. Marco para travar os dados que identificam o pagador no
-    /// Stripe e na verificação de documentos: CPF e data de nascimento.
+    /// A data de nascimento (que fica na conta, no Auth) ainda pode ser trocada? Só até o primeiro
+    /// pagamento (<paramref name="hasPaid"/>, dito pelo Payments). Quem aplica a regra é o caso de uso.
     /// </summary>
-    public bool HasPaid => StripeCustomerId is not null;
-
-    /// <summary>O CPF ainda pode ser trocado: nenhum pagamento foi feito.</summary>
-    public bool CanChangeCpf => !HasPaid;
+    public static bool CanChangeBirthDate(bool hasPaid) => !hasPaid;
 
     /// <summary>
-    /// A data de nascimento (que fica na conta, no Auth) ainda pode ser trocada: nenhum
-    /// pagamento foi feito. Quem aplica a regra é o caso de uso.
+    /// Troca o CPF. Recusa depois do primeiro pagamento (<paramref name="hasPaid"/>, dito pelo
+    /// Payments). A unicidade entre tutores é conferida pelo caso de uso, que enxerga os outros tutores.
     /// </summary>
-    public bool CanChangeBirthDate => !HasPaid;
-
-    /// <summary>
-    /// Troca o CPF. Recusa depois do primeiro pagamento. A unicidade entre tutores é
-    /// conferida pelo caso de uso, que enxerga os outros tutores.
-    /// </summary>
-    public Result ChangeCpf(Cpf cpf, DateTimeOffset now)
+    public Result ChangeCpf(Cpf cpf, bool hasPaid, DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(cpf);
 
-        if (!CanChangeCpf)
+        if (hasPaid)
             return Result.Failure(OwnersErrors.CpfLocked);
 
         if (cpf == Cpf)
@@ -183,10 +172,27 @@ public sealed class Owner : Entity<OwnerId>
         UpdatedAt = now;
     }
 
-    /// <summary>Reativa o perfil. Idempotente: reativar um perfil ativo não muda nada.</summary>
+    /// <summary>
+    /// A conta foi excluída (LGPD): apaga o CPF e inativa. Os pagamentos ficam no Payments. Idempotente.
+    /// </summary>
+    public void Erase(DateTimeOffset now)
+    {
+        if (IsErased)
+            return;
+
+        Cpf = null;
+        Deactivate(now);
+        ErasedAt = now;
+        UpdatedAt = now;
+    }
+
+    /// <summary>
+    /// Reativa o perfil. Idempotente: reativar um perfil ativo não muda nada. Perfil excluído não
+    /// volta (a conta também não).
+    /// </summary>
     public void Reactivate(DateTimeOffset now)
     {
-        if (IsActive)
+        if (IsActive || IsErased)
             return;
 
         IsActive = true;
@@ -194,12 +200,4 @@ public sealed class Owner : Entity<OwnerId>
         UpdatedAt = now;
     }
 
-    /// <summary>Guarda o Customer do Stripe. A partir daqui o CPF fica travado.</summary>
-    public void LinkStripeCustomer(string stripeCustomerId, DateTimeOffset now)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(stripeCustomerId);
-
-        StripeCustomerId = stripeCustomerId;
-        UpdatedAt = now;
-    }
 }

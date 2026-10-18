@@ -38,5 +38,8 @@ public interface IPaymentRepository
     /// <summary>O tutor tem alguma parcela em atraso?</summary>
     Task<bool> HasOverdueInstallmentAsync(Guid ownerId, CancellationToken cancellationToken);
 
+    /// <summary>O tutor já pagou alguma parcela (<c>paid_at</c> preenchido, mesmo se reembolsada depois)?</summary>
+    Task<bool> HasPaidAnyInstallmentAsync(Guid ownerId, CancellationToken cancellationToken);
+
     void Add(Payment payment);
 }

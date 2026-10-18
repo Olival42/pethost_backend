@@ -31,4 +31,10 @@ public interface IHostAccounts
 
     /// <summary>Tira a suspensão da conta (admin).</summary>
     Task<Result> LiftSuspensionAsync(Guid userId, CancellationToken cancellationToken);
+
+    /// <summary>A senha confere com a da conta?</summary>
+    Task<bool> VerifyPasswordAsync(Guid userId, string? password, CancellationToken cancellationToken);
+
+    /// <summary>Exclui a conta (LGPD): anonimiza, inutiliza a senha e derruba as sessões. Sem volta.</summary>
+    Task<Result> EraseAsync(Guid userId, CancellationToken cancellationToken);
 }

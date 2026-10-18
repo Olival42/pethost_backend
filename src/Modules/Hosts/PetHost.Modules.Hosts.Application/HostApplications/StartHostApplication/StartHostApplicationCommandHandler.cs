@@ -3,6 +3,8 @@ using PetHost.Modules.Hosts.Application.HostApplications.Responses;
 using PetHost.Modules.Hosts.Domain.Errors;
 using PetHost.Modules.Hosts.Domain.HostApplications;
 using PetHost.Modules.Hosts.Domain.Hosts;
+using PetHost.Modules.Hosts.Application.Abstractions;
+using PetHost.Modules.Hosts.Domain.IdentityBlocks;
 using PetHost.Shared.Contracts.Audit;
 using PetHost.Shared.Contracts.Identity;
 using PetHost.Shared.Kernel.Messaging;
@@ -13,13 +15,15 @@ namespace PetHost.Modules.Hosts.Application.HostApplications.StartHostApplicatio
 /// <summary>
 /// Abre a solicitação em rascunho (pessoa física ou jurídica). As regras de "pode abrir?"
 /// (já aprovada, já aberta, bloqueada, tentativas) moram no agregado; aqui se confere o CPF
-/// (é desta pessoa?) e o CNPJ (está livre?) contra os outros.
+/// (bloqueado por recusa de outra conta? é desta pessoa?) e o CNPJ (está livre?) contra os outros.
 /// </summary>
 public sealed class StartHostApplicationCommandHandler(
     IHostApplicationRepository applicationRepository,
     IHostRepository hostRepository,
     IHostsUnitOfWork unitOfWork,
     ICpfOwnership cpfOwnership,
+    IIdentityBlockRepository identityBlocks,
+    ICpfFingerprint fingerprint,
     IAuditTrail auditTrail,
     TimeProvider timeProvider) : ICommandHandler<StartHostApplicationCommand, HostApplicationResponse>
 {
@@ -44,6 +48,10 @@ public sealed class StartHostApplicationCommandHandler(
 
         if (started.IsFailure)
             return Result<HostApplicationResponse>.FromFailure(started);
+
+        var notBlocked = await HostApplicationSupport.EnsureNotBlockedAsync(cpf, identityBlocks, fingerprint, cancellationToken).ConfigureAwait(false);
+        if (notBlocked.IsFailure)
+            return Result<HostApplicationResponse>.FromFailure(notBlocked);
 
         var cpfAvailable = await HostApplicationSupport
             .EnsureCpfAvailableAsync(cpf, command.UserId, cpfOwnership, cancellationToken)

@@ -274,6 +274,30 @@ public sealed class Listing : Entity<ListingId>
         UpdatedAt = now;
     }
 
+    /// <summary>
+    /// A conta do anfitrião foi excluída (LGPD): desativa, tira todas as fotos, apaga do endereço o
+    /// que leva à casa (<see cref="ListingAddress.Redact"/>) e troca a coordenada exata pela
+    /// aproximada. Título, descrição e preço ficam: reservas e avaliações antigas apontam para o
+    /// cantinho. Devolve as URLs tiradas, para apagar do bucket. Idempotente.
+    /// </summary>
+    public IReadOnlyList<string> Erase(DateTimeOffset now)
+    {
+        var urls = _photos.Select(photo => photo.Url).ToList();
+        var address = Address.Redact();
+
+        if (urls.Count > 0 || address != Address || Location != ApproximateLocation)
+        {
+            _photos.Clear();
+            Address = address;
+            Location = ApproximateLocation;
+            UpdatedAt = now;
+        }
+
+        Deactivate(now);
+
+        return urls;
+    }
+
     /// <summary>Reativa. Idempotente.</summary>
     public void Reactivate(DateTimeOffset now)
     {

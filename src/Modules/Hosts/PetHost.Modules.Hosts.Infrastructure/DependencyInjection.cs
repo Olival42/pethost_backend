@@ -11,6 +11,7 @@ using PetHost.Modules.Hosts.Application.HostApplications.GetMyHostApplication;
 using PetHost.Modules.Hosts.Application.HostApplications.ListHostApplications;
 using PetHost.Modules.Hosts.Application.HostApplications.PurgeHostApplications;
 using PetHost.Modules.Hosts.Application.HostApplications.RejectHostApplication;
+using PetHost.Modules.Hosts.Application.HostApplications.ReleaseIdentityBlock;
 using PetHost.Modules.Hosts.Application.HostApplications.Responses;
 using PetHost.Modules.Hosts.Application.HostApplications.StartHostApplication;
 using PetHost.Modules.Hosts.Application.HostApplications.SubmitMyHostApplication;
@@ -18,6 +19,7 @@ using PetHost.Modules.Hosts.Application.HostApplications.UpdateMyHostApplication
 using PetHost.Modules.Hosts.Application.HostApplications.UploadHostApplicationDocuments;
 using PetHost.Modules.Hosts.Application.Hosts.ChangeMyHostAvatar;
 using PetHost.Modules.Hosts.Application.Hosts.DeactivateMyHost;
+using PetHost.Modules.Hosts.Application.Hosts.DeleteMyHost;
 using PetHost.Modules.Hosts.Application.Hosts.GetHostById;
 using PetHost.Modules.Hosts.Application.Hosts.GetMyDashboard;
 using PetHost.Modules.Hosts.Application.Hosts.GetMyHost;
@@ -35,6 +37,7 @@ using PetHost.Modules.Hosts.Application.Hosts.RunPayoutsMaintenance;
 using PetHost.Modules.Hosts.Application.Hosts.ResetHostStripeAccount;
 using PetHost.Modules.Hosts.Domain.HostApplications;
 using PetHost.Modules.Hosts.Domain.Hosts;
+using PetHost.Modules.Hosts.Domain.IdentityBlocks;
 using PetHost.Modules.Hosts.Infrastructure.Accounts;
 using PetHost.Modules.Hosts.Infrastructure.Bookings;
 using PetHost.Modules.Hosts.Infrastructure.Contracts;
@@ -44,6 +47,7 @@ using PetHost.Modules.Hosts.Infrastructure.Payouts;
 using PetHost.Modules.Hosts.Infrastructure.Persistence;
 using PetHost.Modules.Hosts.Infrastructure.Persistence.Repositories;
 using PetHost.Modules.Hosts.Infrastructure.Persistence.Seed;
+using PetHost.Modules.Hosts.Infrastructure.Privacy;
 using PetHost.Modules.Hosts.Infrastructure.Verification;
 using PetHost.Shared.Contracts.Hosts;
 using PetHost.Shared.Contracts.Identity;
@@ -78,9 +82,11 @@ public static class DependencyInjection
 
         services.AddScoped<IHostRepository, HostRepository>();
         services.AddScoped<IHostApplicationRepository, HostApplicationRepository>();
+        services.AddScoped<IIdentityBlockRepository, IdentityBlockRepository>();
         services.AddScoped<IHostsUnitOfWork, HostsUnitOfWork>();
         services.AddScoped<IHostAccounts, HostAccounts>();
         services.AddScoped<IHostBookings, HostBookings>();
+        services.AddScoped<IHostDataErasure, HostDataErasure>();
         services.AddScoped<IHostEarnings, HostEarnings>();
         services.AddScoped<IHostApplicationNotifier, HostApplicationEmailNotifier>();
         services.AddScoped<IHostPayoutsNotifier, HostPayoutsEmailNotifier>();
@@ -105,6 +111,7 @@ public static class DependencyInjection
             .ValidateOnStart();
         services.AddSingleton<IValidateOptions<HostVerificationOptions>, HostVerificationOptionsValidator>();
         services.AddSingleton<IHostVerificationPolicy, HostVerificationPolicy>();
+        services.AddSingleton<ICpfFingerprint, HmacCpfFingerprint>();
         services.AddHostedService<HostApplicationsPurgeService>();
 
         // Anfitrião de demonstração (desligado por padrão).
@@ -140,6 +147,9 @@ public static class DependencyInjection
         services.AddValidatedCommandHandler<
             RejectHostApplicationCommandHandler, RejectHostApplicationCommand, HostApplicationReviewResponse>();
 
+        services.AddValidatedCommandHandler<
+            ReleaseIdentityBlockCommandHandler, ReleaseIdentityBlockCommand, Unit>();
+
         // Tarefa de limpeza.
         services.AddValidatedCommandHandler<
             PurgeHostApplicationsCommandHandler, PurgeHostApplicationsCommand, PurgeHostApplicationsResponse>();
@@ -149,6 +159,7 @@ public static class DependencyInjection
         services.AddValidatedCommandHandler<ChangeMyHostAvatarCommandHandler, ChangeMyHostAvatarCommand, HostResponse>();
         services.AddValidatedCommandHandler<RemoveMyHostAvatarCommandHandler, RemoveMyHostAvatarCommand, HostResponse>();
         services.AddValidatedCommandHandler<DeactivateMyHostCommandHandler, DeactivateMyHostCommand, Unit>();
+        services.AddValidatedCommandHandler<DeleteMyHostCommandHandler, DeleteMyHostCommand, Unit>();
         services.AddValidatedCommandHandler<ReactivateHostCommandHandler, ReactivateHostCommand, HostSessionResponse>();
 
         // Anfitrião verificado: o admin.

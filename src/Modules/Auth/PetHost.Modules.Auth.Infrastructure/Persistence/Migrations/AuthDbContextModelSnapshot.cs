@@ -53,6 +53,10 @@ namespace PetHost.Modules.Auth.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(160)")
                         .HasColumnName("email");
 
+                    b.Property<DateTimeOffset?>("ErasedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("erased_at");
+
                     b.Property<string>("FullName")
                         .IsRequired()
                         .HasMaxLength(120)

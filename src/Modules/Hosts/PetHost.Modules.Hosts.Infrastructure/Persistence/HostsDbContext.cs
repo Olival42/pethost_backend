@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using PetHost.Modules.Hosts.Domain.HostApplications;
 using PetHost.Modules.Hosts.Domain.Hosts;
+using PetHost.Modules.Hosts.Domain.IdentityBlocks;
 
 namespace PetHost.Modules.Hosts.Infrastructure.Persistence;
 
@@ -19,6 +20,8 @@ public sealed class HostsDbContext(DbContextOptions<HostsDbContext> options) : D
     public DbSet<Host> Hosts => Set<Host>();
 
     public DbSet<HostApplication> HostApplications => Set<HostApplication>();
+
+    public DbSet<IdentityBlock> IdentityBlocks => Set<IdentityBlock>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
