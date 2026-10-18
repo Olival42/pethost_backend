@@ -327,7 +327,3 @@ O `cus_...` volta para `owners.stripe_customer_id` (`Owner.LinkStripeCustomer`) 
 | Disputa de CPF pelo e-mail do suporte | Decisão do MVP: o app mostra o e-mail (`GET /api/v1/support`) e o admin resolve com as rotas da seção 3.7. Um pedido pela API teria de ser anônimo (quem disputa não tem conta), com foto de documento — spam e LGPD sem ganho para um caso raro. A tela do admin fica no front, que é um projeto separado. |
 | Não inativa com reserva em aberto (`422`) | Mesmo critério do pet. A conta inativa perde as sessões e não entra nem para cancelar: a reserva ficaria sem ninguém do lado do tutor. A suspensão (admin) não é barrada: ela cancela as reservas que ainda não começaram. |
 | Suspensão do tutor cancela as reservas sem reembolso | Os 100% ficam com a outra parte: o anfitrião não teve culpa e segurou a vaga. A estadia em andamento continua (o pet está com o anfitrião). |
-
-| # | Pendência | Impacto |
-|---|---|---|
-| 1 | Troca de e-mail. | Precisa da verificação de e-mail: código para o e-mail novo, troca só depois de confirmado, aviso para o antigo. |
