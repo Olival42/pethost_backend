@@ -27,6 +27,12 @@ public static class RateLimitPolicies
     /// <summary>Mensagem do chat (texto e foto contam juntos): segura spam e robô. Por usuário.</summary>
     public const string ChatMessages = "chat-messages";
 
+    /// <summary>Escrever, editar e apagar avaliação e resposta (cada uma pode mandar e-mail). Por usuário.</summary>
+    public const string ReviewWrites = "review-writes";
+
+    /// <summary>Denúncia (cada uma avisa o admin por e-mail). Por usuário.</summary>
+    public const string Reports = "reports";
+
     public static readonly IReadOnlyList<string> All =
-        [Credentials, Registration, PasswordReset, Session, AccountSensitive, AccountUpdate, ChatMessages];
+        [Credentials, Registration, PasswordReset, Session, AccountSensitive, AccountUpdate, ChatMessages, ReviewWrites, Reports];
 }

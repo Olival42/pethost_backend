@@ -120,6 +120,15 @@ public static class ReviewsErrors
     public static readonly Error NoteInvalidCharacters =
         Error.Validation("note", "Note must not contain control characters other than line breaks and tabs.");
 
+    public static readonly Error HideReasonRequired =
+        Error.Validation("reason", "A reason is required to hide a review.");
+
+    public static readonly Error HideReasonTooLong =
+        Error.Validation("reason", $"Reason must be at most {Review.CommentMaxLength} characters.");
+
+    public static readonly Error HideReasonInvalidCharacters =
+        Error.Validation("reason", "Reason must not contain control characters other than line breaks and tabs.");
+
     public static readonly Error StatusInvalid =
         Error.Validation("status", $"Status must be one of: {string.Join(", ", ReviewReportStatusValues.All)}.");
 

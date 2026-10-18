@@ -1016,10 +1016,10 @@ Quem vê a avaliação (menos o autor) denuncia; o admin analisa. Procedente ocu
 | `reporter_side` | `varchar(10)` |  | não | `owner` ou `host`. |
 | `reason` | `varchar(30)` |  | não | `offensive`, `false_information`, `personal_data`, `spam` ou `other`. |
 | `description` | `varchar(1000)` |  | sim | Obrigatória em `other`. |
-| `status` | `varchar(20)` |  | não | `pending`, `upheld` ou `dismissed`. |
+| `status` | `varchar(20)` |  | não | `pending`, `upheld`, `dismissed` ou `closed` (a avaliação foi apagada antes da análise). |
 | `created_at` | `timestamptz` |  | não | Quando foi denunciada. |
-| `resolved_at` | `timestamptz` |  | sim | Quando o admin analisou. |
-| `resolved_by` | `uuid` |  | sim | O admin (users.id), sem FK. |
+| `resolved_at` | `timestamptz` |  | sim | Quando o admin analisou (ou quando a avaliação foi apagada, na `closed`). |
+| `resolved_by` | `uuid` |  | sim | O admin (users.id), sem FK. Nulo na `closed`. |
 | `resolution_note` | `varchar(1000)` |  | sim | Observação do admin; na procedente, é o motivo da ocultação. |
 
 > Índice (`status`, `created_at`) para a fila do admin. Concorrência otimista pelo `xmin`.
@@ -1082,7 +1082,7 @@ Quem vê a avaliação (menos o autor) denuncia; o admin analisa. Procedente ocu
 | `messages.sent_by` | `owner` · `host` | Tutor · Anfitrião |
 | `reviews.author_side` · `review_reports.reporter_side` · `review_reminders.side` | `owner` · `host` | Tutor · Anfitrião |
 | `review_reports.reason` | `offensive` · `false_information` · `personal_data` · `spam` · `other` | Ofensa · Não aconteceu · Dado pessoal exposto · Spam · Outro (com descrição) |
-| `review_reports.status` | `pending` · `upheld` · `dismissed` | Esperando análise · Procedente (avaliação oculta) · Improcedente |
+| `review_reports.status` | `pending` · `upheld` · `dismissed` · `closed` | Esperando análise · Procedente (avaliação oculta) · Improcedente · Fechada (avaliação apagada pelo autor) |
 | `payments.status` | `pending` · `active` · `paid` · `cancelled` | Aguardando a 1ª parcela · Pago em parte · Pago · Cancelado |
 | `payment_installments.status` | `pending` · `processing` · `paid` · `overdue` · `cancelled` | A vencer · Confirmando · Paga · Em atraso · Cancelada |
 | `payment_installments.method` | `card` · `pix` | Cartão · Pix |

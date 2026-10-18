@@ -75,6 +75,18 @@ public sealed class ReviewsApiFixture : IAsyncLifetime
 
     public IServiceProvider Services => Factory.Services;
 
+    /// <summary>Outra instância da API sobre o mesmo banco, com configurações trocadas (ex.: rate limit ligado).</summary>
+    public WebApplicationFactory<Program> WithSettings(IReadOnlyDictionary<string, string> settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+
+        return Factory.WithWebHostBuilder(builder =>
+        {
+            foreach (var (key, value) in settings)
+                builder.UseSetting(key, value);
+        });
+    }
+
     private WebApplicationFactory<Program> Factory =>
         _factory ?? throw new InvalidOperationException("Fixture was not initialized.");
 

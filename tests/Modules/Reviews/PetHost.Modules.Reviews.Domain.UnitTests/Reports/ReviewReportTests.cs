@@ -138,14 +138,50 @@ public sealed class ReviewReportTests
         result.Errors.Should().BeEquivalentTo([ReviewsErrors.NoteTooLong, ReviewsErrors.NoteInvalidCharacters]);
     }
 
-    [Fact]
-    public void Resolve_Should_Throw_When_TheOutcomeIsPending()
+    [Theory]
+    [InlineData(ReviewReportStatus.Pending)]
+    [InlineData(ReviewReportStatus.Closed)]
+    public void Resolve_Should_Throw_When_TheOutcomeIsNotAnAdminDecision(ReviewReportStatus outcome)
     {
         // Act
-        var act = () => Pending().Resolve(ReviewReportStatus.Pending, AdminId, "Ok", Now);
+        var act = () => Pending().Resolve(outcome, AdminId, "Ok", Now);
 
         // Assert
         act.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
+    public void Close_Should_CloseWithoutAdminOrNote_When_ItIsPending()
+    {
+        // Arrange
+        var report = Pending();
+
+        // Act
+        var changed = report.Close(Now.AddDays(1));
+
+        // Assert
+        changed.Should().BeTrue();
+        report.Status.Should().Be(ReviewReportStatus.Closed);
+        report.ResolvedAt.Should().Be(Now.AddDays(1));
+        report.ResolvedBy.Should().BeNull();
+        report.ResolutionNote.Should().BeNull();
+        report.IsPending.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Close_Should_KeepTheDecision_When_TheAdminAlreadyResolved()
+    {
+        // Arrange
+        var report = Pending();
+        report.Resolve(ReviewReportStatus.Dismissed, AdminId, "Ok", Now);
+
+        // Act
+        var changed = report.Close(Now.AddDays(1));
+
+        // Assert
+        changed.Should().BeFalse();
+        report.Status.Should().Be(ReviewReportStatus.Dismissed);
+        report.ResolvedBy.Should().Be(AdminId);
     }
 
     [Fact]
@@ -177,6 +213,7 @@ public sealed class ReviewReportTests
     [InlineData(ReviewReportStatus.Pending, "pending")]
     [InlineData(ReviewReportStatus.Upheld, "upheld")]
     [InlineData(ReviewReportStatus.Dismissed, "dismissed")]
+    [InlineData(ReviewReportStatus.Closed, "closed")]
     public void StatusValues_Should_ConvertBothWays_When_Known(ReviewReportStatus status, string wire)
     {
         // Act & Assert
@@ -190,6 +227,7 @@ public sealed class ReviewReportTests
         // Act & Assert
         ReviewReportReasonValues.TryFromWire("Spam", out _).Should().BeFalse();
         ReviewReportStatusValues.TryOutcomeFromWire("pending", out _).Should().BeFalse();
+        ReviewReportStatusValues.TryOutcomeFromWire("closed", out _).Should().BeFalse();
         ReviewReportStatusValues.TryOutcomeFromWire("upheld", out _).Should().BeTrue();
         ((Action)(() => ReviewReportReasonValues.FromWire("x"))).Should().Throw<ArgumentOutOfRangeException>();
         ((Action)(() => ReviewReportStatusValues.FromWire("x"))).Should().Throw<ArgumentOutOfRangeException>();

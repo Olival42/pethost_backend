@@ -12,6 +12,7 @@ using PetHost.Modules.Reviews.Application.Reviews.CreateReview;
 using PetHost.Modules.Reviews.Application.Reviews.DeleteReview;
 using PetHost.Modules.Reviews.Application.Reviews.GetRatingSummary;
 using PetHost.Modules.Reviews.Application.Reviews.GetReviewById;
+using PetHost.Modules.Reviews.Application.Reviews.HideReview;
 using PetHost.Modules.Reviews.Application.Reviews.ListMyReviews;
 using PetHost.Modules.Reviews.Application.Reviews.ListOwnerReviews;
 using PetHost.Modules.Reviews.Application.Reviews.ListPetReviews;
@@ -85,6 +86,7 @@ public static class DependencyInjection
         services.AddValidatedCommandHandler<RemoveReviewReplyCommandHandler, RemoveReviewReplyCommand, ReviewResponse>();
         services.AddValidatedCommandHandler<ReportReviewCommandHandler, ReportReviewCommand, SubmittedReviewReportResponse>();
         services.AddValidatedCommandHandler<ResolveReviewReportCommandHandler, ResolveReviewReportCommand, ReviewReportResponse>();
+        services.AddValidatedCommandHandler<HideReviewCommandHandler, HideReviewCommand, ReviewResponse>();
         services.AddValidatedCommandHandler<UnhideReviewCommandHandler, UnhideReviewCommand, ReviewResponse>();
         services.AddValidatedCommandHandler<SendReviewRemindersCommandHandler, SendReviewRemindersCommand, SendReviewRemindersResponse>();
         services.AddValidatedCommandHandler<NotifyPublishedReviewsCommandHandler, NotifyPublishedReviewsCommand, NotifyPublishedReviewsResponse>();

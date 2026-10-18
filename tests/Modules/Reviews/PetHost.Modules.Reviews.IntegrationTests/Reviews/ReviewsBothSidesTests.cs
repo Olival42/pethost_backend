@@ -197,6 +197,96 @@ public sealed class ReviewsBothSidesTests(ReviewsApiFixture fixture) : IAsyncLif
     }
 
     [Fact]
+    public async Task Moderation_Should_HideDirectlyUpholdingEveryPendingReport_When_TheAdminHidesWithAReason()
+    {
+        // Arrange: duas denúncias da mesma avaliação
+        var pair = await _scenario.ArrangeAsync();
+        var bookingId = await _scenario.CompleteStayAsync(pair);
+        var reviewId = Data(await ReadAsync(await _scenario.ReviewAsync(pair.OwnerToken, bookingId, 1, "Telefone dela: 9999-0000."))).GetProperty("id").GetGuid();
+        (await _scenario.HostReviewAsync(pair, bookingId, 5)).StatusCode.Should().Be(HttpStatusCode.Created);
+        var stranger = await _scenario.RegisterOwnerAsync("bruno@exemplo.com", "111.444.777-35", "Bruno Lima");
+        (await _scenario.SendAsync(HttpMethod.Post, $"{ReviewsRoute}/{reviewId}/report", pair.HostToken, new { reason = "personal_data" }))
+            .StatusCode.Should().Be(HttpStatusCode.Created);
+        (await _scenario.SendAsync(HttpMethod.Post, $"{ReviewsRoute}/{reviewId}/report", stranger, new { reason = "spam" }))
+            .StatusCode.Should().Be(HttpStatusCode.Created);
+        var admin = await _scenario.AdminTokenAsync();
+
+        // Act
+        var noReason = await _scenario.SendAsync(HttpMethod.Put, $"{ReviewsRoute}/{reviewId}/moderation-hide", admin, new { reason = " " });
+        var byHost = await _scenario.SendAsync(HttpMethod.Put, $"{ReviewsRoute}/{reviewId}/moderation-hide", pair.HostToken, new { reason = "Dados pessoais." });
+        var hidden = await _scenario.SendAsync(HttpMethod.Put, $"{ReviewsRoute}/{reviewId}/moderation-hide", admin, new { reason = "Dados pessoais." });
+
+        // Assert
+        noReason.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        Fields(await ReadAsync(noReason)).Should().Equal("reason");
+        byHost.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        hidden.StatusCode.Should().Be(HttpStatusCode.OK);
+        Data(await ReadAsync(hidden)).GetProperty("moderation").GetProperty("reason").GetString().Should().Be("Dados pessoais.");
+        (await _scenario.SendAsync(HttpMethod.Get, $"{ReviewsRoute}/{reviewId}", token: null)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+
+        // As duas denúncias saíram da fila, procedentes, com o motivo da ocultação.
+        var pending = Data(await ReadAsync(await _scenario.SendAsync(HttpMethod.Get, $"{ReviewsRoute}/reports", admin)));
+        pending.GetProperty("totalCount").GetInt64().Should().Be(0);
+        var upheld = Data(await ReadAsync(await _scenario.SendAsync(HttpMethod.Get, $"{ReviewsRoute}/reports?status=upheld", admin)));
+        upheld.GetProperty("totalCount").GetInt64().Should().Be(2);
+        upheld.GetProperty("items").EnumerateArray().Select(r => r.GetProperty("resolutionNote").GetString()).Should().AllBe("Dados pessoais.");
+
+        // Desocultar e ocultar de novo, sem denúncia nova.
+        (await _scenario.SendAsync(HttpMethod.Delete, $"{ReviewsRoute}/{reviewId}/moderation-hide", admin)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await _scenario.SendAsync(HttpMethod.Put, $"{ReviewsRoute}/{reviewId}/moderation-hide", admin, new { reason = "Reavaliado." }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        (await _scenario.SendAsync(HttpMethod.Get, $"{ReviewsRoute}/{reviewId}", token: null)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Moderation_Should_CloseThePendingReports_When_TheAuthorDeletesTheReview()
+    {
+        // Arrange: a tutora denuncia a avaliação que a anfitriã fez dela
+        var pair = await _scenario.ArrangeAsync();
+        var bookingId = await _scenario.CompleteStayAsync(pair);
+        var reviewId = Data(await ReadAsync(await _scenario.HostReviewAsync(pair, bookingId, 1))).GetProperty("id").GetGuid();
+        (await _scenario.ReviewAsync(pair.OwnerToken, bookingId, 5)).StatusCode.Should().Be(HttpStatusCode.Created);
+        var reportId = Data(await ReadAsync(await _scenario.SendAsync(HttpMethod.Post, $"{ReviewsRoute}/{reviewId}/report", pair.OwnerToken, new { reason = "false_information" })))
+            .GetProperty("id").GetGuid();
+        var admin = await _scenario.AdminTokenAsync();
+
+        // Act
+        (await _scenario.SendAsync(HttpMethod.Delete, $"{ReviewsRoute}/{reviewId}", pair.HostToken)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Assert
+        var pending = Data(await ReadAsync(await _scenario.SendAsync(HttpMethod.Get, $"{ReviewsRoute}/reports", admin)));
+        pending.GetProperty("totalCount").GetInt64().Should().Be(0);
+
+        var closed = Data(await ReadAsync(await _scenario.SendAsync(HttpMethod.Get, $"{ReviewsRoute}/reports?status=closed", admin)));
+        closed.GetProperty("items")[0].GetProperty("id").GetGuid().Should().Be(reportId);
+        closed.GetProperty("items")[0].GetProperty("status").GetString().Should().Be("closed");
+
+        var resolve = await _scenario.SendAsync(HttpMethod.Put, $"{ReviewsRoute}/reports/{reportId}/resolution", admin, new { outcome = "upheld", note = "Ok." });
+        resolve.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+        Code(await ReadAsync(resolve)).Should().Be("REVIEW_REPORT_ALREADY_RESOLVED");
+    }
+
+    [Fact]
+    public async Task MyReviews_Should_ShowWhoWasReviewed_When_TheAuthorListsWhatTheyWrote()
+    {
+        // Arrange
+        var pair = await _scenario.ArrangeAsync();
+        var bookingId = await _scenario.CompleteStayAsync(pair);
+        (await _scenario.ReviewAsync(pair.OwnerToken, bookingId, 5)).StatusCode.Should().Be(HttpStatusCode.Created);
+        (await _scenario.HostReviewAsync(pair, bookingId, 4)).StatusCode.Should().Be(HttpStatusCode.Created);
+
+        // Act
+        var ownerWrote = Data(await ReadAsync(await _scenario.SendAsync(HttpMethod.Get, $"{ReviewsRoute}/me", pair.OwnerToken))).GetProperty("items")[0];
+        var hostWrote = Data(await ReadAsync(await _scenario.SendAsync(HttpMethod.Get, $"{ReviewsRoute}/me", pair.HostToken))).GetProperty("items")[0];
+        var ownerReceived = Data(await ReadAsync(await _scenario.SendAsync(HttpMethod.Get, $"{ReviewsRoute}/me/received", pair.OwnerToken))).GetProperty("items")[0];
+
+        // Assert
+        ownerWrote.GetProperty("subject").GetProperty("name").GetString().Should().Be("Dona");
+        hostWrote.GetProperty("subject").GetProperty("name").GetString().Should().Be("Camila");
+        ownerReceived.TryGetProperty("subject", out _).Should().BeFalse();
+    }
+
+    [Fact]
     public async Task Search_Should_ShowTheRatingAndTheWellRatedBadge_When_TheHostHasThreeGoodReviews()
     {
         // Arrange

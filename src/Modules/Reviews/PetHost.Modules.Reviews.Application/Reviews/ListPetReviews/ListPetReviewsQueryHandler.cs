@@ -46,7 +46,7 @@ public sealed class ListPetReviewsQueryHandler(
                     row.Id.Value,
                     row.HostId,
                     row.ListingId,
-                    host is null ? null : new ReviewAuthorSummary(host.Name, host.AvatarUrl),
+                    host is null ? null : new ReviewPartySummary(host.Name, host.AvatarUrl),
                     pet.Rating,
                     pet.Comment,
                     row.StayEndedAt);

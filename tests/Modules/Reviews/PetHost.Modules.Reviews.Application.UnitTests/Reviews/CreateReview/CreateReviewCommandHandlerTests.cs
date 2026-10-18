@@ -75,7 +75,7 @@ public sealed class CreateReviewCommandHandlerTests
         result.Value.ListingId.Should().Be(ReviewBuilder.ListingId);
         result.Value.OwnerId.Should().BeNull();
         result.Value.Pets.Should().BeNull();
-        result.Value.Author.Should().Be(new ReviewAuthorSummary("Camila", "https://img.pethost.test/camila.png"));
+        result.Value.Author.Should().Be(new ReviewPartySummary("Camila", "https://img.pethost.test/camila.png"));
         result.Value.BookingId.Should().Be(ReviewBuilder.BookingId);
         result.Value.EditableUntil.Should().Be(ReviewBuilder.CheckedOutAt.AddDays(7));
         _repository.Verify(r => r.ExistsForBookingAsync(ReviewBuilder.BookingId, ReviewParty.Owner, It.IsAny<CancellationToken>()), Times.Once);

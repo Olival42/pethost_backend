@@ -4,6 +4,7 @@ using PetHost.Modules.Reviews.Application.Reports.ResolveReviewReport;
 using PetHost.Modules.Reviews.Application.Reviews;
 using PetHost.Modules.Reviews.Application.Reviews.CreateReview;
 using PetHost.Modules.Reviews.Application.Reviews.DeleteReview;
+using PetHost.Modules.Reviews.Application.Reviews.HideReview;
 using PetHost.Modules.Reviews.Application.Reviews.RemoveReviewReply;
 using PetHost.Modules.Reviews.Application.Reviews.ReplyToReview;
 using PetHost.Modules.Reviews.Application.Reviews.UnhideReview;
@@ -281,6 +282,7 @@ public sealed class ReviewValidatorsTests
 
     [Theory]
     [InlineData("pending")]
+    [InlineData("closed")]
     [InlineData("approved")]
     [InlineData(null)]
     public void Resolve_Should_ReturnOutcomeInvalid_When_TheOutcomeIsNotAResolution(string? outcome)
@@ -306,5 +308,30 @@ public sealed class ReviewValidatorsTests
         tooLong.Errors.Should().ContainSingle(e => e.ErrorMessage == ReviewsErrors.NoteTooLong.Message);
         control.Errors.Should().ContainSingle(e => e.ErrorMessage == ReviewsErrors.NoteInvalidCharacters.Message);
         noId.Errors.Should().ContainSingle(e => e.PropertyName == "ReportId");
+    }
+
+    // ----- Ocultar direto -----
+
+    [Fact]
+    public void Hide_Should_Pass_When_TheIdAndReasonAreInformed()
+    {
+        // Act & Assert
+        new HideReviewCommandValidator().Validate(new HideReviewCommand(User, ReviewId, "Dados pessoais.")).IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Hide_Should_ReturnReasonErrors_When_TheReasonIsInvalid()
+    {
+        // Act
+        var empty = new HideReviewCommandValidator().Validate(new HideReviewCommand(User, ReviewId, "   "));
+        var tooLong = new HideReviewCommandValidator().Validate(new HideReviewCommand(User, ReviewId, TooLong));
+        var control = new HideReviewCommandValidator().Validate(new HideReviewCommand(User, ReviewId, "a\u0007"));
+        var noId = new HideReviewCommandValidator().Validate(new HideReviewCommand(User, Guid.Empty, "Ok."));
+
+        // Assert
+        empty.Errors.Should().ContainSingle(e => e.ErrorMessage == ReviewsErrors.HideReasonRequired.Message);
+        tooLong.Errors.Should().ContainSingle(e => e.ErrorMessage == ReviewsErrors.HideReasonTooLong.Message);
+        control.Errors.Should().ContainSingle(e => e.ErrorMessage == ReviewsErrors.HideReasonInvalidCharacters.Message);
+        noId.Errors.Should().ContainSingle(e => e.PropertyName == "ReviewId");
     }
 }

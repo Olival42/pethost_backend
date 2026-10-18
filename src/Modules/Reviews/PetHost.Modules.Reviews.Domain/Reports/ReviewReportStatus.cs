@@ -11,6 +11,9 @@ public enum ReviewReportStatus
 
     /// <summary>O admin não viu problema: a avaliação continua.</summary>
     Dismissed,
+
+    /// <summary>O autor apagou a avaliação antes da análise: a denúncia sai da fila sem decisão do admin.</summary>
+    Closed,
 }
 
 /// <summary>Valores de <see cref="ReviewReportStatus"/> no banco e no JSON.</summary>
@@ -19,8 +22,9 @@ public static class ReviewReportStatusValues
     public const string Pending = "pending";
     public const string Upheld = "upheld";
     public const string Dismissed = "dismissed";
+    public const string Closed = "closed";
 
-    public static IReadOnlyList<string> All { get; } = [Pending, Upheld, Dismissed];
+    public static IReadOnlyList<string> All { get; } = [Pending, Upheld, Dismissed, Closed];
 
     /// <summary>Os dois desfechos que o admin escolhe ao analisar.</summary>
     public static IReadOnlyList<string> Outcomes { get; } = [Upheld, Dismissed];
@@ -30,6 +34,7 @@ public static class ReviewReportStatusValues
         ReviewReportStatus.Pending => Pending,
         ReviewReportStatus.Upheld => Upheld,
         ReviewReportStatus.Dismissed => Dismissed,
+        ReviewReportStatus.Closed => Closed,
         _ => throw new ArgumentOutOfRangeException(nameof(status), status, "Unknown report status."),
     };
 
@@ -46,6 +51,7 @@ public static class ReviewReportStatusValues
             Pending => (true, ReviewReportStatus.Pending),
             Upheld => (true, ReviewReportStatus.Upheld),
             Dismissed => (true, ReviewReportStatus.Dismissed),
+            Closed => (true, ReviewReportStatus.Closed),
             _ => (false, default),
         };
 
@@ -54,5 +60,5 @@ public static class ReviewReportStatusValues
 
     /// <summary>O texto é um desfecho que o admin pode escolher (<c>upheld</c> ou <c>dismissed</c>).</summary>
     public static bool TryOutcomeFromWire(string? value, out ReviewReportStatus outcome) =>
-        TryFromWire(value, out outcome) && outcome != ReviewReportStatus.Pending;
+        TryFromWire(value, out outcome) && outcome is ReviewReportStatus.Upheld or ReviewReportStatus.Dismissed;
 }

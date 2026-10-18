@@ -82,7 +82,7 @@ tests/Modules/Reviews/                       Domain.UnitTests · Application.Uni
 |---|---|---|---|
 | `POST /api/v1/reviews` | tutor ou anfitrião | Avalia a estadia: `{ bookingId, rating, comment?, pets? }` (`pets` só do anfitrião: `[{ petId, rating, comment? }]`) | `201` + `Location` |
 | `PATCH /api/v1/reviews/{reviewId}` | autor | Muda `rating`, `comment` (`""` apaga) e/ou `pets` (substitui a lista). Só antes da publicação | `200` |
-| `DELETE /api/v1/reviews/{reviewId}` | autor | Apaga (soft delete) | `200` `ApiResponse<Unit>` |
+| `DELETE /api/v1/reviews/{reviewId}` | autor | Apaga (soft delete). **Definitivo para aquela reserva:** esse lado não avalia de novo (o front avisa no botão). As denúncias pendentes dela saem da fila (`closed`) | `200` `ApiResponse<Unit>` |
 
 ### 4.2 Ler
 
@@ -116,9 +116,10 @@ O avaliado é o anfitrião, na avaliação do tutor, e o tutor, na do anfitrião
 | Método e rota | Quem | O que faz |
 |---|---|---|
 | `POST /api/v1/reviews/{reviewId}/report` | tutor ou anfitrião que vê a avaliação | `{ reason, description? }` → `201` + `Location: /api/v1/reviews/reports/{id}` |
-| `GET /api/v1/reviews/reports?status=pending&page=` | admin | A fila: `pending` (padrão), `upheld`, `dismissed` ou `all`, da mais antiga para a mais nova, com a avaliação |
+| `GET /api/v1/reviews/reports?status=pending&page=` | admin | A fila: `pending` (padrão), `upheld`, `dismissed`, `closed` (a avaliação foi apagada pelo autor antes da análise) ou `all`, da mais antiga para a mais nova, com a avaliação |
 | `GET /api/v1/reviews/reports/{reportId}` | admin | Uma denúncia, com a avaliação |
-| `PUT /api/v1/reviews/reports/{reportId}/resolution` | admin | `{ outcome: "upheld" \| "dismissed", note }`. Procedente **oculta** a avaliação com `note` como motivo |
+| `PUT /api/v1/reviews/reports/{reportId}/resolution` | admin | `{ outcome: "upheld" \| "dismissed", note }`. Procedente **oculta** a avaliação com `note` como motivo e fecha junto, como procedentes e com o mesmo motivo, as **outras denúncias pendentes** dela. Improcedente fecha só esta |
+| `PUT /api/v1/reviews/{reviewId}/moderation-hide` | admin | `{ reason }` (obrigatório, até 1.000). **Oculta direto**, sem denúncia (ou de novo, depois de desocultar); as denúncias pendentes dela fecham como procedentes, com o mesmo motivo. Já oculta: nada muda |
 | `DELETE /api/v1/reviews/{reviewId}/moderation-hide` | admin | Volta a mostrar a avaliação ocultada (procedente dado por engano) |
 
 Motivos (`reason`): `offensive` (ofensa), `false_information` (não aconteceu), `personal_data` (expõe dado pessoal), `spam`, `other` (descrição obrigatória).
@@ -132,12 +133,13 @@ Motivos (`reason`): `offensive` (ofensa), `false_information` (não aconteceu), 
   "reply": { "text": "Obrigada!", "repliedAt": "…" },
   "stayEndedAt": "2026-10-10T12:00:00+00:00", "createdAt": "…", "updatedAt": "…",
   "bookingId": "0192…", "editableUntil": "2026-10-17T12:00:00+00:00", "publishedAt": "2026-10-17T12:00:00+00:00",
-  "moderation": { "hiddenAt": "…", "reason": "Linguagem ofensiva." } }
+  "moderation": { "hiddenAt": "…", "reason": "Linguagem ofensiva." },
+  "subject": { "name": "Camila", "avatarUrl": "https://…" } }
 ```
 
 - `ownerId` e `pets` só na avaliação do anfitrião (`authorSide: "host"`); na do tutor, o tutor autor não é exposto.
 - `author.name`: primeiro nome (pessoa física) ou nome fantasia (empresa). Some se a conta não existe mais.
-- `bookingId`, `editableUntil`, `publishedAt` (quando os outros passam a ler) e `moderation` só para o **autor** e o **admin**.
+- `bookingId`, `editableUntil`, `publishedAt` (quando os outros passam a ler), `moderation` e `subject` (quem foi avaliado: nome curto e foto, como o `author`) só para o **autor** e o **admin**. Nas outras leituras o avaliado já é a página (o cantinho, o tutor, o pet ou a própria conta em `/me/received`); em `/me` o `subject` diz quem você avaliou.
 - Campo nulo some do JSON (`reply` sem resposta, `pets[].name` de pet apagado).
 
 Nota (`GET .../summary`): `{ "average": 4.7, "count": 3 }`; sem avaliação, `{ "count": 0 }`.
@@ -146,7 +148,7 @@ Nota (`GET .../summary`): `{ "average": 4.7, "count": 3 }`; sem avaliação, `{ 
 
 | HTTP | Código | Quando |
 |---|---|---|
-| 400 | `VALIDATION_ERROR` | `bookingId`/`rating` ausentes; nota fora de 1–5; texto (comentário, resposta, descrição, observação) com mais de 1.000 caracteres ou caractere de controle (quebra de linha e tabulação passam); pet repetido, fora da reserva ou mandado pelo tutor (campo `pets`); motivo, desfecho ou status desconhecido; paginação inválida; `summary` sem exatamente um id |
+| 400 | `VALIDATION_ERROR` | `bookingId`/`rating` ausentes; nota fora de 1–5; texto (comentário, resposta, descrição, observação, motivo de ocultar) vazio onde é obrigatório, com mais de 1.000 caracteres ou caractere de controle (quebra de linha e tabulação passam); pet repetido, fora da reserva ou mandado pelo tutor (campo `pets`); motivo, desfecho ou status desconhecido; paginação inválida; `summary` sem exatamente um id |
 | 401 | `UNAUTHORIZED` | Sem token nas rotas logadas |
 | 403 | `FORBIDDEN` | Papel errado (ex.: admin avaliando; tutor na rota do tutor avaliado) |
 | 403 | `REVIEW_OWNER_DEACTIVATED` / `REVIEW_HOST_DEACTIVATED` | Perfil inativo ou suspenso tentando avaliar, editar, responder ou denunciar |
@@ -162,7 +164,8 @@ Nota (`GET .../summary`): `{ "average": 4.7, "count": 3 }`; sem avaliação, `{ 
 | 422 | `REVIEW_ALREADY_PUBLISHED` | Editar avaliação já publicada (às cegas: depois de ler a do outro lado, ninguém muda a sua) |
 | 422 | `REVIEW_HIDDEN_BY_MODERATION` | Editar ou responder avaliação oculta pelo admin |
 | 422 | `REVIEW_REPORT_OWN_REVIEW` | O autor denunciando a própria avaliação |
-| 422 | `REVIEW_REPORT_ALREADY_RESOLVED` | Analisar denúncia já analisada |
+| 422 | `REVIEW_REPORT_ALREADY_RESOLVED` | Analisar denúncia já analisada, ou fechada porque a avaliação foi apagada |
+| 429 | `TOO_MANY_REQUESTS` | Passou do limite (`review-writes` ou `reports`, regra 11) |
 
 ## 5. Regras
 
@@ -173,10 +176,10 @@ Nota (`GET .../summary`): `{ "average": 4.7, "count": 3 }`; sem avaliação, `{ 
 5. **Pets:** só o anfitrião dá nota, só aos pets daquela reserva, uma vez cada. São opcionais.
 6. **Quem vê o quê:** a avaliação do tutor (sobre o anfitrião) é pública; a do anfitrião (sobre o tutor e os pets) é para os anfitriões decidirem sobre os pedidos e para o tutor avaliado — não aparece sem login nem para outros tutores.
 7. **Resposta:** só o avaliado, uma, pública, sem prazo; ele troca ou apaga quando quiser. Avaliação oculta ou ainda não publicada não recebe resposta.
-8. **Denúncia:** quem vê a avaliação (publicada) denuncia, menos o autor; uma por conta por avaliação. Procedente oculta (some das listas, da leitura pública, da média e do selo); o autor continua vendo, com o motivo, e ainda pode apagar, mas não edita. O admin pode desfazer.
+8. **Denúncia:** quem vê a avaliação (publicada) denuncia, menos o autor; uma por conta por avaliação, para sempre (mesmo rejeitada). Procedente oculta (some das listas, da leitura pública, da média e do selo) e fecha junto as outras pendentes da mesma avaliação; o autor continua vendo, com o motivo, e ainda pode apagar, mas não edita. O admin pode desfazer e também ocultar direto, sem denúncia. Avaliação apagada pelo autor fecha as denúncias pendentes (`closed`, sem admin nem observação).
 9. **Apagar é direito do autor**, a qualquer momento, mesmo com o perfil inativo ou suspenso, ou com a avaliação oculta. Editar, responder e denunciar exigem perfil ativo.
 10. **Privacidade:** em público o autor aparece pelo primeiro nome (ou nome fantasia) e a foto; nunca a reserva. E-mails nunca levam o texto.
-11. **Rate limit:** avaliar e denunciar mandam e-mail, mas não ganharam política própria (§13): o volume já é limitado pelo domínio — uma avaliação por lado por reserva concluída, uma denúncia por conta por avaliação. Valem o limite geral.
+11. **Rate limit (§13):** criar, editar e apagar avaliação e criar ou apagar resposta usam a política `review-writes` (20 a cada 15 min por conta); denunciar usa `reports` (10 por hora por conta: cada denúncia manda e-mail ao admin). O domínio já limita o volume (uma avaliação por lado por reserva, uma denúncia por conta por avaliação), mas a política segura robô e conta comprometida. Leituras ficam no limite geral.
 12. **Trilha (§15):** `review.created`, `review.updated` (nomes dos campos), `review.deleted`, `review.replied`, `review.reply_removed`, `review.reported`, `review.report_resolved` (observação como motivo), `review.hidden` (com o motivo), `review.unhidden`, `review.reports_listed`, `review.report_viewed` e `review.reminder_sent` (alvo: a reserva). **Nunca** o comentário, a resposta nem a descrição.
 
 ### 5.1 Avaliação às cegas
@@ -236,7 +239,7 @@ Schema `review`. Migrations: `CreateReviewsTable`, `AddReviewSidesRepliesModerat
 
 **`review_pet_ratings`** — nota de cada pet na avaliação do anfitrião. PK (`review_id`, `pet_id`); `review_id` com FK física e `ON DELETE CASCADE`; `pet_id` FK lógica; `rating` 1 a 5; `comment` até 1.000.
 
-**`review_reports`** — denúncias. `review_id` (FK física, cascade), `reported_by` (conta), `reporter_side`, `reason`, `description`, `status` (`pending`/`upheld`/`dismissed`), `created_at`, `resolved_at`/`resolved_by`/`resolution_note` (preenchidos juntos na análise, `ck_review_reports_resolution`), `xmin`. Único (`review_id`, `reported_by`); índice (`status`, `created_at`) para a fila.
+**`review_reports`** — denúncias. `review_id` (FK física, cascade), `reported_by` (conta), `reporter_side`, `reason`, `description`, `status` (`pending`/`upheld`/`dismissed`/`closed`), `created_at`, `resolved_at`/`resolved_by`/`resolution_note` (preenchidos juntos na análise; na `closed`, só `resolved_at` — `ck_review_reports_resolution`), `xmin`. A migração `AddClosedReviewReportStatus` fechou as pendentes de avaliações já apagadas (`closed`) e já ocultas (procedentes, com o motivo da ocultação). Único (`review_id`, `reported_by`); índice (`status`, `created_at`) para a fila.
 
 **`review_reminders`** — lembretes enviados: PK (`booking_id`, `side`), `sent_at`.
 
@@ -265,11 +268,11 @@ No compose: `REVIEW_REMINDER_DELAY_HOURS`, `REVIEW_MAINTENANCE_INTERVAL_MINUTES`
 
 ## 11. Testes
 
-- **Domínio:** `Review` nos dois lados (cada ramo de `Create`, `Update` com pets, prazo, publicação e ocultação), publicação às cegas (`Publish`, `IsPublished`, aviso), resposta (`Reply`/`RemoveReply`: quem pode, texto, oculta), `Hide`/`Unhide`, `ReviewReport` (`Submit`, `Resolve`), valores dos enums, `ReviewReminder`.
+- **Domínio:** `Review` nos dois lados (cada ramo de `Create`, `Update` com pets, prazo, publicação e ocultação), publicação às cegas (`Publish`, `IsPublished`, aviso), resposta (`Reply`/`RemoveReply`: quem pode, texto, oculta), `Hide`/`Unhide`, `ReviewReport` (`Submit`, `Resolve`, `Close`), valores dos enums, `ReviewReminder`.
 - **Application:** cada handler no caminho feliz e em cada falha (sem perfil, inativo, reserva de outra pessoa, já avaliou, oculta, de outra pessoa, erro ao gravar), sem gravar, notificar nem registrar na trilha quando falha; quem vê o quê na leitura; o lembrete (os dois lados, quem já avaliou, quem não pode receber, falha ao gravar); validadores, uma asserção por regra.
 - **Application (fase 3):** a publicação das duas quando o segundo lado avalia (e só aí o e-mail), o aviso das publicadas no fim do prazo, o histórico do pet, a nota do pet e a visibilidade das não publicadas.
 - **Listings:** o selo `well_rated` (limiares) e qual nota cada cantinho usa (`ListingRatings`). **Bookings:** a nota do tutor no pedido (anfitrião e admin veem; o tutor, não).
-- **Integração** (Postgres, Redis e bucket em container): o ciclo do tutor (avaliar → ler anônimo → editar → apagar → `409`); o anfitrião avaliando tutor e pet (visibilidade, rota do tutor, nota do tutor, e-mail recebido); a resposta; denúncia → fila → procedente oculta (lista, nota e leitura pública) → o autor vê o motivo → o admin desfaz; nota e selo no card e no detalhe da busca; o lembrete (uma vez por lado, pula quem avaliou); às cegas (guardada até o outro lado, publicada e avisada no fim do prazo, edição travada depois de publicada); o histórico e a nota do pet; a nota do tutor no pedido de reserva; o Unit of Work (índices únicos, `xmin`, os dois lados na mesma reserva).
+- **Integração** (Postgres, Redis e bucket em container): o ciclo do tutor (avaliar → ler anônimo → editar → apagar → `409`); o anfitrião avaliando tutor e pet (visibilidade, rota do tutor, nota do tutor, e-mail recebido); a resposta; denúncia → fila → procedente oculta (lista, nota e leitura pública) → o autor vê o motivo → o admin desfaz; ocultar direto fechando as duas denúncias pendentes, e ocultar de novo depois de desocultar; apagar a avaliação tira a denúncia da fila (`closed`); o `subject` em `/me`; os limites `review-writes` e `reports` (`429` por conta, ler liberado); nota e selo no card e no detalhe da busca; o lembrete (uma vez por lado, pula quem avaliou); às cegas (guardada até o outro lado, publicada e avisada no fim do prazo, edição travada depois de publicada); o histórico e a nota do pet; a nota do tutor no pedido de reserva; o Unit of Work (índices únicos, `xmin`, os dois lados na mesma reserva).
 
 ## 12. Decisões e pendências
 
@@ -279,6 +282,8 @@ No compose: `REVIEW_REMINDER_DELAY_HOURS`, `REVIEW_MAINTENANCE_INTERVAL_MINUTES`
 - Uma avaliação por lado por reserva, com prazo de 7 dias para criar e editar (escopo, regra 9). Soft delete; a apagada não libera outra.
 - A avaliação do anfitrião sobre o tutor **não é pública**: só anfitriões (para decidir sobre pedidos), o admin e o tutor avaliado.
 - A nota dos pets fica dentro da avaliação do anfitrião (uma por pet da reserva), sem rota própria.
-- A ocultação só acontece pela análise de uma denúncia (com motivo); voltar a mostrar não pede motivo, como o desbloqueio da moderação do chat.
+- A ocultação acontece pela análise de uma denúncia ou direto pelo admin, sempre com motivo; ocultar fecha as denúncias pendentes da avaliação. Voltar a mostrar não pede motivo, como o desbloqueio da moderação do chat.
+- Apagar a avaliação é definitivo para a reserva (não libera outra) e fecha as denúncias pendentes como `closed`, não como improcedentes: ninguém julgou.
+- A resposta do avaliado é uma só (editável), sem conversa: conversar é no chat.
 - Avaliação às cegas (seção 5.1): publicada quando os dois lados avaliam ou no fim do prazo; publicada, não muda mais.
 - O histórico do pet e a nota do tutor são só para anfitriões (e admin); o tutor vê o que recebeu em `/reviews/me/received`.

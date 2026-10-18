@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using PetHost.Modules.Reviews.Application.Reports.ReportReview;
 using PetHost.Modules.Reviews.Application.Reports.Responses;
 using PetHost.Modules.Reviews.Application.Reviews.CreateReview;
@@ -16,6 +17,7 @@ using PetHost.Modules.Reviews.Application.Reviews.UpdateReview;
 using PetHost.Shared.Contracts.Authorization;
 using PetHost.Shared.Contracts.Responses;
 using PetHost.Shared.Infrastructure.Http;
+using PetHost.Shared.Infrastructure.RateLimiting;
 using PetHost.Shared.Kernel.Messaging;
 using PetHost.Shared.Kernel.Primitives;
 
@@ -62,9 +64,12 @@ public sealed class ReviewsController(
     /// Já avaliou (mesmo que tenha apagado): 409 <c>REVIEW_ALREADY_EXISTS</c>. Perfil inativo ou
     /// suspenso: 403 <c>REVIEW_*_DEACTIVATED</c>. Às cegas: fica guardada (<c>publishedAt</c> no fim
     /// do prazo) até o outro lado avaliar; aí as duas são publicadas e cada avaliado recebe um e-mail.
+    /// Limite próprio (<c>review-writes</c>, junto com editar, apagar e responder): 429
+    /// <c>TOO_MANY_REQUESTS</c>.
     /// </remarks>
     [HttpPost]
     [Authorize(Roles = Parties)]
+    [EnableRateLimiting(RateLimitPolicies.ReviewWrites)]
     [ProducesResponseType<ApiResponse<ReviewResponse>>(StatusCodes.Status201Created)]
     [ProducesResponseType<ApiResponse<ReviewResponse>>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<ApiResponse<ReviewResponse>>(StatusCodes.Status401Unauthorized)]
@@ -72,6 +77,7 @@ public sealed class ReviewsController(
     [ProducesResponseType<ApiResponse<ReviewResponse>>(StatusCodes.Status404NotFound)]
     [ProducesResponseType<ApiResponse<ReviewResponse>>(StatusCodes.Status409Conflict)]
     [ProducesResponseType<ApiResponse<ReviewResponse>>(StatusCodes.Status422UnprocessableEntity)]
+    [ProducesResponseType<ApiResponse<ReviewResponse>>(StatusCodes.Status429TooManyRequests)]
     public async Task<IActionResult> CreateAsync([FromBody] CreateReviewRequest request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -186,6 +192,7 @@ public sealed class ReviewsController(
     /// </remarks>
     [HttpPatch("{reviewId:guid}")]
     [Authorize(Roles = Parties)]
+    [EnableRateLimiting(RateLimitPolicies.ReviewWrites)]
     [ProducesResponseType<ApiResponse<ReviewResponse>>(StatusCodes.Status200OK)]
     [ProducesResponseType<ApiResponse<ReviewResponse>>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<ApiResponse<ReviewResponse>>(StatusCodes.Status401Unauthorized)]
@@ -193,6 +200,7 @@ public sealed class ReviewsController(
     [ProducesResponseType<ApiResponse<ReviewResponse>>(StatusCodes.Status404NotFound)]
     [ProducesResponseType<ApiResponse<ReviewResponse>>(StatusCodes.Status409Conflict)]
     [ProducesResponseType<ApiResponse<ReviewResponse>>(StatusCodes.Status422UnprocessableEntity)]
+    [ProducesResponseType<ApiResponse<ReviewResponse>>(StatusCodes.Status429TooManyRequests)]
     public async Task<IActionResult> UpdateAsync(
         Guid reviewId,
         [FromBody] UpdateReviewRequest request,
@@ -215,11 +223,13 @@ public sealed class ReviewsController(
     /// </remarks>
     [HttpDelete("{reviewId:guid}")]
     [Authorize(Roles = Parties)]
+    [EnableRateLimiting(RateLimitPolicies.ReviewWrites)]
     [ProducesResponseType<ApiResponse<Unit>>(StatusCodes.Status200OK)]
     [ProducesResponseType<ApiResponse<Unit>>(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType<ApiResponse<Unit>>(StatusCodes.Status403Forbidden)]
     [ProducesResponseType<ApiResponse<Unit>>(StatusCodes.Status404NotFound)]
     [ProducesResponseType<ApiResponse<Unit>>(StatusCodes.Status409Conflict)]
+    [ProducesResponseType<ApiResponse<Unit>>(StatusCodes.Status429TooManyRequests)]
     public async Task<IActionResult> DeleteAsync(Guid reviewId, CancellationToken cancellationToken)
     {
         var result = await deleteReview.HandleAsync(new DeleteReviewCommand(User.GetUserId(), CurrentRole(), reviewId), cancellationToken);
@@ -235,6 +245,7 @@ public sealed class ReviewsController(
     /// </remarks>
     [HttpPut("{reviewId:guid}/reply")]
     [Authorize(Roles = Parties)]
+    [EnableRateLimiting(RateLimitPolicies.ReviewWrites)]
     [ProducesResponseType<ApiResponse<ReviewResponse>>(StatusCodes.Status200OK)]
     [ProducesResponseType<ApiResponse<ReviewResponse>>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<ApiResponse<ReviewResponse>>(StatusCodes.Status401Unauthorized)]
@@ -242,6 +253,7 @@ public sealed class ReviewsController(
     [ProducesResponseType<ApiResponse<ReviewResponse>>(StatusCodes.Status404NotFound)]
     [ProducesResponseType<ApiResponse<ReviewResponse>>(StatusCodes.Status409Conflict)]
     [ProducesResponseType<ApiResponse<ReviewResponse>>(StatusCodes.Status422UnprocessableEntity)]
+    [ProducesResponseType<ApiResponse<ReviewResponse>>(StatusCodes.Status429TooManyRequests)]
     public async Task<IActionResult> ReplyAsync(Guid reviewId, [FromBody] ReplyRequest request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -257,11 +269,13 @@ public sealed class ReviewsController(
     /// <remarks>Idempotente. Só o avaliado; para os outros, 404 <c>REVIEW_NOT_FOUND</c>.</remarks>
     [HttpDelete("{reviewId:guid}/reply")]
     [Authorize(Roles = Parties)]
+    [EnableRateLimiting(RateLimitPolicies.ReviewWrites)]
     [ProducesResponseType<ApiResponse<ReviewResponse>>(StatusCodes.Status200OK)]
     [ProducesResponseType<ApiResponse<ReviewResponse>>(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType<ApiResponse<ReviewResponse>>(StatusCodes.Status403Forbidden)]
     [ProducesResponseType<ApiResponse<ReviewResponse>>(StatusCodes.Status404NotFound)]
     [ProducesResponseType<ApiResponse<ReviewResponse>>(StatusCodes.Status409Conflict)]
+    [ProducesResponseType<ApiResponse<ReviewResponse>>(StatusCodes.Status429TooManyRequests)]
     public async Task<IActionResult> RemoveReplyAsync(Guid reviewId, CancellationToken cancellationToken)
     {
         var result = await removeReviewReply.HandleAsync(
@@ -276,10 +290,12 @@ public sealed class ReviewsController(
     /// Corpo: <c>reason</c> (<c>offensive</c>, <c>false_information</c>, <c>personal_data</c>,
     /// <c>spam</c>, <c>other</c>) e <c>description</c> (obrigatória em <c>other</c>). Quem vê a
     /// avaliação denuncia, menos o autor (422 <c>REVIEW_REPORT_OWN_REVIEW</c>). Uma por conta: 409
-    /// <c>REVIEW_REPORT_ALREADY_EXISTS</c>. O admin analisa em <c>/reviews/reports</c>.
+    /// <c>REVIEW_REPORT_ALREADY_EXISTS</c>. O admin analisa em <c>/reviews/reports</c>. Limite próprio
+    /// (<c>reports</c>, cada denúncia avisa o admin por e-mail): 429 <c>TOO_MANY_REQUESTS</c>.
     /// </remarks>
     [HttpPost("{reviewId:guid}/report")]
     [Authorize(Roles = Parties)]
+    [EnableRateLimiting(RateLimitPolicies.Reports)]
     [ProducesResponseType<ApiResponse<SubmittedReviewReportResponse>>(StatusCodes.Status201Created)]
     [ProducesResponseType<ApiResponse<SubmittedReviewReportResponse>>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<ApiResponse<SubmittedReviewReportResponse>>(StatusCodes.Status401Unauthorized)]
@@ -287,6 +303,7 @@ public sealed class ReviewsController(
     [ProducesResponseType<ApiResponse<SubmittedReviewReportResponse>>(StatusCodes.Status404NotFound)]
     [ProducesResponseType<ApiResponse<SubmittedReviewReportResponse>>(StatusCodes.Status409Conflict)]
     [ProducesResponseType<ApiResponse<SubmittedReviewReportResponse>>(StatusCodes.Status422UnprocessableEntity)]
+    [ProducesResponseType<ApiResponse<SubmittedReviewReportResponse>>(StatusCodes.Status429TooManyRequests)]
     public async Task<IActionResult> ReportAsync(Guid reviewId, [FromBody] ReportReviewRequest request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);

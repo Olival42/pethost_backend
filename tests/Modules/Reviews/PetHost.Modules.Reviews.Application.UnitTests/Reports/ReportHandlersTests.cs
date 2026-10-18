@@ -7,6 +7,7 @@ using PetHost.Modules.Reviews.Application.Reports.ListReviewReports;
 using PetHost.Modules.Reviews.Application.Reports.ReportReview;
 using PetHost.Modules.Reviews.Application.Reports.ResolveReviewReport;
 using PetHost.Modules.Reviews.Application.Reports.Responses;
+using PetHost.Modules.Reviews.Application.Reviews.HideReview;
 using PetHost.Modules.Reviews.Application.Reviews.Responses;
 using PetHost.Modules.Reviews.Application.Reviews.UnhideReview;
 using PetHost.Modules.Reviews.Domain.Errors;
@@ -20,7 +21,7 @@ using Xunit;
 
 namespace PetHost.Modules.Reviews.Application.UnitTests.Reports;
 
-/// <summary>Denúncia (por quem vê) e moderação do admin (fila, análise, voltar a mostrar).</summary>
+/// <summary>Denúncia (por quem vê) e moderação do admin (fila, análise, ocultar direto, voltar a mostrar).</summary>
 public sealed class ReportHandlersTests
 {
     private static readonly DateTimeOffset Now = ReviewBuilder.DefaultNow;
@@ -49,6 +50,7 @@ public sealed class ReportHandlersTests
         _reviews.Setup(r => r.GetByIdAsync(_ownerReview.Id, It.IsAny<CancellationToken>())).ReturnsAsync(_ownerReview);
         _reviews.Setup(r => r.GetByIdAsync(_hostReview.Id, It.IsAny<CancellationToken>())).ReturnsAsync(_hostReview);
         _reports.Setup(r => r.Add(It.IsAny<ReviewReport>())).Callback<ReviewReport>(r => _added = r);
+        _reports.Setup(r => r.ListPendingForReviewAsync(It.IsAny<ReviewId>(), It.IsAny<CancellationToken>())).ReturnsAsync([]);
         _unitOfWork.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(Result.Success());
         _auditTrail.Setup(a => a.RecordAsync(It.IsAny<AuditRecord>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
         _notifier.Setup(n => n.AlertModeratorsAsync(It.IsAny<ReviewReportId>(), It.IsAny<ReviewReportReason>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
@@ -64,8 +66,14 @@ public sealed class ReportHandlersTests
     private ResolveReviewReportCommandHandler ResolveSut() =>
         new(_reports.Object, _reviews.Object, _unitOfWork.Object, _reportBuilder, _auditTrail.Object, new FakeTimeProvider(Now));
 
+    private HideReviewCommandHandler HideSut() =>
+        new(_reviews.Object, _reports.Object, _unitOfWork.Object, new ReviewResponseBuilder(_parties.Object), _auditTrail.Object, new FakeTimeProvider(Now));
+
     private ReviewReport PendingReport() =>
         ReviewReport.Submit(_ownerReview, ReviewParty.Host, ReviewBuilder.HostId, ReviewBuilder.HostUserId, ReviewReportReason.Offensive, null, Now).Value!;
+
+    private ReviewReport PendingReportByStranger() =>
+        ReviewReport.Submit(_ownerReview, ReviewParty.Owner, Guid.CreateVersion7(), StrangerUserId, ReviewReportReason.Spam, null, Now).Value!;
 
     // ----- ReportReview -----
 
@@ -230,6 +238,58 @@ public sealed class ReportHandlersTests
         _ownerReview.HiddenBy.Should().Be(AdminUserId);
         _auditTrail.Verify(a => a.RecordAsync(It.Is<AuditRecord>(r => r.Action == AuditActions.ReviewReportResolved && r.Reason == "Linguagem ofensiva."), It.IsAny<CancellationToken>()), Times.Once);
         _auditTrail.Verify(a => a.RecordAsync(It.Is<AuditRecord>(r => r.Action == AuditActions.ReviewHidden && r.TargetId == _ownerReview.Id.Value), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Resolve_Should_UpholdTheOtherPendingReportsOfTheReview_When_Upheld()
+    {
+        // Arrange
+        var report = PendingReport();
+        var other = PendingReportByStranger();
+        _reports.Setup(r => r.GetByIdAsync(report.Id, It.IsAny<CancellationToken>())).ReturnsAsync(report);
+        _reports.Setup(r => r.ListPendingForReviewAsync(_ownerReview.Id, It.IsAny<CancellationToken>())).ReturnsAsync([report, other]);
+
+        // Act
+        var result = await ResolveSut().HandleAsync(new ResolveReviewReportCommand(AdminUserId, report.Id.Value, "upheld", "Linguagem ofensiva."), CancellationToken.None);
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        other.Status.Should().Be(ReviewReportStatus.Upheld);
+        other.ResolvedBy.Should().Be(AdminUserId);
+        other.ResolutionNote.Should().Be("Linguagem ofensiva.");
+        _auditTrail.Verify(a => a.RecordAsync(It.Is<AuditRecord>(r => r.Action == AuditActions.ReviewReportResolved), It.IsAny<CancellationToken>()), Times.Exactly(2));
+        _auditTrail.Verify(a => a.RecordAsync(It.Is<AuditRecord>(r => r.Action == AuditActions.ReviewReportResolved && r.TargetId == other.Id.Value), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Resolve_Should_LeaveTheOtherReportsPending_When_Dismissed()
+    {
+        // Arrange
+        var report = PendingReport();
+        var other = PendingReportByStranger();
+        _reports.Setup(r => r.GetByIdAsync(report.Id, It.IsAny<CancellationToken>())).ReturnsAsync(report);
+        _reports.Setup(r => r.ListPendingForReviewAsync(_ownerReview.Id, It.IsAny<CancellationToken>())).ReturnsAsync([report, other]);
+
+        // Act
+        await ResolveSut().HandleAsync(new ResolveReviewReportCommand(AdminUserId, report.Id.Value, "dismissed", "Opinião legítima."), CancellationToken.None);
+
+        // Assert
+        other.IsPending.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Resolve_Should_ReturnAlreadyResolved_When_TheReportWasClosedBecauseTheReviewWasDeleted()
+    {
+        // Arrange
+        var report = PendingReport();
+        report.Close(Now);
+        _reports.Setup(r => r.GetByIdAsync(report.Id, It.IsAny<CancellationToken>())).ReturnsAsync(report);
+
+        // Act
+        var result = await ResolveSut().HandleAsync(new ResolveReviewReportCommand(AdminUserId, report.Id.Value, "upheld", "Ok."), CancellationToken.None);
+
+        // Assert
+        result.FirstError.Should().Be(ReviewsErrors.ReportAlreadyResolved);
     }
 
     [Fact]
@@ -402,6 +462,71 @@ public sealed class ReportHandlersTests
         response.Review.Should().BeNull();
     }
 
+    // ----- HideReview -----
+
+    [Fact]
+    public async Task Hide_Should_HideUpholdThePendingReportsAndRecord_When_TheReviewIsVisible()
+    {
+        // Arrange
+        var report = PendingReport();
+        _reports.Setup(r => r.ListPendingForReviewAsync(_ownerReview.Id, It.IsAny<CancellationToken>())).ReturnsAsync([report]);
+
+        // Act
+        var result = await HideSut().HandleAsync(new HideReviewCommand(AdminUserId, _ownerReview.Id.Value, "  Dados pessoais.  "), CancellationToken.None);
+
+        // Assert
+        result.Value!.Moderation.Should().Be(new ReviewModerationResponse(Now, "Dados pessoais."));
+        _ownerReview.HiddenBy.Should().Be(AdminUserId);
+        report.Status.Should().Be(ReviewReportStatus.Upheld);
+        report.ResolutionNote.Should().Be("Dados pessoais.");
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+        _auditTrail.Verify(a => a.RecordAsync(It.Is<AuditRecord>(r => r.Action == AuditActions.ReviewHidden && r.Reason == "Dados pessoais."), It.IsAny<CancellationToken>()), Times.Once);
+        _auditTrail.Verify(a => a.RecordAsync(It.Is<AuditRecord>(r => r.Action == AuditActions.ReviewReportResolved && r.TargetId == report.Id.Value), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Hide_Should_KeepTheFirstReasonAndNotSave_When_TheReviewIsAlreadyHidden()
+    {
+        // Arrange
+        _ownerReview.Hide(AdminUserId, "Primeiro motivo", Now);
+
+        // Act
+        var result = await HideSut().HandleAsync(new HideReviewCommand(AdminUserId, _ownerReview.Id.Value, "Outro motivo"), CancellationToken.None);
+
+        // Assert
+        result.Value!.Moderation!.Reason.Should().Be("Primeiro motivo");
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+        _auditTrail.Verify(a => a.RecordAsync(It.IsAny<AuditRecord>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Hide_Should_ReturnNotFound_When_TheReviewDoesNotExist()
+    {
+        // Arrange
+        var id = new ReviewId(Guid.CreateVersion7());
+        _reviews.Setup(r => r.GetByIdAsync(id, It.IsAny<CancellationToken>())).ReturnsAsync((Review?)null);
+
+        // Act
+        var result = await HideSut().HandleAsync(new HideReviewCommand(AdminUserId, id.Value, "Motivo"), CancellationToken.None);
+
+        // Assert
+        result.FirstError.Should().Be(ReviewsErrors.NotFound(id));
+    }
+
+    [Fact]
+    public async Task Hide_Should_PropagateTheSaveErrorWithoutRecording_When_SavingFails()
+    {
+        // Arrange
+        _unitOfWork.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(Result.Failure(ReviewsErrors.Conflict));
+
+        // Act
+        var result = await HideSut().HandleAsync(new HideReviewCommand(AdminUserId, _ownerReview.Id.Value, "Motivo"), CancellationToken.None);
+
+        // Assert
+        result.FirstError.Should().Be(ReviewsErrors.Conflict);
+        _auditTrail.Verify(a => a.RecordAsync(It.IsAny<AuditRecord>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
     // ----- UnhideReview -----
 
     [Fact]
@@ -474,6 +599,7 @@ public sealed class ReportHandlersTests
         await ((Func<Task>)(() => ReportSut().HandleAsync(null!, CancellationToken.None))).Should().ThrowAsync<ArgumentNullException>();
         await ((Func<Task>)(() => ResolveSut().HandleAsync(null!, CancellationToken.None))).Should().ThrowAsync<ArgumentNullException>();
         await ((Func<Task>)(() => unhide.HandleAsync(null!, CancellationToken.None))).Should().ThrowAsync<ArgumentNullException>();
+        await ((Func<Task>)(() => HideSut().HandleAsync(null!, CancellationToken.None))).Should().ThrowAsync<ArgumentNullException>();
         await ((Func<Task>)(() => new ListReviewReportsQueryHandler(_queries.Object, _reportBuilder, _auditTrail.Object).HandleAsync(null!, CancellationToken.None))).Should().ThrowAsync<ArgumentNullException>();
         await ((Func<Task>)(() => new GetReviewReportByIdQueryHandler(_queries.Object, _reportBuilder, _auditTrail.Object).HandleAsync(null!, CancellationToken.None))).Should().ThrowAsync<ArgumentNullException>();
         await ((Func<Task>)(() => _reportBuilder.BuildAsync((IReadOnlyList<ReviewReportRow>)null!, CancellationToken.None))).Should().ThrowAsync<ArgumentNullException>();

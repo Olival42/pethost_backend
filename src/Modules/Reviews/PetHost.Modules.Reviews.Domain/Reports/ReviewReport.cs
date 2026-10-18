@@ -12,7 +12,9 @@ namespace PetHost.Modules.Reviews.Domain.Reports;
 /// <remarks>
 /// Denuncia qualquer tutor ou anfitrião que vê a avaliação, menos o autor. Uma denúncia por conta
 /// por avaliação. Procedente (<see cref="ReviewReportStatus.Upheld"/>) oculta a avaliação, com a
-/// observação do admin como motivo; improcedente só fecha a denúncia.
+/// observação do admin como motivo — e fecha junto, com o mesmo desfecho, as outras denúncias
+/// pendentes dela; improcedente só fecha a denúncia. Avaliação apagada pelo autor fecha as pendentes
+/// sem decisão (<see cref="ReviewReportStatus.Closed"/>).
 /// </remarks>
 public sealed class ReviewReport : Entity<ReviewReportId>
 {
@@ -116,7 +118,7 @@ public sealed class ReviewReport : Entity<ReviewReportId>
     /// </summary>
     public Result Resolve(ReviewReportStatus outcome, Guid adminUserId, string? note, DateTimeOffset now)
     {
-        if (outcome == ReviewReportStatus.Pending)
+        if (outcome is not (ReviewReportStatus.Upheld or ReviewReportStatus.Dismissed))
             throw new ArgumentOutOfRangeException(nameof(outcome), outcome, "A resolution must be upheld or dismissed.");
 
         if (adminUserId == Guid.Empty)
@@ -146,5 +148,20 @@ public sealed class ReviewReport : Entity<ReviewReportId>
         ResolutionNote = text;
 
         return Result.Success();
+    }
+
+    /// <summary>
+    /// A avaliação foi apagada pelo autor: a denúncia pendente sai da fila, sem admin nem observação.
+    /// Devolve se mudou (já analisada fica como está).
+    /// </summary>
+    public bool Close(DateTimeOffset now)
+    {
+        if (!IsPending)
+            return false;
+
+        Status = ReviewReportStatus.Closed;
+        ResolvedAt = now;
+
+        return true;
     }
 }

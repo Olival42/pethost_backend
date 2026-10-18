@@ -120,9 +120,9 @@ namespace PetHost.Modules.Reviews.Infrastructure.Persistence.Migrations
 
                             t.HasCheckConstraint("ck_review_reports_reporter_side", "reporter_side IN ('owner', 'host')");
 
-                            t.HasCheckConstraint("ck_review_reports_resolution", "(status = 'pending' AND resolved_at IS NULL AND resolved_by IS NULL AND resolution_note IS NULL) OR (status <> 'pending' AND resolved_at IS NOT NULL AND resolved_by IS NOT NULL AND resolution_note IS NOT NULL)");
+                            t.HasCheckConstraint("ck_review_reports_resolution", "(status = 'pending' AND resolved_at IS NULL AND resolved_by IS NULL AND resolution_note IS NULL) OR (status = 'closed' AND resolved_at IS NOT NULL AND resolved_by IS NULL AND resolution_note IS NULL) OR (status IN ('upheld', 'dismissed') AND resolved_at IS NOT NULL AND resolved_by IS NOT NULL AND resolution_note IS NOT NULL)");
 
-                            t.HasCheckConstraint("ck_review_reports_status", "status IN ('pending', 'upheld', 'dismissed')");
+                            t.HasCheckConstraint("ck_review_reports_status", "status IN ('pending', 'upheld', 'dismissed', 'closed')");
                         });
                 });
 

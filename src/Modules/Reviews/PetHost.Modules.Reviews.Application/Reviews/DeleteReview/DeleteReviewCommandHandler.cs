@@ -1,5 +1,6 @@
 using PetHost.Modules.Reviews.Application.Abstractions;
 using PetHost.Modules.Reviews.Domain.Errors;
+using PetHost.Modules.Reviews.Domain.Reports;
 using PetHost.Modules.Reviews.Domain.Reviews;
 using PetHost.Shared.Contracts.Audit;
 using PetHost.Shared.Kernel.Messaging;
@@ -12,10 +13,11 @@ namespace PetHost.Modules.Reviews.Application.Reviews.DeleteReview;
 /// O autor apaga a avaliação (soft delete), a qualquer momento — inclusive com o perfil inativo ou
 /// suspenso, ou com a avaliação oculta: tirar o que escreveu é direito dele. Avaliação de outra
 /// pessoa, já apagada ou inexistente: <c>404 REVIEW_NOT_FOUND</c>. A reserva não pode ser avaliada
-/// de novo por esse lado.
+/// de novo por esse lado. As denúncias pendentes dela saem da fila do admin (<c>closed</c>).
 /// </summary>
 public sealed class DeleteReviewCommandHandler(
     IReviewRepository reviewRepository,
+    IReviewReportRepository reportRepository,
     IReviewsUnitOfWork unitOfWork,
     IReviewParties reviewParties,
     IAuditTrail auditTrail,
@@ -38,13 +40,20 @@ public sealed class DeleteReviewCommandHandler(
         if (review is null || !review.IsWrittenBy(reviewer.Value!.Side, reviewer.Value.ProfileId))
             return Result<Unit>.Failure(ReviewsErrors.NotFound(id));
 
-        review.Delete(timeProvider.GetUtcNow());
+        var now = timeProvider.GetUtcNow();
+        review.Delete(now);
+
+        var pending = await reportRepository.ListPendingForReviewAsync(review.Id, cancellationToken).ConfigureAwait(false);
+        var closed = pending.Where(report => report.Close(now)).ToList();
 
         var saved = await unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         if (saved.IsFailure)
             return Result<Unit>.FromFailure(saved);
 
         await ReviewTrail.RecordDeletedAsync(auditTrail, review, cancellationToken).ConfigureAwait(false);
+
+        foreach (var report in closed)
+            await ReviewTrail.RecordReportResolvedAsync(auditTrail, report, cancellationToken).ConfigureAwait(false);
 
         return Result<Unit>.Success(Unit.Value);
     }

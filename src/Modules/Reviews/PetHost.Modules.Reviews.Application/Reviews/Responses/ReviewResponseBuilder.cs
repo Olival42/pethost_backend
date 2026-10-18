@@ -17,8 +17,8 @@ public enum ReviewView
 }
 
 /// <summary>
-/// Monta <see cref="ReviewResponse"/> a partir das linhas, com os autores e os nomes dos pets de
-/// todas numa consulta por módulo (sem N+1).
+/// Monta <see cref="ReviewResponse"/> a partir das linhas, com os autores (e, para o autor e o
+/// admin, os avaliados) e os nomes dos pets de todas numa consulta por módulo (sem N+1).
 /// </summary>
 public sealed class ReviewResponseBuilder(IReviewParties reviewParties)
 {
@@ -32,8 +32,9 @@ public sealed class ReviewResponseBuilder(IReviewParties reviewParties)
         if (rows.Count == 0)
             return [];
 
-        var ownerAuthors = await InfoAsync(ReviewParty.Owner, rows, cancellationToken).ConfigureAwait(false);
-        var hostAuthors = await InfoAsync(ReviewParty.Host, rows, cancellationToken).ConfigureAwait(false);
+        var withSubject = view != ReviewView.Public;
+        var owners = await InfoAsync(ReviewParty.Owner, rows, withSubject, cancellationToken).ConfigureAwait(false);
+        var hosts = await InfoAsync(ReviewParty.Host, rows, withSubject, cancellationToken).ConfigureAwait(false);
 
         var petIds = rows.SelectMany(r => r.Pets).Select(p => p.PetId).Distinct().ToList();
         var petNames = petIds.Count == 0
@@ -42,8 +43,9 @@ public sealed class ReviewResponseBuilder(IReviewParties reviewParties)
 
         return [.. rows.Select(row =>
         {
-            var authors = row.AuthorSide == ReviewParty.Owner ? ownerAuthors : hostAuthors;
-            return ToResponse(row, authors.GetValueOrDefault(row.AuthorId), petNames, view);
+            var (authors, subjects) = row.AuthorSide == ReviewParty.Owner ? (owners, hosts) : (hosts, owners);
+            var subject = withSubject ? subjects.GetValueOrDefault(row.SubjectId) : null;
+            return ToResponse(row, authors.GetValueOrDefault(row.AuthorId), subject, petNames, view);
         })];
     }
 
@@ -84,12 +86,16 @@ public sealed class ReviewResponseBuilder(IReviewParties reviewParties)
             ? new RatingSummaryResponse(null, 0)
             : new RatingSummaryResponse(Math.Round(rating.Average, 1, MidpointRounding.AwayFromZero), rating.Count);
 
+    /// <summary>Os perfis do lado <paramref name="side"/>: os autores e, se pedido, os avaliados.</summary>
     private async Task<IReadOnlyDictionary<Guid, ReviewPartyInfo>> InfoAsync(
         ReviewParty side,
         IReadOnlyList<ReviewRow> rows,
+        bool withSubjects,
         CancellationToken cancellationToken)
     {
-        var ids = rows.Where(r => r.AuthorSide == side).Select(r => r.AuthorId).Distinct().ToList();
+        var authors = rows.Where(r => r.AuthorSide == side).Select(r => r.AuthorId);
+        var subjects = withSubjects ? rows.Where(r => r.AuthorSide != side).Select(r => r.SubjectId) : [];
+        var ids = authors.Concat(subjects).Distinct().ToList();
 
         return ids.Count == 0
             ? new Dictionary<Guid, ReviewPartyInfo>()
@@ -99,6 +105,7 @@ public sealed class ReviewResponseBuilder(IReviewParties reviewParties)
     private static ReviewResponse ToResponse(
         ReviewRow row,
         ReviewPartyInfo? author,
+        ReviewPartyInfo? subject,
         IReadOnlyDictionary<Guid, string> petNames,
         ReviewView view)
     {
@@ -113,7 +120,7 @@ public sealed class ReviewResponseBuilder(IReviewParties reviewParties)
             byHost ? row.OwnerId : null,
             row.Rating,
             row.Comment,
-            author is null ? null : new ReviewAuthorSummary(author.Name, author.AvatarUrl),
+            author is null ? null : new ReviewPartySummary(author.Name, author.AvatarUrl),
             byHost ? [.. row.Pets.Select(p => new ReviewPetResponse(p.PetId, petNames.GetValueOrDefault(p.PetId), p.Rating, p.Comment))] : null,
             row.ReplyText is { } text && row.RepliedAt is { } repliedAt ? new ReviewReplyResponse(text, repliedAt) : null,
             row.StayEndedAt,
@@ -122,6 +129,7 @@ public sealed class ReviewResponseBuilder(IReviewParties reviewParties)
             privileged ? row.BookingId : null,
             privileged ? row.StayEndedAt.AddDays(Review.WindowDays) : null,
             privileged && row.HiddenAt is { } hiddenAt ? new ReviewModerationResponse(hiddenAt, row.HiddenReason) : null,
-            privileged ? row.PublishedAt : null);
+            privileged ? row.PublishedAt : null,
+            subject is null ? null : new ReviewPartySummary(subject.Name, subject.AvatarUrl));
     }
 }

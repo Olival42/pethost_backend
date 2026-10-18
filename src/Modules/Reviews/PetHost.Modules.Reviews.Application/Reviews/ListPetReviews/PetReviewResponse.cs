@@ -12,7 +12,7 @@ public sealed record PetReviewResponse(
     Guid ReviewId,
     Guid HostId,
     Guid ListingId,
-    ReviewAuthorSummary? Host,
+    ReviewPartySummary? Host,
     int Rating,
     string? Comment,
     DateTimeOffset StayEndedAt);

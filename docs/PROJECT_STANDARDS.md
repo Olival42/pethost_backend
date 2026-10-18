@@ -3,7 +3,7 @@
 > Documento normativo. Tudo é obrigatório salvo onde marcado como *recomendado*.
 > Em conflito com o código existente, este documento vence.
 
-**Atualizado:** 2026-10-17 · **Escopo:** backend (API)
+**Atualizado:** 2026-10-18 · **Escopo:** backend (API)
 
 ---
 
@@ -701,6 +701,8 @@ Rate limiting nativo do ASP.NET Core (`AddPetHostRateLimiting`, em `Shared.Infra
 | `account-sensitive` | Logado, pede a senha ou derruba a conta: trocar senha, inativar | usuário | 5 / 15 min |
 | `account-update` | `PATCH` de perfil (inclui troca de CPF) | usuário | 20 / 15 min |
 | `chat-messages` | Mensagem do chat, texto ou foto (contam juntos) | usuário | 30 / 1 min |
+| `review-writes` | Criar, editar e apagar avaliação; criar e apagar a resposta | usuário | 20 / 15 min |
+| `reports` | Denúncia (cada uma avisa o admin por e-mail) | usuário | 10 / 1 h |
 | geral | Todo endpoint | usuário ou IP | 120 / 1 min |
 
 - Estourou: `429 TOO_MANY_REQUESTS` no envelope + `Retry-After`. Log `Warning` com rota e IP.

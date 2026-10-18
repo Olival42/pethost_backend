@@ -144,7 +144,7 @@ public sealed class PublicationAndPetHistoryTests
             review.Id.Value,
             ReviewBuilder.HostId,
             ReviewBuilder.ListingId,
-            new ReviewAuthorSummary("Cida", null),
+            new ReviewPartySummary("Cida", null),
             4,
             "Latiu um pouco à noite.",
             ReviewBuilder.CheckedOutAt));

@@ -11,7 +11,8 @@ namespace PetHost.Modules.Reviews.Application.Reports.ResolveReviewReport;
 
 /// <summary>
 /// O admin fecha a denúncia. Procedente: a avaliação é ocultada (some das listas e da média), com a
-/// observação como motivo, na mesma transação. Improcedente: a avaliação continua. Denúncia
+/// observação como motivo, e as outras denúncias pendentes dela fecham junto como procedentes, na
+/// mesma transação. Improcedente: só esta denúncia fecha e a avaliação continua. Denúncia
 /// inexistente: <c>404 REVIEW_REPORT_NOT_FOUND</c>; já analisada: <c>422 REVIEW_REPORT_ALREADY_RESOLVED</c>;
 /// outro admin ao mesmo tempo: <c>409 REVIEW_CONFLICT</c>.
 /// </summary>
@@ -40,11 +41,19 @@ public sealed class ResolveReviewReportCommandHandler(
             return Result<ReviewReportResponse>.FromFailure(resolved);
 
         Review? hidden = null;
+        IReadOnlyList<ReviewReport> alsoUpheld = [];
         if (outcome == ReviewReportStatus.Upheld)
         {
             var review = await reviewRepository.GetByIdAsync(report.ReviewId, cancellationToken).ConfigureAwait(false);
-            if (review is not null && review.Hide(command.AdminUserId, report.ResolutionNote!, now))
-                hidden = review;
+            if (review is not null)
+            {
+                var moderated = await ReviewModeration
+                    .HideAsync(reportRepository, review, command.AdminUserId, report.ResolutionNote!, now, cancellationToken)
+                    .ConfigureAwait(false);
+
+                hidden = moderated.Hidden ? review : null;
+                alsoUpheld = moderated.Upheld;
+            }
         }
 
         var saved = await unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
@@ -52,6 +61,9 @@ public sealed class ResolveReviewReportCommandHandler(
             return Result<ReviewReportResponse>.FromFailure(saved);
 
         await ReviewTrail.RecordReportResolvedAsync(auditTrail, report, cancellationToken).ConfigureAwait(false);
+
+        foreach (var other in alsoUpheld)
+            await ReviewTrail.RecordReportResolvedAsync(auditTrail, other, cancellationToken).ConfigureAwait(false);
 
         if (hidden is not null)
         {

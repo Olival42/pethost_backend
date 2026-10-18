@@ -13,7 +13,8 @@ namespace PetHost.Modules.Reviews.Infrastructure.Persistence.Configurations;
 /// </summary>
 /// <remarks>
 /// Uma denúncia por conta por avaliação: índice único em (<c>review_id</c>, <c>reported_by</c>).
-/// Os CHECKs repetem as listas do domínio e amarram a análise à situação. Concorrência otimista pelo
+/// Os CHECKs repetem as listas do domínio e amarram a análise à situação (a fechada pela exclusão
+/// da avaliação tem data, mas não tem admin nem observação). Concorrência otimista pelo
 /// <c>xmin</c>: dois admins analisando a mesma denúncia, o segundo leva <c>409</c>.
 /// </remarks>
 internal sealed class ReviewReportConfiguration : IEntityTypeConfiguration<ReviewReport>
@@ -28,7 +29,8 @@ internal sealed class ReviewReportConfiguration : IEntityTypeConfiguration<Revie
             table.HasCheckConstraint(
                 "ck_review_reports_resolution",
                 $"(status = '{ReviewReportStatusValues.Pending}' AND resolved_at IS NULL AND resolved_by IS NULL AND resolution_note IS NULL) " +
-                $"OR (status <> '{ReviewReportStatusValues.Pending}' AND resolved_at IS NOT NULL AND resolved_by IS NOT NULL AND resolution_note IS NOT NULL)");
+                $"OR (status = '{ReviewReportStatusValues.Closed}' AND resolved_at IS NOT NULL AND resolved_by IS NULL AND resolution_note IS NULL) " +
+                $"OR (status IN ('{ReviewReportStatusValues.Upheld}', '{ReviewReportStatusValues.Dismissed}') AND resolved_at IS NOT NULL AND resolved_by IS NOT NULL AND resolution_note IS NOT NULL)");
         });
 
         builder.HasKey(r => r.Id);

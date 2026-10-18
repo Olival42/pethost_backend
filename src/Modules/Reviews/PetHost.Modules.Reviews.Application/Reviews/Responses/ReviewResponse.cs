@@ -2,8 +2,8 @@ namespace PetHost.Modules.Reviews.Application.Reviews.Responses;
 
 /// <summary>
 /// Uma avaliação. O que é só do autor (ou do admin) — <see cref="BookingId"/>,
-/// <see cref="EditableUntil"/> e <see cref="Moderation"/> — fica nulo e some do JSON na leitura de
-/// outras pessoas.
+/// <see cref="EditableUntil"/>, <see cref="Moderation"/>, <see cref="PublishedAt"/> e
+/// <see cref="Subject"/> — fica nulo e some do JSON na leitura de outras pessoas.
 /// </summary>
 /// <param name="AuthorSide">Quem escreveu: <c>owner</c> (o tutor, sobre o anfitrião) ou <c>host</c> (o anfitrião, sobre o tutor e os pets).</param>
 /// <param name="HostId">Anfitrião da estadia (<c>host.hosts.id</c>).</param>
@@ -21,6 +21,10 @@ namespace PetHost.Modules.Reviews.Application.Reviews.Responses;
 /// Quando os outros passam (ou passaram) a ler a avaliação: às cegas, no fim do prazo ou quando o
 /// outro lado também avalia. Só o autor e o admin veem.
 /// </param>
+/// <param name="Subject">
+/// Quem foi avaliado, como aparece (o anfitrião ou o tutor). Só o autor e o admin veem: nas outras
+/// leituras o avaliado já é a página (o cantinho, o tutor, o pet ou a própria conta).
+/// </param>
 public sealed record ReviewResponse(
     Guid Id,
     string AuthorSide,
@@ -29,7 +33,7 @@ public sealed record ReviewResponse(
     Guid? OwnerId,
     int Rating,
     string? Comment,
-    ReviewAuthorSummary? Author,
+    ReviewPartySummary? Author,
     IReadOnlyList<ReviewPetResponse>? Pets,
     ReviewReplyResponse? Reply,
     DateTimeOffset StayEndedAt,
@@ -38,10 +42,11 @@ public sealed record ReviewResponse(
     Guid? BookingId = null,
     DateTimeOffset? EditableUntil = null,
     ReviewModerationResponse? Moderation = null,
-    DateTimeOffset? PublishedAt = null);
+    DateTimeOffset? PublishedAt = null,
+    ReviewPartySummary? Subject = null);
 
-/// <summary>Quem escreveu, como aparece: nome curto e foto.</summary>
-public sealed record ReviewAuthorSummary(string Name, string? AvatarUrl);
+/// <summary>Um dos lados (quem escreveu ou quem foi avaliado), como aparece: nome curto e foto.</summary>
+public sealed record ReviewPartySummary(string Name, string? AvatarUrl);
 
 /// <summary>A nota de um pet. <c>name</c> some se o pet não existe mais.</summary>
 public sealed record ReviewPetResponse(Guid PetId, string? Name, int Rating, string? Comment);
