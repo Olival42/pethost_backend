@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using PetHost.Modules.Hosts.Domain.Hosts;
 using PetHost.Modules.Hosts.Infrastructure.Persistence;
+using PetHost.Modules.Listings.Domain.Listings;
 using PetHost.TestKit;
 using Xunit;
 
@@ -175,6 +176,7 @@ public sealed class ListingEndpointsTests(ListingsApiFixture fixture) : IAsyncLi
         address.TryGetProperty("number", out _).Should().BeFalse();
         address.TryGetProperty("zipCode", out _).Should().BeFalse();
         listing.TryGetProperty("location", out _).Should().BeFalse();
+        ShouldBeNearZona7(listing.GetProperty("approximateLocation"));
     }
 
     [Fact]
@@ -271,9 +273,57 @@ public sealed class ListingEndpointsTests(ListingsApiFixture fixture) : IAsyncLi
         Neighborhoods(within50).Should().Equal("Zona 5", "Vila Sarandi");
         within10.GetProperty("totalCount").GetInt64().Should().Be(2);
         var first = within10.GetProperty("items")[0];
-        first.GetProperty("distanceKm").GetDouble().Should().BeApproximately(1.2, 0.2);
+        // Conta até o ponto aproximado, que anda até 0,5 km.
+        first.GetProperty("distanceKm").GetDouble().Should().BeApproximately(1.2, 0.6);
         first.TryGetProperty("street", out _).Should().BeFalse();
         first.TryGetProperty("latitude", out _).Should().BeFalse();
+        first.TryGetProperty("location", out _).Should().BeFalse();
+        first.GetProperty("approximateLocation").GetProperty("radiusMeters").GetInt32().Should().Be(500);
+    }
+
+    [Fact]
+    public async Task GetById_Should_ShowThePublicView_When_ViewerIsNotLoggedIn()
+    {
+        var host = await RegisterIndividualHostAsync();
+        var listingId = await CreateListingAsync(host.Token);
+
+        var response = await SendAsync(HttpMethod.Get, $"{ListingsRoute}/{listingId}", token: null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var listing = (await ReadAsync(response)).GetProperty("data");
+        listing.GetProperty("address").GetProperty("neighborhood").GetString().Should().Be("Zona 7");
+        listing.GetProperty("address").TryGetProperty("street", out _).Should().BeFalse();
+        listing.TryGetProperty("location", out _).Should().BeFalse();
+        ShouldBeNearZona7(listing.GetProperty("approximateLocation"));
+    }
+
+    [Fact]
+    public async Task GetById_Should_ReturnNotFound_When_ListingIsInactiveAndViewerIsNotLoggedIn()
+    {
+        var host = await RegisterIndividualHostAsync();
+        var listingId = await CreateListingAsync(host.Token);
+        (await SendAsync(HttpMethod.Post, $"{ListingsRoute}/{listingId}/deactivation", host.Token)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var response = await SendAsync(HttpMethod.Get, $"{ListingsRoute}/{listingId}", token: null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Search_Should_SendTheSameApproximateLocation_On_EverySearch()
+    {
+        var cida = await RegisterIndividualHostAsync();
+        var listingId = await CreateListingAsync(cida.Token);
+        var owner = await RegisterOwnerAsync();
+
+        var first = ApproximateLocationOf(await SearchAsync(owner, "state=PR"), listingId);
+        var again = ApproximateLocationOf(await SearchAsync(owner, "radiusKm=5"), listingId);
+        var detail = (await ReadAsync(await SendAsync(HttpMethod.Get, $"{ListingsRoute}/{listingId}", owner)))
+            .GetProperty("data").GetProperty("approximateLocation");
+
+        ShouldBeNearZona7(first);
+        again.GetRawText().Should().Be(first.GetRawText());
+        detail.GetRawText().Should().Be(first.GetRawText());
     }
 
     [Fact]
@@ -674,10 +724,11 @@ public sealed class ListingEndpointsTests(ListingsApiFixture fixture) : IAsyncLi
             },
         };
 
-    private Task<HttpResponseMessage> SendAsync(HttpMethod method, string route, string token, object? body = null)
+    private Task<HttpResponseMessage> SendAsync(HttpMethod method, string route, string? token, object? body = null)
     {
         var request = new HttpRequestMessage(method, route);
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        if (token is not null)
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         if (body is not null)
             request.Content = JsonContent.Create(body);
 
@@ -707,6 +758,25 @@ public sealed class ListingEndpointsTests(ListingsApiFixture fixture) : IAsyncLi
         body.GetProperty("error").TryGetProperty("details", out var details) && details.ValueKind == JsonValueKind.Array
             ? [.. details.EnumerateArray().Select(d => d.GetProperty("field").GetString())]
             : [];
+
+    private static JsonElement ApproximateLocationOf(JsonElement page, Guid listingId) =>
+        page.GetProperty("items").EnumerateArray()
+            .Single(item => item.GetProperty("id").GetGuid() == listingId)
+            .GetProperty("approximateLocation");
+
+    /// <summary>A casa (Zona 7 no mapa de mentira) fica dentro do círculo, mas o ponto não é ela.</summary>
+    private static void ShouldBeNearZona7(JsonElement approximate)
+    {
+        var latitude = approximate.GetProperty("latitude").GetDecimal();
+        var longitude = approximate.GetProperty("longitude").GetDecimal();
+        var radiusMeters = approximate.GetProperty("radiusMeters").GetInt32();
+        var home = GeoPoint.Create(-23.41m, -51.933m).Value!;
+
+        radiusMeters.Should().Be(GeoPoint.ApproximateRadiusMeters);
+        home.DistanceKmTo(GeoPoint.Create(latitude, longitude).Value!).Should().BeLessThan(radiusMeters / 1000.0);
+        decimal.Round(latitude, 3).Should().Be(latitude);
+        decimal.Round(longitude, 3).Should().Be(longitude);
+    }
 
     private static List<string?> Neighborhoods(JsonElement page) =>
         [.. page.GetProperty("items").EnumerateArray().Select(item => item.GetProperty("neighborhood").GetString())];

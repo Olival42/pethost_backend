@@ -191,17 +191,17 @@ public sealed class ListingsController(
     /// <summary>Um cantinho, com o anfitrião.</summary>
     /// <remarks>
     /// O anfitrião dono vê sempre (inclusive inativo), com endereço completo e coordenada; o
-    /// admin vê todos. Qualquer outra conta logada vê o cantinho ativo de anfitrião ativo, só
-    /// com bairro, cidade e UF. Fora isso: 404 <c>LISTING_NOT_FOUND</c>, como se não existisse.
+    /// admin vê todos. Qualquer outra pessoa, logada ou não, vê o cantinho ativo de anfitrião
+    /// ativo, só com bairro, cidade, UF e o ponto aproximado do mapa. Fora isso: 404
+    /// <c>LISTING_NOT_FOUND</c>, como se não existisse. Sem login, nunca o selo <c>neighbor</c>.
     /// </remarks>
     [HttpGet("{listingId:guid}")]
-    [Authorize]
+    [AllowAnonymous]
     [ProducesResponseType<ApiResponse<ListingResponse>>(StatusCodes.Status200OK)]
-    [ProducesResponseType<ApiResponse<ListingResponse>>(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType<ApiResponse<ListingResponse>>(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetByIdAsync(Guid listingId, CancellationToken cancellationToken)
     {
-        var result = await getListingById.HandleAsync(new GetListingByIdQuery(User.GetUserId(), CurrentRole(), listingId), cancellationToken);
+        var result = await getListingById.HandleAsync(new GetListingByIdQuery(User.FindUserId(), CurrentRole(), listingId), cancellationToken);
 
         return result.ToActionResult();
     }

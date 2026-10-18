@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.Extensions.Time.Testing;
 using Moq;
 using PetHost.Modules.Listings.Application.Abstractions;
@@ -38,6 +38,39 @@ public sealed class GetListingByIdQueryHandlerTests
         result.Value.Address.ZipCode.Should().BeNull();
         result.Value.Location.Should().BeNull();
         result.Value.Host!.Name.Should().Be("Dona Cida");
+    }
+
+    [Theory]
+    [InlineData(Roles.Owner)]
+    [InlineData(Roles.Host)]
+    [InlineData(Roles.Admin)]
+    public async Task HandleAsync_Should_ShowThePublicView_When_ViewerIsNotLoggedIn(string role)
+    {
+        // Arrange — sem login não há conta: o papel não vale e não há endereço para o selo "Vizinho".
+        var addresses = new Mock<IAccountAddresses>(MockBehavior.Strict);
+        var sut = new GetListingByIdQueryHandler(_repository.Object, ListingsTestData.Hosts().Object, ListingsTestData.Bookings().Object, addresses.Object, ListingsTestData.Reviews().Object);
+
+        // Act
+        var result = await sut.HandleAsync(new GetListingByIdQuery(UserId: null, role, _listing.Id.Value), CancellationToken.None);
+
+        // Assert
+        result.Value!.Address.Street.Should().BeNull();
+        result.Value.Location.Should().BeNull();
+        result.Value.ApproximateLocation.RadiusMeters.Should().Be(GeoPoint.ApproximateRadiusMeters);
+        result.Value.Badges.Should().NotContain(ListingBadges.Neighbor);
+    }
+
+    [Fact]
+    public async Task HandleAsync_Should_ReturnNotFound_When_ListingIsInactiveAndViewerIsNotLoggedIn()
+    {
+        // Arrange
+        _listing.Deactivate(ListingBuilder.DefaultNow);
+
+        // Act
+        var result = await _sut.HandleAsync(new GetListingByIdQuery(UserId: null, Roles.Owner, _listing.Id.Value), CancellationToken.None);
+
+        // Assert
+        result.FirstError.Should().Be(ListingsErrors.NotFound(_listing.Id));
     }
 
     [Fact]

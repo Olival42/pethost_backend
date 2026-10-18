@@ -136,6 +136,21 @@ namespace PetHost.Modules.Listings.Infrastructure.Persistence.Migrations
                                 .HasColumnName("zip_code");
                         });
 
+                    b.ComplexProperty(typeof(Dictionary<string, object>), "ApproximateLocation", "PetHost.Modules.Listings.Domain.Listings.Listing.ApproximateLocation#GeoPoint", b1 =>
+                        {
+                            b1.IsRequired();
+
+                            b1.Property<decimal>("Latitude")
+                                .HasPrecision(6, 3)
+                                .HasColumnType("numeric(6,3)")
+                                .HasColumnName("approx_latitude");
+
+                            b1.Property<decimal>("Longitude")
+                                .HasPrecision(6, 3)
+                                .HasColumnType("numeric(6,3)")
+                                .HasColumnName("approx_longitude");
+                        });
+
                     b.ComplexProperty(typeof(Dictionary<string, object>), "Details", "PetHost.Modules.Listings.Domain.Listings.Listing.Details#ListingDetails", b1 =>
                         {
                             b1.IsRequired();
@@ -230,6 +245,10 @@ namespace PetHost.Modules.Listings.Infrastructure.Persistence.Migrations
                     b.ToTable("listings", "listing", t =>
                         {
                             t.HasCheckConstraint("ck_listings_accepted_species", "accepted_species BETWEEN 1 AND 4095");
+
+                            t.HasCheckConstraint("ck_listings_approx_latitude", "approx_latitude BETWEEN -90 AND 90");
+
+                            t.HasCheckConstraint("ck_listings_approx_longitude", "approx_longitude BETWEEN -180 AND 180");
 
                             t.HasCheckConstraint("ck_listings_available_weekdays", "available_weekdays BETWEEN 1 AND 127");
 

@@ -14,9 +14,9 @@ namespace PetHost.Modules.Listings.Infrastructure.Persistence.Configurations;
 /// </summary>
 /// <remarks>
 /// Tipos aceitos e dias da semana são conjuntos de bits (<c>accepted_species</c>,
-/// <c>available_weekdays</c>). Os CHECKs repetem no banco as faixas do domínio. O índice da
-/// busca por raio, em (<c>latitude</c>, <c>longitude</c>) só dos ativos, é criado em SQL na
-/// migration (o EF não indexa coluna de tipo complexo).
+/// <c>available_weekdays</c>). Os CHECKs repetem no banco as faixas do domínio. A busca por raio
+/// usa o ponto aproximado (<c>approx_latitude</c>, <c>approx_longitude</c>), nunca o exato; o
+/// índice dela, só dos ativos, é criado em SQL na migration (o EF não indexa coluna de tipo complexo).
 /// </remarks>
 internal sealed class ListingConfiguration : IEntityTypeConfiguration<Listing>
 {
@@ -33,6 +33,8 @@ internal sealed class ListingConfiguration : IEntityTypeConfiguration<Listing>
             table.HasCheckConstraint("ck_listings_available_weekdays", $"available_weekdays BETWEEN 1 AND {(int)WeekdaysValues.Every}");
             table.HasCheckConstraint("ck_listings_latitude", "latitude BETWEEN -90 AND 90");
             table.HasCheckConstraint("ck_listings_longitude", "longitude BETWEEN -180 AND 180");
+            table.HasCheckConstraint("ck_listings_approx_latitude", "approx_latitude BETWEEN -90 AND 90");
+            table.HasCheckConstraint("ck_listings_approx_longitude", "approx_longitude BETWEEN -180 AND 180");
         });
 
         builder.HasKey(l => l.Id);
@@ -102,6 +104,13 @@ internal sealed class ListingConfiguration : IEntityTypeConfiguration<Listing>
         {
             location.Property(p => p.Latitude).HasColumnName("latitude").HasPrecision(9, GeoPoint.Decimals).IsRequired();
             location.Property(p => p.Longitude).HasColumnName("longitude").HasPrecision(9, GeoPoint.Decimals).IsRequired();
+        });
+
+        // numeric(6,3): o ponto do mapa público, com 3 casas (~100 m).
+        builder.ComplexProperty(l => l.ApproximateLocation, location =>
+        {
+            location.Property(p => p.Latitude).HasColumnName("approx_latitude").HasPrecision(6, GeoPoint.ApproximateDecimals).IsRequired();
+            location.Property(p => p.Longitude).HasColumnName("approx_longitude").HasPrecision(6, GeoPoint.ApproximateDecimals).IsRequired();
         });
 
         builder.Property(l => l.IsActive)
