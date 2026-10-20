@@ -114,8 +114,10 @@ public static class DependencyInjection
         services.AddSingleton<ICpfFingerprint, HmacCpfFingerprint>();
         services.AddHostedService<HostApplicationsPurgeService>();
 
-        // Anfitrião de demonstração (desligado por padrão).
+        // Anfitrião de demonstração (desligado por padrão) e o criador de anfitrião verificado, que
+        // os dados de teste da API também usam.
         services.AddOptions<DemoHostSeedOptions>().Bind(configuration.GetSection(DemoHostSeedOptions.SectionName));
+        services.AddScoped<VerifiedHostSeeder>();
         services.AddScoped<HostsDbSeeder>();
 
         // Contrato público de leitura: outros módulos acham o anfitrião só por aqui (§5).

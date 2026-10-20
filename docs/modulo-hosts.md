@@ -525,7 +525,7 @@ SEED_DEMO_HOST_CPF=123.456.789-09
 SEED_DEMO_HOST_STRIPE_ACCOUNT_ID=acct_...   # opcional: conta conectada criada no Dashboard do Stripe
 ```
 
-- Cria a conta pelo contrato do Auth (`IAccountRegistrar`, mesmas regras do cadastro) e passa pelo **mesmo fluxo do domínio** (abre, "fotos" de mentira que nunca vão ao bucket, envia, aprova com o ator `5eed0000-0000-7000-8000-000000000001`, apaga as fotos). Não existe atalho no domínio para criar anfitrião sem verificação.
+- Cria a conta pelo contrato do Auth (`IAccountRegistrar`, mesmas regras do cadastro) pelo `VerifiedHostSeeder` (`Persistence/Seed`), o mesmo que os [dados de teste](dados-de-teste.md) usam, e passa pelo **mesmo fluxo do domínio** (abre, "fotos" de mentira que nunca vão ao bucket, envia, aprova com o ator `5eed0000-0000-7000-8000-000000000001`, apaga as fotos). Não existe atalho no domínio para criar anfitrião sem verificação.
 - Idempotente pelo e-mail; nunca troca a senha de uma conta que já existe. Se o perfil não puder ser gravado, a conta é desfeita.
 - Nome, telefone, nascimento e endereço têm padrão fictício (`Seed:DemoHost:FullName`, `:Phone`, `:BirthDate`, `:ZipCode`, `:Street`, `:Number`, `:Neighborhood`, `:City`, `:State`).
 - **Só dados fictícios.** Com Stripe em modo de teste, a conta conectada também é de teste.

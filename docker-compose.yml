@@ -199,6 +199,11 @@ services:
       Seed__DemoHost__Cpf: ${SEED_DEMO_HOST_CPF:-}
       Seed__DemoHost__StripeAccountId: ${SEED_DEMO_HOST_STRIPE_ACCOUNT_ID:-}
 
+      # --- dados de teste ---
+      # Tutores com pets e anfitrioes verificados com cantinho (ficticios, em Maringa).
+      Seed__TestData__Enabled: ${SEED_TEST_DATA_ENABLED:-false}
+      Seed__TestData__Password: ${SEED_TEST_DATA_PASSWORD:-}
+
       # --- seed do admin ---
       # Cria o admin na subida se ainda nao existir. Nunca altera um admin existente.
       Seed__Admin__Enabled: ${SEED_ADMIN_ENABLED:-false}

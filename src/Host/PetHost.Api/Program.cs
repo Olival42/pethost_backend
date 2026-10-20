@@ -8,6 +8,7 @@ using Microsoft.IdentityModel.Tokens;
 using PetHost.Api.Authentication;
 using PetHost.Api.HealthChecks;
 using PetHost.Api.OpenApi;
+using PetHost.Api.Seed;
 using PetHost.Api.Support;
 using PetHost.Modules.Audit.Application;
 using PetHost.Modules.Audit.Infrastructure;
@@ -166,6 +167,9 @@ builder.Services.AddReviewsInfrastructure(builder.Configuration);
 builder.Services.AddPaymentsApplication();
 builder.Services.AddPaymentsInfrastructure(builder.Configuration);
 
+// --- Dados de teste (Seed:TestData, desligado por padrão): tutores, anfitriões, cantinhos e pets ---
+builder.Services.AddTestDataSeed(builder.Configuration);
+
 // --- Autenticação ---
 var jwtOptions = builder.Configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>()
     ?? throw new InvalidOperationException(
@@ -313,6 +317,9 @@ await app.Services.InitializeReviewsModuleAsync(
 
 await app.Services.InitializePaymentsModuleAsync(
     applyMigrations: app.Environment.IsDevelopment());
+
+// Depois de todos os módulos: os dados de teste cruzam Auth, Owners, Hosts, Pets e Listings.
+await app.Services.SeedTestDataAsync();
 
 await app.RunAsync();
 

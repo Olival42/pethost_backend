@@ -383,7 +383,7 @@ O protótipo HTML atual serve como **mapa de telas**, não como visual final. O 
 | **1**      | Base: projeto .NET, banco, login com dois tipos de conta, ficha do pet (tutor e anfitrião). Decidir o front (decidido: Next.js). Teste isolado do Stripe (Pix em modo de teste + webhook local).   |
 | **2**      | Verificação do anfitrião (solicitação, fotos no bucket privado, fila e decisão do admin — feito), cantinho + conexão com Stripe, agenda, busca, tela do cantinho com selos e "Combina com seu pet".                                                           |
 | **3**      | Reserva completa (pedir, aceitar, recusar, expirar), pagamento com Payment Element, webhook, chegada e saída, repasse, chat.                                             |
-| **4**      | Avaliação, cancelamento com reembolso, painel do anfitrião, revisão de todos os textos no tom da seção 2, dados de demonstração com bairros de Maringá, testes e ensaio. |
+| **4**      | Avaliação, cancelamento com reembolso, painel do anfitrião, revisão de todos os textos no tom da seção 2, dados de demonstração com bairros de Maringá (feito: [`dados-de-teste.md`](dados-de-teste.md)), testes e ensaio. |
 
 ## 11. Em aberto e o que mudou
 
