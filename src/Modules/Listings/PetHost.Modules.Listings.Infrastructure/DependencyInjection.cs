@@ -27,6 +27,7 @@ using PetHost.Modules.Listings.Infrastructure.Directory;
 using PetHost.Modules.Listings.Infrastructure.Geocoding;
 using PetHost.Modules.Listings.Infrastructure.Hosts;
 using PetHost.Modules.Listings.Infrastructure.Persistence;
+using PetHost.Modules.Listings.Infrastructure.Persistence.Seed;
 using PetHost.Modules.Listings.Infrastructure.Reviews;
 using PetHost.Modules.Listings.Infrastructure.Persistence.Repositories;
 using PetHost.Modules.Listings.Infrastructure.Pets;
@@ -74,6 +75,9 @@ public static class DependencyInjection
 
         // Contrato público: o Bookings lê as condições do cantinho por aqui (§5).
         services.AddScoped<IListingDirectory, ListingDirectory>();
+
+        // Dados de teste da API: cantinho com a coordenada pronta (sem o mapa).
+        services.AddScoped<ListingSeeder>();
 
         // Exclusão da conta (LGPD): a parte do Listings (§5).
         services.AddScoped<IPersonalDataEraser, ListingPersonalDataEraser>();

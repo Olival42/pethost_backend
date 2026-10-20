@@ -1,26 +1,18 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using PetHost.Modules.Hosts.Application.HostApplications;
 using PetHost.Modules.Hosts.Application.Hosts.StripeOnboarding;
-using PetHost.Modules.Hosts.Domain.HostApplications;
-using PetHost.Modules.Hosts.Domain.Hosts;
 using PetHost.Shared.Contracts.Accounts;
 using PetHost.Shared.Contracts.Authorization;
 
 namespace PetHost.Modules.Hosts.Infrastructure.Persistence.Seed;
 
 /// <summary>
-/// Cria o anfitrião de demonstração (<see cref="DemoHostSeedOptions"/>) se ainda não existir:
-/// a conta (pelo contrato do Auth), uma solicitação aprovada e o perfil de anfitrião.
+/// Cria o anfitrião de demonstração (<see cref="DemoHostSeedOptions"/>) se ainda não existir, pelo
+/// <see cref="VerifiedHostSeeder"/>: a conta, uma solicitação aprovada e o perfil de anfitrião.
 /// </summary>
 /// <remarks>
-/// Passa pelo mesmo fluxo do domínio — abre, "envia" as fotos, envia, aprova — com fotos de
-/// mentira que nunca vão ao bucket e são apagadas na hora. Assim não existe atalho no domínio
-/// para criar anfitrião sem verificação.
-/// <para>
 /// Idempotente pelo e-mail: se a conta de anfitrião já existe, não faz nada (nem troca senha,
 /// como o seed do admin).
-/// </para>
 /// <para>
 /// Com conta conectada configurada, lê a situação dela no Stripe logo depois de criar (se o
 /// Stripe estiver configurado e no ar): conta de teste já aprovada põe os cantinhos na busca sem
@@ -28,20 +20,11 @@ namespace PetHost.Modules.Hosts.Infrastructure.Persistence.Seed;
 /// </para>
 /// </remarks>
 internal sealed partial class HostsDbSeeder(
-    IAccountRegistrar accountRegistrar,
-    IHostRepository hostRepository,
-    IHostApplicationRepository applicationRepository,
-    IHostsUnitOfWork unitOfWork,
+    VerifiedHostSeeder verifiedHostSeeder,
     HostPayoutSetup payoutSetup,
     IOptions<DemoHostSeedOptions> options,
-    TimeProvider timeProvider,
     ILogger<HostsDbSeeder> logger)
 {
-    /// <summary>"Quem aprovou" o anfitrião de demonstração: não é um admin de verdade.</summary>
-    public static readonly Guid SeedActorId = new("5eed0000-0000-7000-8000-000000000001");
-
-    private const string EmailAlreadyRegistered = "AUTH_EMAIL_ALREADY_REGISTERED";
-
     public async Task SeedAsync(CancellationToken cancellationToken)
     {
         var settings = options.Value;
@@ -54,13 +37,6 @@ internal sealed partial class HostsDbSeeder(
             return;
         }
 
-        var cpf = Cpf.Create(settings.Cpf);
-        if (cpf.IsFailure)
-        {
-            LogInvalidCpf(logger);
-            return;
-        }
-
         var registration = new AccountRegistration(
             settings.FullName,
             settings.Email,
@@ -70,44 +46,30 @@ internal sealed partial class HostsDbSeeder(
             settings.BirthDate,
             new AddressData(settings.ZipCode, settings.Street, settings.Number, null, settings.Neighborhood, settings.City, settings.State));
 
-        var valid = await accountRegistrar.ValidateAsync(registration, cancellationToken).ConfigureAwait(false);
-        if (valid.IsFailure)
+        var result = await verifiedHostSeeder
+            .SeedAsync(new VerifiedHostSeed(registration, settings.Cpf, settings.StripeAccountId), cancellationToken)
+            .ConfigureAwait(false);
+
+        switch (result.Status)
         {
-            if (valid.FirstError?.Code == EmailAlreadyRegistered)
+            case VerifiedHostSeedStatus.InvalidCpf:
+                LogInvalidCpf(logger);
+                return;
+            case VerifiedHostSeedStatus.AlreadyExists:
                 LogAlreadyExists(logger);
-            else
-                LogRejected(logger, string.Join(", ", valid.Errors!.Select(e => e.Field ?? e.Code)));
-
-            return;
+                return;
+            case VerifiedHostSeedStatus.Rejected:
+                LogRejected(logger, result.Detail ?? "unknown");
+                return;
+            case VerifiedHostSeedStatus.CpfInUse:
+                LogCpfInUse(logger);
+                return;
+            case VerifiedHostSeedStatus.Failed:
+                LogFailed(logger);
+                return;
         }
 
-        var cpfInUse = await hostRepository.ExistsIndividualByCpfAsync(cpf.Value!, cancellationToken).ConfigureAwait(false)
-            || await applicationRepository.ExistsOpenWithCpfAsync(cpf.Value!, Guid.Empty, cancellationToken).ConfigureAwait(false);
-        if (cpfInUse)
-        {
-            LogCpfInUse(logger);
-            return;
-        }
-
-        var session = await accountRegistrar.RegisterAsync(registration, cancellationToken).ConfigureAwait(false);
-        if (session.IsFailure)
-        {
-            var code = session.FirstError?.Code ?? "unknown";
-            LogRejected(logger, code);
-            return;
-        }
-
-        var userId = session.Value!.User.Id;
-        var host = await CreateVerifiedHostAsync(userId, cpf.Value!, settings, cancellationToken).ConfigureAwait(false);
-
-        if (host is null)
-        {
-            // Compensação: sem perfil de anfitrião, a conta não fica pela metade.
-            await accountRegistrar.DeleteAsync(userId, CancellationToken.None).ConfigureAwait(false);
-            LogFailed(logger);
-            return;
-        }
-
+        var host = result.Host!;
         var stripeLinked = host.StripeAccountId is not null;
         LogCreated(logger, stripeLinked);
 
@@ -116,40 +78,6 @@ internal sealed partial class HostsDbSeeder(
             var synced = await payoutSetup.SyncAsync(host, cancellationToken).ConfigureAwait(false);
             LogStripeSynced(logger, synced.IsSuccess ? host.StripePayoutsEnabled.ToString() : synced.FirstError?.Code ?? "unknown");
         }
-    }
-
-    private async Task<Host?> CreateVerifiedHostAsync(Guid userId, Cpf cpf, DemoHostSeedOptions settings, CancellationToken cancellationToken)
-    {
-        var now = timeProvider.GetUtcNow();
-
-        var started = HostApplication.Start([], userId, cpf, IdentityDocumentType.Cin, company: null, HostVerificationNotice.CurrentVersion, null, now);
-        if (started.IsFailure)
-            return null;
-
-        var application = started.Value!;
-
-        // Fotos de mentira: só para o fluxo do domínio. Nunca existiram no bucket.
-        foreach (var (kind, index) in DocumentKindValues.Required.Select((kind, index) => (kind, index)))
-            application.AttachDocument(kind, $"seed/demo-host/{DocumentKindValues.ToWire(kind)}", new string((char)('a' + index), 64), 0, now);
-
-        if (application.Submit(now).IsFailure)
-            return null;
-
-        var approved = application.Approve(SeedActorId, "Anfitrião de demonstração criado pelo seed.", now);
-        if (approved.IsFailure)
-            return null;
-
-        application.PurgeDocuments(now);
-
-        var host = approved.Value!;
-        if (!string.IsNullOrWhiteSpace(settings.StripeAccountId) && host.LinkStripeAccount(settings.StripeAccountId, now).IsFailure)
-            return null;
-
-        applicationRepository.Add(application);
-        hostRepository.Add(host);
-
-        var saved = await unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-        return saved.IsSuccess ? host : null;
     }
 
     [LoggerMessage(EventId = 7100, Level = LogLevel.Warning, Message = "Demo host seed is enabled but Email, Password or Cpf is missing; skipped.")]
