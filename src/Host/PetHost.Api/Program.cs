@@ -104,7 +104,14 @@ builder.Services.Configure<SupportOptions>(builder.Configuration.GetSection(Supp
 builder.Services.AddRealtime(builder.Configuration, ConfigureJson);
 
 // Documento OpenAPI (/openapi/v1.json) com o JWT declarado, para o Swagger UI.
-builder.Services.AddOpenApi(openApi => openApi.AddDocumentTransformer<BearerSecuritySchemeTransformer>());
+builder.Services.AddOpenApi(openApi =>
+{
+    openApi.AddDocumentTransformer<BearerSecuritySchemeTransformer>();
+
+    // Sucesso e erro com schema e exemplo próprios: success true no 2xx, false no erro.
+    openApi.AddSchemaTransformer<SuccessEnvelopeSchemaTransformer>();
+    openApi.AddDocumentTransformer<ErrorResponsesDocumentTransformer>();
+});
 
 // --- TimeProvider injetado: nenhum DateTime.UtcNow no domínio (§9) ---
 builder.Services.AddSingleton(TimeProvider.System);
