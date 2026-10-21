@@ -20,7 +20,6 @@ Cadastro da conta base, login, renovação e logout com JWT (access token) + ref
 8. [Configuração](#8-configuração)
 9. [Testes](#9-testes)
 10. [Decisões e desvios do padrão](#10-decisões-e-desvios-do-padrão)
-11. [Pendências](#11-pendências)
 
 ---
 
@@ -61,7 +60,7 @@ tests/                                      11 projetos de teste (seção 9)
 
 Recebem e devolvem JSON em camelCase. "Token" = precisa de `Authorization: Bearer <accessToken>`; as rotas `me` agem sempre sobre a conta do token, nunca sobre um id vindo da request.
 
-> **Swagger (só em Development):** `http://localhost:8080/swagger` — todas as rotas de todos os módulos, com o formato de cada uma. Faça login em `POST /api/v1/auth/sessions/login`, copie o `accessToken`, clique em **Authorize** e cole (sem "Bearer"); o token fica salvo no navegador. O documento cru está em `/openapi/v1.json`. Em produção nenhum dos dois é publicado.
+> **Swagger (só em Development):** `http://localhost:8080/swagger` — todas as rotas de todos os módulos, com o formato de cada uma. Faça login em `POST /api/v1/auth/sessions/login`, copie o `accessToken`, clique em **Authorize** e cole (sem "Bearer"); o token fica salvo no navegador. O documento cru está em `/openapi/v1.json`. Cada status tem descrição e exemplo próprios: o de sucesso vem com `success: true` e o `data`; os de erro, com `success: false` e um `error` de exemplo (o código transversal do status — o endpoint pode devolver um código do módulo, listado na seção 4). Em produção nenhum dos dois é publicado.
 
 | Método | Rota | Acesso | O que faz | Sucesso |
 |---|---|---|---|---|
@@ -274,7 +273,7 @@ O que a inativação faz na conta, venha de onde vier:
 
 `POST /sessions/switch` com `{ "role": "host", "password": "..." }` abre uma sessão na outra conta e devolve a [sessão](#26-resposta-de-sessão) dela. A sessão atual continua valendo: o front descarta os tokens antigos ou guarda os dois para alternar.
 
-**Por que pede a senha da conta de destino:** o e-mail ainda não é verificado. Sem a senha, quem criasse uma conta de anfitrião com o e-mail de outra pessoa entraria na conta de tutor dela. Quando houver verificação de e-mail, a senha pode sair da troca (pendência 4).
+**Por que pede a senha da conta de destino:** o e-mail não é verificado. Sem a senha, quem criasse uma conta de anfitrião com o e-mail de outra pessoa entraria na conta de tutor dela.
 
 | Status | Código | Quando |
 |---|---|---|
@@ -661,6 +660,8 @@ Bugs encontrados durante o desenvolvimento:
 | Sem registro de aceite de termos | Decisão sua. Se precisar guardar a versão aceita, vira uma tabela própria. |
 | Inativar é por conta, não por pessoa | Pedido seu: tutor e anfitrião da mesma pessoa são contas separadas. |
 | Troca de conta pede a senha da conta de destino | O e-mail não é verificado; mesmo e-mail não prova que é a mesma pessoa. |
+| Sem verificação de e-mail | Fora do escopo, decisão sua. Por isso a troca de conta continua pedindo a senha. |
+| E-mail não muda depois do cadastro | Fora do escopo, decisão sua: não há rota para trocar o e-mail, e o `PATCH` do perfil não mexe nele. |
 | Cadastro em `POST /users/register` (escolha sua) | Mesmo estilo de `/sessions/login`. |
 | `/users/register` só para anfitrião; sem editar perfil nem inativar/reativar em `/users` | Pedido seu: o tutor nasce, muda de perfil e de status e volta pelo Owners, junto com o perfil de tutor. As rotas `PATCH /users/me`, `POST /users/me/deactivate` e `POST /users/reactivate` foram removidas; a regra continua no Auth (`ProfilePatch`, `AccountProfileEditor`, `AccountStatusManager`), usada pelos contratos `IAccountProfileEditor` e `IAccountStatusManager`. |
 | `PATCH` em vez de `PUT` no perfil | Pedido seu: a pessoa manda só o que quer trocar. Texto vazio limpa os opcionais, porque `null` não distingue "não mexer" de "apagar". Valor igual ao atual não é alteração. |
@@ -693,13 +694,3 @@ Bugs encontrados durante o desenvolvimento:
 | Regras de analisador desligadas: `CA1716`, `CA1000`, `CA1002` | Brigam com os nomes e assinaturas que o próprio §6 define (`Error`, `Result<T>.Success`, `List<Error>`). |
 | `CA1707` e `CA1711` desligadas só nos testes | Brigam com `MethodName_Should_X_When_Y` (§14) e com `[CollectionDefinition]` do xUnit. |
 | Pasta `Migrations` marcada como código gerado | O §11 proíbe editar migration à mão, e o código do EF não segue o `.editorconfig`. |
-
-~~**Conflito em aberto entre os documentos**: dinheiro em centavos (`*_cents`) no dicionário × `numeric(18,2)` no §11 do `PROJECT_STANDARDS.md`.~~ Resolvido com o módulo de pagamentos: reais em `numeric` no cantinho e na reserva; centavos `bigint` + `currency` no Payments, como o Stripe (§11).
-
----
-
-## 11. Pendências
-
-| # | O quê | Impacto |
-|---|---|---|
-| 1 | E-mail não é verificado. | É o que obriga a troca de conta a pedir senha. A verificação seria: token por e-mail no cadastro (mesmo molde do "esqueci a senha"), `email_verified_at` em `users`, e só contas verificadas trocariam sem senha. |

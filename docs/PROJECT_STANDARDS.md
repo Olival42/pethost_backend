@@ -645,7 +645,7 @@ Verbos em uso: `register`, `login`, `refresh`, `logout`, `switch`, `deactivate`,
 
 **Edição de perfil é `PATCH`:** só o que vier no corpo muda. Campo ausente ou `null` = não mexer; texto vazio (`""`) limpa um campo opcional, porque `null` não distingue "não mexer" de "apagar". Objeto aninhado (endereço) também é parcial e é validado inteiro depois de completado com o valor atual. Todos os erros de validação voltam juntos.
 
-**Dado sensível fora do `PATCH`:** senha e e-mail têm rota própria e pedem a senha atual (`POST /users/me/password`). Dado sensível que fica no `PATCH` do papel (CPF do tutor) pede `currentPassword` quando muda. Senha atual errada é `400` no campo `currentPassword`, não `401` — o token é válido.
+**Dado sensível fora do `PATCH`:** a senha tem rota própria e pede a senha atual (`POST /users/me/password`). O e-mail não muda depois do cadastro. Dado sensível que fica no `PATCH` do papel (CPF do tutor) pede `currentPassword` quando muda. Senha atual errada é `400` no campo `currentPassword`, não `401` — o token é válido.
 
 > Nunca `204` — o envelope acompanha toda resposta.
 
@@ -687,7 +687,7 @@ Fora isso, lista que o usuário final vê é sempre paginada.
 
 **Exceção de formato — mensagens do chat:** paginação por **cursor**, não por número de página (`GET /conversations/{id}/messages?before={messageId}&pageSize=50`). Da mais nova para a mais antiga; `before` = id da mensagem mais antiga já carregada; a resposta traz `items`, `pageSize` e `hasMore`. Motivo: mensagem nova chegando no meio da leitura faria as páginas numeradas "andarem" (repetir ou pular mensagem). O cursor compara `(created_at, id)`. Decisão do produto (2026-10-15); detalhes em [`modulo-conversations.md`](modulo-conversations.md).
 
-Todo endpoint tem `/// <summary>`, `[ProducesResponseType<ApiResponse<T>>]` para **cada** status possível e `[Authorize]`/`[AllowAnonymous]` explícito — é o que aparece no Swagger (`/swagger`, só em Development, documento do `Microsoft.AspNetCore.OpenApi` em `/openapi/v1.json`, com o JWT declarado para o botão Authorize). O `429` do limite geral vale para todos e não é repetido em cada um; endpoint com política própria declara o `429`.
+Todo endpoint tem `/// <summary>`, `[ProducesResponseType<ApiResponse<T>>]` para **cada** status possível e `[Authorize]`/`[AllowAnonymous]` explícito — é o que aparece no Swagger (`/swagger`, só em Development, documento do `Microsoft.AspNetCore.OpenApi` em `/openapi/v1.json`, com o JWT declarado para o botão Authorize). No documento, o `ApiResponse<T>` descreve só o sucesso (`success: true` + `data`), e todo status 4xx/5xx é trocado pelo envelope de erro `ApiErrorResponse` (`success: false` + `error`), com descrição em português e um exemplo com o código transversal do status (transformers em `PetHost.Api/OpenApi`) — o controller continua declarando `ApiResponse<T>` em todos. O `429` do limite geral vale para todos e não é repetido em cada um; endpoint com política própria declara o `429`.
 
 ### Rate limit
 
