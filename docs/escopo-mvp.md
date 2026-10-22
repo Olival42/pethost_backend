@@ -107,7 +107,7 @@ A ideia é que o produto não pareça um sistema genérico. Ele tem quatro princ
 | **Mapa**                                               | Bairro e distância bastam para a vizinhança. Entra se sobrar tempo. (O backend já manda o ponto aproximado — item 2 da seção 3.3.) |
 | **Diário separado**                                    | O chat com foto faz esse papel.                                     |
 | **Verificação automática de identidade**               | Stripe Identity não atende conta brasileira (out/2026); serviços nacionais (Serpro Datavalid, unico, idwall) são pagos. A conferência é manual, pelo admin. |
-| **Notificação push e por e-mail**                      | Aviso dentro do app (contador de não lidas).                        |
+| **Notificação push**                                   | Aviso dentro do app (contador de não lidas) e por e-mail (seção 3.3, item 3). |
 | **Áudio, vídeo, "digitando…", confirmação de leitura** | Não muda a confiança; custa tempo.                                  |
 | **Preço por temporada, desconto semanal, cupom**       | Diária fixa por pet resolve.                                        |
 | **Seguro, cobertura veterinária, mediação de disputa** | Envolvem parceria e análise jurídica.                               |
@@ -214,7 +214,7 @@ erDiagram
     host_applications ||--o| hosts : "approved as"
     owners ||--o{ pets : "owns"
     hosts ||--o{ pets : "lives with"
-    hosts ||--o| listings : "hosts"
+    hosts ||--o{ listings : "hosts"
     listings ||--o{ listing_photos : "has"
     listings ||--|{ listing_species : "accepts"
     listings ||--o{ availability_blocks : "blocks"
@@ -269,7 +269,7 @@ erDiagram
     }
     listings {
         uuid id PK
-        uuid host_id FK, UK
+        uuid host_id FK
     }
     listing_photos {
         uuid id PK
@@ -357,13 +357,13 @@ _Aqui só as chaves. Todas as colunas estão no dicionário de dados e na versã
 2. pets.owner_id aponta para owners.id e pets.host_id para hosts.id — exatamente um dos dois (CHECK). bookings.owner_id e conversations.owner_id apontam para owners.id (como nos pets); listings.host_id, bookings.host_id e conversations.host_id para hosts.id. FKs lógicas, validadas na aplicação.
 3. booking_pets: todo pet precisa ser do mesmo tutor da reserva (pet de anfitrião não se hospeda), e de tipo e porte aceitos pelo cantinho.
 4. bookings: check_out_date \> check_in_date; pet_count = linhas em booking_pets; nightly_rate é cópia do preço no momento do pedido.
-5. Capacidade: em nenhum dia, a soma de pet_count das reservas confirmed ou in_progress do cantinho passa de listings.capacity.
+5. Capacidade: em nenhum dia, a soma de pet_count das reservas accepted (nas 24h para pagar), confirmed ou in_progress do cantinho passa de listings.capacity (seção 7, regra 2).
 6. Dinheiro do Stripe em centavos inteiros (\*\_cents); diária e valor da reserva em reais (`numeric`), como no cantinho. Em cada parcela (payment_installments): platform_fee_cents + host_payout_cents = amount_cents + late_fee_cents − refunded_cents.
 7. reviews.rating entre 1 e 5; só para bookings com status completed, uma por lado por reserva, até 7 dias depois do check-out.
 8. stripe_events.stripe_event_id único: webhook repetido não é processado duas vezes.
 9. **CPF identifica a pessoa; o e-mail identifica o login.** Um CPF aparece em no máximo uma conta de tutor e uma de anfitrião, e só se as duas forem do **mesmo e-mail** (a mesma pessoa). CPF já usado por outro e-mail, em qualquer papel, é recusado (`409`). Vale entre tutores e anfitriões (inclusive o representante de empresa e as solicitações abertas), pelo contrato `ICpfOwnership` ([`modulo-hosts.md`](modulo-hosts.md) seção 4.1).
 10. **Titularidade do CPF:** validar o dígito não prova que o CPF é de quem digitou. O anfitrião é verificado pelo admin (documento com foto e selfie conferidos contra os dados da conta) e, depois, pelo Stripe Connect (CPF, nome e nascimento conferidos na Receita) antes de receber. O tutor não é verificado no MVP — opções: consulta CPF + nome + nascimento (Serpro Datavalid) ou Stripe Identity no primeiro pagamento. Quem tem o CPF recusado porque outra conta já o usa fala com o suporte; o admin confere o documento, libera o CPF e inativa a conta indevida.
-9. Nada com histórico é apagado: pets e cantinhos são desativados (is_active).
+11. Nada com histórico é apagado: pets e cantinhos são desativados (is_active).
 
 ## 9. Telas
 
