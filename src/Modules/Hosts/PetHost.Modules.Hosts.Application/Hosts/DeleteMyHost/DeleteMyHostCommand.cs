@@ -5,6 +5,7 @@ using PetHost.Modules.Hosts.Domain.HostApplications;
 using PetHost.Modules.Hosts.Domain.Hosts;
 using PetHost.Shared.Contracts.Audit;
 using PetHost.Shared.Contracts.Storage;
+using PetHost.Shared.Contracts.Validation;
 using PetHost.Shared.Kernel.Messaging;
 using PetHost.Shared.Kernel.Primitives;
 using PetHost.Shared.Kernel.Results;
@@ -20,8 +21,8 @@ public sealed class DeleteMyHostCommandValidator : AbstractValidator<DeleteMyHos
 {
     public DeleteMyHostCommandValidator()
     {
-        RuleFor(x => x.UserId).NotEmpty().WithMessage("User id is required.");
-        RuleFor(x => x.CurrentPassword).NotEmpty().WithMessage(HostsErrors.DeletionPasswordRequired.Message);
+        RuleFor(x => x.UserId).NotEmpty().WithError(HostsErrors.UserIdRequired);
+        RuleFor(x => x.CurrentPassword).NotEmpty().WithError(HostsErrors.DeletionPasswordRequired);
     }
 }
 

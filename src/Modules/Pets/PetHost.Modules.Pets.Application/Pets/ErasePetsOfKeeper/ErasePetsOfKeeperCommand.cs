@@ -1,6 +1,8 @@
 using FluentValidation;
+using PetHost.Modules.Pets.Domain.Errors;
 using PetHost.Modules.Pets.Domain.Pets;
 using PetHost.Shared.Contracts.Storage;
+using PetHost.Shared.Contracts.Validation;
 using PetHost.Shared.Kernel.Messaging;
 using PetHost.Shared.Kernel.Results;
 
@@ -18,8 +20,8 @@ public sealed class ErasePetsOfKeeperCommandValidator : AbstractValidator<EraseP
 {
     public ErasePetsOfKeeperCommandValidator()
     {
-        RuleFor(x => x.KeeperType).IsInEnum().WithMessage("Keeper type is invalid.");
-        RuleFor(x => x.KeeperId).NotEmpty().WithMessage("Keeper id is required.");
+        RuleFor(x => x.KeeperType).IsInEnum().WithError(PetsErrors.KeeperTypeInvalid);
+        RuleFor(x => x.KeeperId).NotEmpty().WithError(PetsErrors.KeeperIdRequired);
     }
 }
 

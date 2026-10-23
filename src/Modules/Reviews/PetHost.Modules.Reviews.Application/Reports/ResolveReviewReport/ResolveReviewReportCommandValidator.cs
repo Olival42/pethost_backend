@@ -2,6 +2,7 @@ using FluentValidation;
 using PetHost.Modules.Reviews.Domain.Errors;
 using PetHost.Modules.Reviews.Domain.Reports;
 using PetHost.Modules.Reviews.Domain.Reviews;
+using PetHost.Shared.Contracts.Validation;
 
 namespace PetHost.Modules.Reviews.Application.Reports.ResolveReviewReport;
 
@@ -11,15 +12,15 @@ public sealed class ResolveReviewReportCommandValidator : AbstractValidator<Reso
     public ResolveReviewReportCommandValidator()
     {
         RuleFor(x => x.ReportId)
-            .NotEmpty().WithMessage(ReviewsErrors.ReportIdRequired.Message);
+            .NotEmpty().WithError(ReviewsErrors.ReportIdRequired);
 
         RuleFor(x => x.Outcome)
-            .Must(outcome => ReviewReportStatusValues.TryOutcomeFromWire(outcome, out _)).WithMessage(ReviewsErrors.OutcomeInvalid.Message);
+            .Must(outcome => ReviewReportStatusValues.TryOutcomeFromWire(outcome, out _)).WithError(ReviewsErrors.OutcomeInvalid);
 
         RuleFor(x => x.Note)
-            .Must(note => Review.NormalizeText(note) is not null).WithMessage(ReviewsErrors.NoteRequired.Message)
-            .MaximumLength(ReviewReport.TextMaxLength).WithMessage(ReviewsErrors.NoteTooLong.Message)
+            .Must(note => Review.NormalizeText(note) is not null).WithError(ReviewsErrors.NoteRequired)
+            .MaximumLength(ReviewReport.TextMaxLength).WithError(ReviewsErrors.NoteTooLong)
             .Must(note => note is null || !Review.HasForbiddenControlCharacters(note))
-            .WithMessage(ReviewsErrors.NoteInvalidCharacters.Message);
+            .WithError(ReviewsErrors.NoteInvalidCharacters);
     }
 }

@@ -1,4 +1,6 @@
 using FluentValidation;
+using PetHost.Modules.Pets.Domain.Errors;
+using PetHost.Shared.Contracts.Validation;
 
 namespace PetHost.Modules.Pets.Application.Pets.RemovePetPhoto;
 
@@ -8,9 +10,9 @@ public sealed class RemovePetPhotoCommandValidator : AbstractValidator<RemovePet
     public RemovePetPhotoCommandValidator()
     {
         RuleFor(x => x.PetId)
-            .NotEmpty().WithMessage("Pet id is required.");
+            .NotEmpty().WithError(PetsErrors.PetIdRequired);
 
         RuleFor(x => x.PhotoId)
-            .NotEmpty().WithMessage("Photo id is required.");
+            .NotEmpty().WithError(PetsErrors.PhotoIdRequired);
     }
 }

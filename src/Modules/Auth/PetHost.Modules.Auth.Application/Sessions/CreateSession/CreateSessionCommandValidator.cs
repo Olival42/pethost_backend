@@ -1,5 +1,7 @@
 using FluentValidation;
+using PetHost.Modules.Auth.Domain.Errors;
 using PetHost.Modules.Auth.Domain.Users;
+using PetHost.Shared.Contracts.Validation;
 
 namespace PetHost.Modules.Auth.Application.Sessions.CreateSession;
 
@@ -12,18 +14,18 @@ public sealed class CreateSessionCommandValidator : AbstractValidator<CreateSess
     public CreateSessionCommandValidator()
     {
         RuleFor(x => x.Email)
-            .NotEmpty().WithMessage("Email is required.")
+            .NotEmpty().WithError(AuthErrors.EmailRequired)
             .MaximumLength(Email.MaxLength)
-                .WithMessage($"Email must be at most {Email.MaxLength} characters.");
+                .WithError(AuthErrors.EmailTooLong);
 
         RuleFor(x => x.Password)
-            .NotEmpty().WithMessage("Password is required.")
+            .NotEmpty().WithError(AuthErrors.PasswordRequired)
             .MaximumLength(Password.MaxLength)
-                .WithMessage($"Password must be at most {Password.MaxLength} characters.");
+                .WithError(AuthErrors.PasswordTooLong);
 
         RuleFor(x => x.Role)
-            .NotEmpty().WithMessage("Role is required.")
+            .NotEmpty().WithError(AuthErrors.RoleRequired)
             .Must(role => UserRoleValues.TryParse(role, out _))
-                .WithMessage("Role must be one of 'owner', 'host' or 'admin'.");
+                .WithError(AuthErrors.RoleUnknown);
     }
 }

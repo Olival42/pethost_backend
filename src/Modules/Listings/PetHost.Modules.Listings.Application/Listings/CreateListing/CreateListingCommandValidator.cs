@@ -1,4 +1,6 @@
 using FluentValidation;
+using PetHost.Modules.Listings.Domain.Errors;
+using PetHost.Shared.Contracts.Validation;
 
 namespace PetHost.Modules.Listings.Application.Listings.CreateListing;
 
@@ -12,6 +14,6 @@ public sealed class CreateListingCommandValidator : AbstractValidator<CreateList
     public CreateListingCommandValidator()
     {
         RuleFor(x => x.UserId)
-            .NotEmpty().WithMessage("User id is required.");
+            .NotEmpty().WithError(ListingsErrors.UserIdRequired);
     }
 }

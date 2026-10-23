@@ -1,4 +1,6 @@
 using FluentValidation;
+using PetHost.Modules.Pets.Domain.Errors;
+using PetHost.Shared.Contracts.Validation;
 
 namespace PetHost.Modules.Pets.Application.Pets.DeactivatePet;
 
@@ -8,6 +10,6 @@ public sealed class DeactivatePetCommandValidator : AbstractValidator<Deactivate
     public DeactivatePetCommandValidator()
     {
         RuleFor(x => x.PetId)
-            .NotEmpty().WithMessage("Pet id is required.");
+            .NotEmpty().WithError(PetsErrors.PetIdRequired);
     }
 }

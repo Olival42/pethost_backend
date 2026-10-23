@@ -1,5 +1,6 @@
 using FluentValidation;
 using PetHost.Modules.Conversations.Domain.Errors;
+using PetHost.Shared.Contracts.Validation;
 
 namespace PetHost.Modules.Conversations.Application.Conversations.LiftModerationBlock;
 
@@ -9,6 +10,6 @@ public sealed class LiftModerationBlockCommandValidator : AbstractValidator<Lift
     public LiftModerationBlockCommandValidator()
     {
         RuleFor(x => x.ConversationId)
-            .NotEmpty().WithMessage(ConversationsErrors.ConversationIdRequired.Message);
+            .NotEmpty().WithError(ConversationsErrors.ConversationIdRequired);
     }
 }

@@ -2,6 +2,7 @@ using FluentValidation;
 using PetHost.Modules.Hosts.Application.Abstractions;
 using PetHost.Modules.Hosts.Application.Hosts.Responses;
 using PetHost.Shared.Contracts.Accounts;
+using PetHost.Shared.Contracts.Validation;
 using PetHost.Shared.Kernel.Errors;
 using PetHost.Shared.Kernel.Messaging;
 
@@ -37,7 +38,7 @@ public sealed class UpdateMyHostCommandValidator : AbstractValidator<UpdateMyHos
     {
         ArgumentNullException.ThrowIfNull(accounts);
 
-        RuleFor(x => x).CustomAsync(async (command, context, cancellationToken) =>
+        RuleFor(x => x).CustomErrorsAsync(async (command, context, cancellationToken) =>
         {
             var patch = command.ToProfilePatch();
             if (patch.IsEmpty)
@@ -49,7 +50,7 @@ public sealed class UpdateMyHostCommandValidator : AbstractValidator<UpdateMyHos
 
             // Só erros de formato; conta inexistente fica com o handler.
             foreach (var error in account.Errors!.Where(e => e.Code == ErrorCodes.Validation))
-                context.AddFailure(error.Field ?? string.Empty, error.Message);
+                context.AddFailure(error);
         });
     }
 }

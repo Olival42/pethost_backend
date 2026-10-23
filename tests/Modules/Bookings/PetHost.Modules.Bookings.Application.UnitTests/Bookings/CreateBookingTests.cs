@@ -5,6 +5,7 @@ using PetHost.Modules.Bookings.Application.Abstractions;
 using PetHost.Modules.Bookings.Application.Bookings.CreateBooking;
 using PetHost.Modules.Bookings.Domain.Bookings;
 using PetHost.Modules.Bookings.Domain.Errors;
+using PetHost.Shared.Kernel.Errors;
 using PetHost.Shared.Contracts.Audit;
 using PetHost.Shared.Kernel.Results;
 using PetHost.TestKit;
@@ -248,6 +249,31 @@ public sealed class CreateBookingCommandValidatorTests
 
         // Assert
         fields.Should().BeEquivalentTo(["ListingId", "PetIds", "CareTermsAccepted", "CheckIn", "CheckOut"]);
+    }
+
+    [Fact]
+    public void Validate_Should_CarryAStableCodeForEveryRule_When_CommandIsEmpty()
+    {
+        // Act
+        var failures = _sut.Validate(new CreateBookingCommand(Guid.CreateVersion7(), Guid.Empty, null, null, null)).Errors;
+
+        // Assert
+        failures.Select(e => e.ErrorCode).Should().BeEquivalentTo(
+            ["BOOKING_LISTING_ID_REQUIRED", "BOOKING_PET_IDS_REQUIRED", "BOOKING_CARE_TERMS_NOT_ACCEPTED", "BOOKING_CHECK_IN_REQUIRED", "BOOKING_CHECK_OUT_REQUIRED"]);
+        failures.Should().OnlyContain(e => e.CustomState is Error);
+    }
+
+    [Fact]
+    public void Validate_Should_CarryTheCodeAndParams_When_CheckInIsTooSoon()
+    {
+        // Act: a chegada de hoje (a regra do custom também passa por AddFailure(Error)).
+        var failure = _sut.Validate(Valid() with { CheckIn = "2026-10-11", CheckOut = "2026-10-17" }).Errors.Should().ContainSingle().Subject;
+
+        // Assert
+        var error = failure.CustomState.Should().BeOfType<Error>().Subject;
+        error.Reason.Should().Be("BOOKING_CHECK_IN_TOO_SOON");
+        error.Params!.Values.Should().BeEquivalentTo(new Dictionary<string, object> { ["minimumHours"] = 72, ["responseHours"] = 24, ["acceptHours"] = 48 });
+        failure.PropertyName.Should().Be("checkIn");
     }
 
     [Theory]

@@ -2,6 +2,8 @@ using FluentValidation;
 using PetHost.Modules.Hosts.Application.Abstractions;
 using PetHost.Modules.Hosts.Application.Hosts.Responses;
 using PetHost.Modules.Hosts.Application.Hosts.StripeOnboarding;
+using PetHost.Modules.Hosts.Domain.Errors;
+using PetHost.Shared.Contracts.Validation;
 using PetHost.Shared.Kernel.Messaging;
 using PetHost.Shared.Kernel.Results;
 
@@ -13,7 +15,7 @@ public sealed record CreateMyStripeOnboardingLinkCommand(Guid UserId) : ICommand
 
 public sealed class CreateMyStripeOnboardingLinkCommandValidator : AbstractValidator<CreateMyStripeOnboardingLinkCommand>
 {
-    public CreateMyStripeOnboardingLinkCommandValidator() => RuleFor(x => x.UserId).NotEmpty().WithMessage("User id is required.");
+    public CreateMyStripeOnboardingLinkCommandValidator() => RuleFor(x => x.UserId).NotEmpty().WithError(HostsErrors.UserIdRequired);
 }
 
 /// <summary>Mesmas regras de <c>StartMyStripeOnboardingCommandHandler</c>, devolvendo o link hospedado.</summary>

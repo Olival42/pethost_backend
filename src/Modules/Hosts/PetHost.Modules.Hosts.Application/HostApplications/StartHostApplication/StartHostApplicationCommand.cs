@@ -3,6 +3,7 @@ using PetHost.Modules.Hosts.Application.HostApplications.Responses;
 using PetHost.Modules.Hosts.Domain.Errors;
 using PetHost.Modules.Hosts.Domain.Hosts;
 using PetHost.Shared.Contracts.Accounts;
+using PetHost.Shared.Contracts.Validation;
 using PetHost.Shared.Kernel.Messaging;
 
 namespace PetHost.Modules.Hosts.Application.HostApplications.StartHostApplication;
@@ -41,18 +42,18 @@ public sealed class StartHostApplicationCommandValidator : AbstractValidator<Sta
         RuleFor(x => x.Cpf).ValidCpf();
         RuleFor(x => x.DocumentType).ValidDocumentType();
         RuleFor(x => x.AcceptNotice)
-            .Equal(true).WithMessage(HostsErrors.NoticeNotAccepted.Message);
+            .Equal(true).WithError(HostsErrors.NoticeNotAccepted);
 
         RuleFor(x => x.PersonType)
             .Must(type => type is null || type.Trim().ToLowerInvariant() is PersonTypeValues.Individual or PersonTypeValues.Company)
-            .WithMessage(HostsErrors.PersonTypeInvalid.Message);
+            .WithError(HostsErrors.PersonTypeInvalid);
 
-        RuleFor(x => x).Custom((command, context) =>
+        RuleFor(x => x).CustomErrors((command, context) =>
         {
             if (command.IsCompany)
                 HostApplicationRules.AddCompanyFailures(command, context);
             else if (HostApplicationRules.HasCompanyData(command))
-                context.AddFailure(HostsErrors.CompanyDataNotExpected.Field!, HostsErrors.CompanyDataNotExpected.Message);
+                context.AddFailure(HostsErrors.CompanyDataNotExpected);
         });
     }
 }

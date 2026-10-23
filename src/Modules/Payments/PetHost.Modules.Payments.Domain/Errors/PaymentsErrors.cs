@@ -15,16 +15,16 @@ public static class PaymentsErrors
     // --- Validação (VALIDATION_ERROR, 400, acumulável) ---
 
     public static readonly Error InstallmentCountInvalid =
-        Error.Validation("installmentCount", $"Installment count must be between 1 and {Payment.MaxInstallments}.");
+        Error.Validation("installmentCount", "PAYMENT_INSTALLMENT_COUNT_INVALID", $"Installment count must be between 1 and {Payment.MaxInstallments}.", ("max", Payment.MaxInstallments));
 
     public static readonly Error InstallmentNumberInvalid =
-        Error.Validation("installmentNumber", $"Installment number must be between 1 and {Payment.MaxInstallments}.");
+        Error.Validation("installmentNumber", "PAYMENT_INSTALLMENT_NUMBER_INVALID", $"Installment number must be between 1 and {Payment.MaxInstallments}.", ("max", Payment.MaxInstallments));
 
     public static readonly Error PageInvalid =
-        Error.Validation("page", "Page must be 1 or greater.");
+        Error.Validation("page", "PAYMENT_PAGE_INVALID", "Page must be 1 or greater.");
 
     public static readonly Error PageSizeInvalid =
-        Error.Validation("pageSize", $"Page size must be between 1 and {MaxPageSize}.");
+        Error.Validation("pageSize", "PAYMENT_PAGE_SIZE_INVALID", $"Page size must be between 1 and {MaxPageSize}.", ("max", MaxPageSize));
 
     // --- Quem pede ---
 
@@ -104,4 +104,12 @@ public static class PaymentsErrors
     /// <summary>409: o pagamento mudou ao mesmo tempo (um aviso do Stripe chegou junto). Leia de novo e tente outra vez.</summary>
     public static readonly Error Conflict =
         new("PAYMENT_CONFLICT", "This payment was changed at the same time. Reload it and try again.");
+
+    // --- Validação: identificadores e campos obrigatórios de comandos internos e de rota ---
+
+    public static readonly Error BookingIdRequired =
+        Error.Validation("bookingId", "PAYMENT_BOOKING_ID_REQUIRED", "Booking id is required.");
+
+    public static readonly Error StripeObjectIdRequired =
+        Error.Validation("stripeObjectId", "PAYMENT_STRIPE_OBJECT_ID_REQUIRED", "Stripe object id is required.");
 }

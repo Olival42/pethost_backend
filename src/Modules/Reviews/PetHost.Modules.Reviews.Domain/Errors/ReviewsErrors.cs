@@ -19,126 +19,126 @@ public static class ReviewsErrors
     // --- Validação (VALIDATION_ERROR, 400, acumulável) ---
 
     public static readonly Error BookingIdRequired =
-        Error.Validation("bookingId", "Booking id is required.");
+        Error.Validation("bookingId", "REVIEW_BOOKING_ID_REQUIRED", "Booking id is required.");
 
     public static readonly Error ReviewIdRequired =
-        Error.Validation("reviewId", "Review id is required.");
+        Error.Validation("reviewId", "REVIEW_REVIEW_ID_REQUIRED", "Review id is required.");
 
     public static readonly Error RatingRequired =
-        Error.Validation("rating", "Rating is required.");
+        Error.Validation("rating", "REVIEW_RATING_REQUIRED", "Rating is required.");
 
     public static readonly Error RatingInvalid =
-        Error.Validation("rating", $"Rating must be a whole number from {Review.MinRating} to {Review.MaxRating}.");
+        Error.Validation("rating", "REVIEW_RATING_INVALID", $"Rating must be a whole number from {Review.MinRating} to {Review.MaxRating}.", ("min", Review.MinRating), ("max", Review.MaxRating));
 
     public static readonly Error CommentTooLong =
-        Error.Validation("comment", $"Comment must be at most {Review.CommentMaxLength} characters.");
+        Error.Validation("comment", "REVIEW_COMMENT_TOO_LONG", $"Comment must be at most {Review.CommentMaxLength} characters.", ("max", Review.CommentMaxLength));
 
     public static readonly Error CommentInvalidCharacters =
-        Error.Validation("comment", "Comment must not contain control characters other than line breaks and tabs.");
+        Error.Validation("comment", "REVIEW_COMMENT_INVALID_CHARACTERS", "Comment must not contain control characters other than line breaks and tabs.");
 
     public static readonly Error HostIdInvalid =
-        Error.Validation("hostId", "Host id must not be empty.");
+        Error.Validation("hostId", "REVIEW_HOST_ID_INVALID", "Host id must not be empty.");
 
     public static readonly Error ListingIdInvalid =
-        Error.Validation("listingId", "Listing id must not be empty.");
+        Error.Validation("listingId", "REVIEW_LISTING_ID_INVALID", "Listing id must not be empty.");
 
     public static readonly Error PageInvalid =
-        Error.Validation("page", "Page must be 1 or greater.");
+        Error.Validation("page", "REVIEW_PAGE_INVALID", "Page must be 1 or greater.");
 
     public static readonly Error PageSizeInvalid =
-        Error.Validation("pageSize", $"Page size must be between 1 and {MaxPageSize}.");
+        Error.Validation("pageSize", "REVIEW_PAGE_SIZE_INVALID", $"Page size must be between 1 and {MaxPageSize}.", ("max", MaxPageSize));
 
     public static readonly Error OwnerIdInvalid =
-        Error.Validation("ownerId", "Owner id must not be empty.");
+        Error.Validation("ownerId", "REVIEW_OWNER_ID_INVALID", "Owner id must not be empty.");
 
     public static readonly Error PetIdInvalid =
-        Error.Validation("petId", "Pet id must not be empty.");
+        Error.Validation("petId", "REVIEW_PET_ID_INVALID", "Pet id must not be empty.");
 
     public static readonly Error RatingScopeInvalid =
-        Error.Validation("hostId", "Send exactly one of hostId or listingId.");
+        Error.Validation("hostId", "REVIEW_RATING_SCOPE_INVALID", "Send exactly one of hostId or listingId.");
 
     // --- Validação: notas dos pets (só na avaliação do anfitrião) ---
 
     public static readonly Error PetsNotAllowed =
-        Error.Validation("pets", "Only the host rates the pets of the stay.");
+        Error.Validation("pets", "REVIEW_PETS_NOT_ALLOWED", "Only the host rates the pets of the stay.");
 
     public static readonly Error PetIdRequired =
-        Error.Validation("pets", "Each pet rating needs the pet id.");
+        Error.Validation("pets", "REVIEW_PET_ID_REQUIRED", "Each pet rating needs the pet id.");
 
     public static readonly Error PetDuplicated =
-        Error.Validation("pets", "Each pet can be rated only once.");
+        Error.Validation("pets", "REVIEW_PET_DUPLICATED", "Each pet can be rated only once.");
 
     public static readonly Error PetNotInStay =
-        Error.Validation("pets", "Each rated pet must be one of the pets of this stay.");
+        Error.Validation("pets", "REVIEW_PET_NOT_IN_STAY", "Each rated pet must be one of the pets of this stay.");
 
     public static readonly Error PetRatingInvalid =
-        Error.Validation("pets", $"Each pet rating must be a whole number from {Review.MinRating} to {Review.MaxRating}.");
+        Error.Validation("pets", "REVIEW_PET_RATING_INVALID", $"Each pet rating must be a whole number from {Review.MinRating} to {Review.MaxRating}.", ("min", Review.MinRating), ("max", Review.MaxRating));
 
     public static readonly Error PetCommentTooLong =
-        Error.Validation("pets", $"Each pet comment must be at most {Review.CommentMaxLength} characters.");
+        Error.Validation("pets", "REVIEW_PET_COMMENT_TOO_LONG", $"Each pet comment must be at most {Review.CommentMaxLength} characters.", ("max", Review.CommentMaxLength));
 
     public static readonly Error PetCommentInvalidCharacters =
-        Error.Validation("pets", "Pet comments must not contain control characters other than line breaks and tabs.");
+        Error.Validation("pets", "REVIEW_PET_COMMENT_INVALID_CHARACTERS", "Pet comments must not contain control characters other than line breaks and tabs.");
 
     // --- Validação: resposta do avaliado ---
 
     public static readonly Error ReplyRequired =
-        Error.Validation("text", "Reply text is required.");
+        Error.Validation("text", "REVIEW_REPLY_REQUIRED", "Reply text is required.");
 
     public static readonly Error ReplyTooLong =
-        Error.Validation("text", $"Reply text must be at most {Review.CommentMaxLength} characters.");
+        Error.Validation("text", "REVIEW_REPLY_TOO_LONG", $"Reply text must be at most {Review.CommentMaxLength} characters.", ("max", Review.CommentMaxLength));
 
     public static readonly Error ReplyInvalidCharacters =
-        Error.Validation("text", "Reply text must not contain control characters other than line breaks and tabs.");
+        Error.Validation("text", "REVIEW_REPLY_INVALID_CHARACTERS", "Reply text must not contain control characters other than line breaks and tabs.");
 
     // --- Validação: denúncia e análise do admin ---
 
     public static readonly Error ReportIdRequired =
-        Error.Validation("reportId", "Report id is required.");
+        Error.Validation("reportId", "REVIEW_REPORT_ID_REQUIRED", "Report id is required.");
 
     public static readonly Error ReasonInvalid =
-        Error.Validation("reason", $"Reason must be one of: {string.Join(", ", ReviewReportReasonValues.All)}.");
+        Error.Validation("reason", "REVIEW_REASON_INVALID", $"Reason must be one of: {string.Join(", ", ReviewReportReasonValues.All)}.");
 
     public static readonly Error DescriptionRequired =
-        Error.Validation("description", $"Description is required when the reason is '{ReviewReportReasonValues.Other}'.");
+        Error.Validation("description", "REVIEW_DESCRIPTION_REQUIRED", $"Description is required when the reason is '{ReviewReportReasonValues.Other}'.");
 
     public static readonly Error DescriptionTooLong =
-        Error.Validation("description", $"Description must be at most {ReviewReport.TextMaxLength} characters.");
+        Error.Validation("description", "REVIEW_DESCRIPTION_TOO_LONG", $"Description must be at most {ReviewReport.TextMaxLength} characters.", ("max", ReviewReport.TextMaxLength));
 
     public static readonly Error DescriptionInvalidCharacters =
-        Error.Validation("description", "Description must not contain control characters other than line breaks and tabs.");
+        Error.Validation("description", "REVIEW_DESCRIPTION_INVALID_CHARACTERS", "Description must not contain control characters other than line breaks and tabs.");
 
     public static readonly Error OutcomeInvalid =
-        Error.Validation("outcome", $"Outcome must be one of: {string.Join(", ", ReviewReportStatusValues.Outcomes)}.");
+        Error.Validation("outcome", "REVIEW_OUTCOME_INVALID", $"Outcome must be one of: {string.Join(", ", ReviewReportStatusValues.Outcomes)}.");
 
     public static readonly Error NoteRequired =
-        Error.Validation("note", "A note is required to resolve a report.");
+        Error.Validation("note", "REVIEW_NOTE_REQUIRED", "A note is required to resolve a report.");
 
     public static readonly Error NoteTooLong =
-        Error.Validation("note", $"Note must be at most {ReviewReport.TextMaxLength} characters.");
+        Error.Validation("note", "REVIEW_NOTE_TOO_LONG", $"Note must be at most {ReviewReport.TextMaxLength} characters.", ("max", ReviewReport.TextMaxLength));
 
     public static readonly Error NoteInvalidCharacters =
-        Error.Validation("note", "Note must not contain control characters other than line breaks and tabs.");
+        Error.Validation("note", "REVIEW_NOTE_INVALID_CHARACTERS", "Note must not contain control characters other than line breaks and tabs.");
 
     public static readonly Error HideReasonRequired =
-        Error.Validation("reason", "A reason is required to hide a review.");
+        Error.Validation("reason", "REVIEW_HIDE_REASON_REQUIRED", "A reason is required to hide a review.");
 
     public static readonly Error HideReasonTooLong =
-        Error.Validation("reason", $"Reason must be at most {Review.CommentMaxLength} characters.");
+        Error.Validation("reason", "REVIEW_HIDE_REASON_TOO_LONG", $"Reason must be at most {Review.CommentMaxLength} characters.", ("max", Review.CommentMaxLength));
 
     public static readonly Error HideReasonInvalidCharacters =
-        Error.Validation("reason", "Reason must not contain control characters other than line breaks and tabs.");
+        Error.Validation("reason", "REVIEW_HIDE_REASON_INVALID_CHARACTERS", "Reason must not contain control characters other than line breaks and tabs.");
 
     public static readonly Error StatusInvalid =
-        Error.Validation("status", $"Status must be one of: {string.Join(", ", ReviewReportStatusValues.All)}.");
+        Error.Validation("status", "REVIEW_STATUS_INVALID", $"Status must be one of: {string.Join(", ", ReviewReportStatusValues.All)}.");
 
     // --- Validação: configuração do lembrete (comando da tarefa em segundo plano) ---
 
     public static readonly Error ReminderDelayInvalid =
-        Error.Validation("delayHours", $"Reminder delay must be between 1 and {(Review.WindowDays * 24) - 1} hours.");
+        Error.Validation("delayHours", "REVIEW_REMINDER_DELAY_INVALID", $"Reminder delay must be between 1 and {(Review.WindowDays * 24) - 1} hours.", ("max", (Review.WindowDays * 24) - 1));
 
     public static readonly Error BatchSizeInvalid =
-        Error.Validation("batchSize", $"Batch size must be between 1 and {MaxBatchSize}.");
+        Error.Validation("batchSize", "REVIEW_BATCH_SIZE_INVALID", $"Batch size must be between 1 and {MaxBatchSize}.", ("max", MaxBatchSize));
 
     // --- Regras de negócio ---
 

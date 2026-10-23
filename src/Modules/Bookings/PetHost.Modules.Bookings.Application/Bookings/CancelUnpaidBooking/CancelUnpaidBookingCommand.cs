@@ -3,6 +3,7 @@ using PetHost.Modules.Bookings.Application.Bookings.Responses;
 using PetHost.Modules.Bookings.Domain.Bookings;
 using PetHost.Modules.Bookings.Domain.Errors;
 using PetHost.Shared.Contracts.Audit;
+using PetHost.Shared.Contracts.Validation;
 using PetHost.Shared.Kernel.Messaging;
 using PetHost.Shared.Kernel.Results;
 
@@ -22,7 +23,7 @@ public sealed class CancelUnpaidBookingCommandValidator : AbstractValidator<Canc
     public CancelUnpaidBookingCommandValidator()
     {
         RuleFor(x => x.BookingId)
-            .NotEmpty().WithMessage("Booking id is required.");
+            .NotEmpty().WithError(BookingsErrors.BookingIdRequired);
     }
 }
 

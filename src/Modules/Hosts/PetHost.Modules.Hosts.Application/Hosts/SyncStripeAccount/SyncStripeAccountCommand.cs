@@ -2,6 +2,7 @@ using FluentValidation;
 using PetHost.Modules.Hosts.Application.Hosts.StripeOnboarding;
 using PetHost.Modules.Hosts.Domain.Errors;
 using PetHost.Modules.Hosts.Domain.Hosts;
+using PetHost.Shared.Contracts.Validation;
 using PetHost.Shared.Kernel.Messaging;
 using PetHost.Shared.Kernel.Primitives;
 using PetHost.Shared.Kernel.Results;
@@ -17,7 +18,7 @@ public sealed record SyncStripeAccountCommand(string StripeAccountId) : ICommand
 public sealed class SyncStripeAccountCommandValidator : AbstractValidator<SyncStripeAccountCommand>
 {
     public SyncStripeAccountCommandValidator() =>
-        RuleFor(x => x.StripeAccountId).NotEmpty().WithMessage("Stripe account id is required.");
+        RuleFor(x => x.StripeAccountId).NotEmpty().WithError(HostsErrors.StripeAccountIdRequired);
 }
 
 /// <summary>

@@ -1,5 +1,7 @@
 using FluentValidation;
+using PetHost.Modules.Auth.Domain.Errors;
 using PetHost.Modules.Auth.Domain.Users;
+using PetHost.Shared.Contracts.Validation;
 
 namespace PetHost.Modules.Auth.Application.Passwords.ForgotPassword;
 
@@ -12,13 +14,13 @@ public sealed class ForgotPasswordCommandValidator : AbstractValidator<ForgotPas
     public ForgotPasswordCommandValidator()
     {
         RuleFor(x => x.Email)
-            .NotEmpty().WithMessage("Email is required.")
+            .NotEmpty().WithError(AuthErrors.EmailRequired)
             .MaximumLength(Email.MaxLength)
-                .WithMessage($"Email must be at most {Email.MaxLength} characters.");
+                .WithError(AuthErrors.EmailTooLong);
 
         RuleFor(x => x.Role)
-            .NotEmpty().WithMessage("Role is required.")
+            .NotEmpty().WithError(AuthErrors.RoleRequired)
             .Must(role => UserRoleValues.TryParse(role, out _))
-                .WithMessage("Role must be one of 'owner', 'host' or 'admin'.");
+                .WithError(AuthErrors.RoleUnknown);
     }
 }

@@ -1,5 +1,6 @@
 using FluentValidation;
 using PetHost.Modules.Reviews.Domain.Errors;
+using PetHost.Shared.Contracts.Validation;
 
 namespace PetHost.Modules.Reviews.Application.Reviews.RemoveReviewReply;
 
@@ -9,6 +10,6 @@ public sealed class RemoveReviewReplyCommandValidator : AbstractValidator<Remove
     public RemoveReviewReplyCommandValidator()
     {
         RuleFor(x => x.ReviewId)
-            .NotEmpty().WithMessage(ReviewsErrors.ReviewIdRequired.Message);
+            .NotEmpty().WithError(ReviewsErrors.ReviewIdRequired);
     }
 }

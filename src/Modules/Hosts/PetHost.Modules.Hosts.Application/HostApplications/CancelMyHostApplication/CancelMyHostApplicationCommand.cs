@@ -1,10 +1,12 @@
 using FluentValidation;
 using PetHost.Modules.Hosts.Application.Abstractions;
 using PetHost.Modules.Hosts.Application.HostApplications.Responses;
+using PetHost.Modules.Hosts.Domain.Errors;
 using PetHost.Modules.Hosts.Domain.HostApplications;
 using PetHost.Modules.Hosts.Domain.Hosts;
 using PetHost.Shared.Contracts.Audit;
 using PetHost.Shared.Contracts.Storage;
+using PetHost.Shared.Contracts.Validation;
 using PetHost.Shared.Kernel.Messaging;
 using PetHost.Shared.Kernel.Results;
 
@@ -17,7 +19,7 @@ public sealed record CancelMyHostApplicationCommand(Guid UserId) : ICommand<Host
 public sealed class CancelMyHostApplicationCommandValidator : AbstractValidator<CancelMyHostApplicationCommand>
 {
     public CancelMyHostApplicationCommandValidator() =>
-        RuleFor(x => x.UserId).NotEmpty().WithMessage("User id is required.");
+        RuleFor(x => x.UserId).NotEmpty().WithError(HostsErrors.UserIdRequired);
 }
 
 /// <summary>

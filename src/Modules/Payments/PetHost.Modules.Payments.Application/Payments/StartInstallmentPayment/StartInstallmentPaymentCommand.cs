@@ -4,6 +4,7 @@ using PetHost.Modules.Payments.Application.Payments.Responses;
 using PetHost.Modules.Payments.Domain.Errors;
 using PetHost.Modules.Payments.Domain.Payments;
 using PetHost.Shared.Contracts.Authorization;
+using PetHost.Shared.Contracts.Validation;
 using PetHost.Shared.Kernel.Messaging;
 using PetHost.Shared.Kernel.Results;
 
@@ -24,10 +25,10 @@ public sealed class StartInstallmentPaymentCommandValidator : AbstractValidator<
     public StartInstallmentPaymentCommandValidator()
     {
         RuleFor(x => x.BookingId)
-            .NotEmpty().WithMessage("Booking id is required.");
+            .NotEmpty().WithError(PaymentsErrors.BookingIdRequired);
 
         RuleFor(x => x.InstallmentNumber)
-            .InclusiveBetween(1, Payment.MaxInstallments).WithMessage(PaymentsErrors.InstallmentNumberInvalid.Message);
+            .InclusiveBetween(1, Payment.MaxInstallments).WithError(PaymentsErrors.InstallmentNumberInvalid);
     }
 }
 

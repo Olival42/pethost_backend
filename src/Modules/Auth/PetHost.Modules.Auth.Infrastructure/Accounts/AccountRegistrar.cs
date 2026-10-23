@@ -35,8 +35,7 @@ internal sealed class AccountRegistrar(
         foreach (var validator in validators)
         {
             var validation = await validator.ValidateAsync(command, cancellationToken).ConfigureAwait(false);
-            errors.AddRange(validation.Errors.Select(failure =>
-                Error.Validation(ValidationFieldNames.ToCamelCase(failure.PropertyName), failure.ErrorMessage)));
+            errors.AddRange(validation.ToErrors());
         }
 
         if (errors.Count > 0)

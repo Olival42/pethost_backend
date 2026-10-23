@@ -23,8 +23,7 @@ public sealed class ValidationCommandHandlerDecorator<TCommand, TResponse>(
         {
             var validation = await validator.ValidateAsync(command, cancellationToken).ConfigureAwait(false);
 
-            errors.AddRange(validation.Errors.Select(failure =>
-                Error.Validation(ValidationFieldNames.ToCamelCase(failure.PropertyName), failure.ErrorMessage)));
+            errors.AddRange(validation.ToErrors());
         }
 
         return errors.Count > 0

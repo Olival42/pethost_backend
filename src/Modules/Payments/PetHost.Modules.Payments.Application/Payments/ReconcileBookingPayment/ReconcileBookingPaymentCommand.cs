@@ -1,5 +1,7 @@
 using FluentValidation;
+using PetHost.Modules.Payments.Domain.Errors;
 using PetHost.Modules.Payments.Domain.Payments;
+using PetHost.Shared.Contracts.Validation;
 using PetHost.Shared.Kernel.Messaging;
 using PetHost.Shared.Kernel.Primitives;
 using PetHost.Shared.Kernel.Results;
@@ -19,7 +21,7 @@ public sealed class ReconcileBookingPaymentCommandValidator : AbstractValidator<
     public ReconcileBookingPaymentCommandValidator()
     {
         RuleFor(x => x.BookingId)
-            .NotEmpty().WithMessage("Booking id is required.");
+            .NotEmpty().WithError(PaymentsErrors.BookingIdRequired);
     }
 }
 

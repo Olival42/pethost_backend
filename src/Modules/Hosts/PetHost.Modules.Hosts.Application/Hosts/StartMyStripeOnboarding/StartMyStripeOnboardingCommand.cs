@@ -2,6 +2,8 @@ using FluentValidation;
 using PetHost.Modules.Hosts.Application.Abstractions;
 using PetHost.Modules.Hosts.Application.Hosts.Responses;
 using PetHost.Modules.Hosts.Application.Hosts.StripeOnboarding;
+using PetHost.Modules.Hosts.Domain.Errors;
+using PetHost.Shared.Contracts.Validation;
 using PetHost.Shared.Kernel.Messaging;
 using PetHost.Shared.Kernel.Results;
 
@@ -16,7 +18,7 @@ public sealed record StartMyStripeOnboardingCommand(Guid UserId) : ICommand<Stri
 
 public sealed class StartMyStripeOnboardingCommandValidator : AbstractValidator<StartMyStripeOnboardingCommand>
 {
-    public StartMyStripeOnboardingCommandValidator() => RuleFor(x => x.UserId).NotEmpty().WithMessage("User id is required.");
+    public StartMyStripeOnboardingCommandValidator() => RuleFor(x => x.UserId).NotEmpty().WithError(HostsErrors.UserIdRequired);
 }
 
 /// <summary>

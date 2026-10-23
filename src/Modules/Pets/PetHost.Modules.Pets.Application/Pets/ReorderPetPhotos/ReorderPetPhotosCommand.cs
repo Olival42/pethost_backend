@@ -4,6 +4,7 @@ using PetHost.Modules.Pets.Application.Pets.Responses;
 using PetHost.Modules.Pets.Domain.Errors;
 using PetHost.Modules.Pets.Domain.Pets;
 using PetHost.Shared.Contracts.Audit;
+using PetHost.Shared.Contracts.Validation;
 using PetHost.Shared.Kernel.Messaging;
 using PetHost.Shared.Kernel.Results;
 
@@ -32,12 +33,12 @@ public sealed class ReorderPetPhotosCommandValidator : AbstractValidator<Reorder
     public ReorderPetPhotosCommandValidator()
     {
         RuleFor(x => x.PetId)
-            .NotEmpty().WithMessage("Pet id is required.");
+            .NotEmpty().WithError(PetsErrors.PetIdRequired);
 
         RuleFor(x => x.PhotoIds)
-            .NotNull().WithMessage(PetsErrors.PhotoOrderInvalid.Message)
+            .NotNull().WithError(PetsErrors.PhotoOrderInvalid)
             .Must(ids => ids is null || (ids.Count <= Pet.MaxPhotos && !ids.Contains(Guid.Empty) && ids.Distinct().Count() == ids.Count))
-            .WithMessage(PetsErrors.PhotoOrderInvalid.Message);
+            .WithError(PetsErrors.PhotoOrderInvalid);
     }
 }
 

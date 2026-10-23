@@ -1,6 +1,7 @@
 using FluentValidation;
 using PetHost.Modules.Auth.Application.Abstractions;
 using PetHost.Modules.Auth.Domain.Errors;
+using PetHost.Shared.Contracts.Validation;
 
 namespace PetHost.Modules.Auth.Application.Users.ChangePassword;
 
@@ -10,14 +11,14 @@ public sealed class ChangePasswordCommandValidator : AbstractValidator<ChangePas
     public ChangePasswordCommandValidator()
     {
         RuleFor(x => x.CurrentPassword)
-            .NotEmpty().WithMessage(AuthErrors.CurrentPasswordRequired.Message);
+            .NotEmpty().WithError(AuthErrors.CurrentPasswordRequired);
 
         RuleFor(x => x.NewPassword)
             .StrongPassword();
 
         RuleFor(x => x.NewPassword)
             .Must((command, newPassword) => !string.Equals(newPassword, command.CurrentPassword, StringComparison.Ordinal))
-                .WithMessage(AuthErrors.NewPasswordSameAsCurrent.Message)
+                .WithError(AuthErrors.NewPasswordSameAsCurrent)
             .When(x => !string.IsNullOrEmpty(x.CurrentPassword));
     }
 }

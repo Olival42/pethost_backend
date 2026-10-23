@@ -1,5 +1,6 @@
 using FluentValidation;
 using PetHost.Modules.Conversations.Domain.Errors;
+using PetHost.Shared.Contracts.Validation;
 
 namespace PetHost.Modules.Conversations.Application.Messages.NotifyUnreadMessages;
 
@@ -9,13 +10,13 @@ public sealed class NotifyUnreadMessagesCommandValidator : AbstractValidator<Not
     public NotifyUnreadMessagesCommandValidator()
     {
         RuleFor(x => x.DelayMinutes)
-            .GreaterThan(0).WithMessage(ConversationsErrors.UnreadDelayInvalid.Message);
+            .GreaterThan(0).WithError(ConversationsErrors.UnreadDelayInvalid);
 
         RuleFor(x => x.CooldownMinutes)
-            .GreaterThan(0).WithMessage(ConversationsErrors.UnreadCooldownInvalid.Message);
+            .GreaterThan(0).WithError(ConversationsErrors.UnreadCooldownInvalid);
 
         RuleFor(x => x.BatchSize)
             .InclusiveBetween(1, ConversationsErrors.MaxRetentionBatchSize)
-            .WithMessage(ConversationsErrors.BatchSizeInvalid.Message);
+            .WithError(ConversationsErrors.BatchSizeInvalid);
     }
 }

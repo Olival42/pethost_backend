@@ -1,6 +1,8 @@
 using FluentValidation;
 using PetHost.Modules.Hosts.Application.HostApplications;
 using PetHost.Modules.Hosts.Application.Hosts.Responses;
+using PetHost.Modules.Hosts.Domain.Errors;
+using PetHost.Shared.Contracts.Validation;
 using PetHost.Shared.Kernel.Messaging;
 
 namespace PetHost.Modules.Hosts.Application.Hosts.SuspendHost;
@@ -25,7 +27,7 @@ public sealed class SuspendHostCommandValidator : AbstractValidator<SuspendHostC
 
 public sealed class LiftHostSuspensionCommandValidator : AbstractValidator<LiftHostSuspensionCommand>
 {
-    public LiftHostSuspensionCommandValidator() => RuleFor(x => x.HostId).NotEmpty().WithMessage("Host id is required.");
+    public LiftHostSuspensionCommandValidator() => RuleFor(x => x.HostId).NotEmpty().WithError(HostsErrors.HostIdRequired);
 }
 
 public sealed class ReleaseHostIdentityCommandValidator : AbstractValidator<ReleaseHostIdentityCommand>

@@ -22,9 +22,9 @@ public sealed class ApiResponseMapperTests
     public void ToApiResponse_Should_GroupValidationErrorsByField_When_ResultHasThem()
     {
         var result = Result<string>.Failure([
-            Error.Validation("email", "Email is required."),
-            Error.Validation("email", "Email format is invalid."),
-            Error.Validation("role", "Role is required."),
+            Error.Validation("email", "AUTH_EMAIL_REQUIRED", "Email is required."),
+            Error.Validation("email", "AUTH_EMAIL_INVALID_FORMAT", "Email format is invalid."),
+            Error.Validation("role", "AUTH_ROLE_REQUIRED", "Role is required."),
         ]);
 
         var response = result.ToApiResponse();
@@ -39,13 +39,41 @@ public sealed class ApiResponseMapperTests
     }
 
     [Fact]
+    public void ToApiResponse_Should_AlignErrorsWithMessages_When_FieldHasMoreThanOneFailure()
+    {
+        var result = Result<string>.Failure([
+            Error.Validation("email", "AUTH_EMAIL_REQUIRED", "Email is required."),
+            Error.Validation("email", "AUTH_EMAIL_TOO_LONG", "Email must be at most 254 characters.", ("max", 254)),
+        ]);
+
+        var details = result.ToApiResponse().Error!.Details.Should().BeAssignableTo<List<DataErrors>>().Subject;
+
+        var email = details.Should().ContainSingle().Subject;
+        email.Messages.Should().Equal("Email is required.", "Email must be at most 254 characters.");
+        email.Errors.Select(e => e.Code).Should().Equal("AUTH_EMAIL_REQUIRED", "AUTH_EMAIL_TOO_LONG");
+        email.Errors[0].Params.Should().BeNull();
+        email.Errors[1].Params.Should().BeEquivalentTo(new Dictionary<string, object> { ["max"] = 254 });
+        email.Errors.Should().HaveSameCount(email.Messages);
+    }
+
+    [Fact]
+    public void ToApiResponse_Should_Throw_When_ValidationErrorHasNoReason()
+    {
+        var result = Result<string>.Failure(new Error(ErrorCodes.Validation, "Something is off.", "name"));
+
+        var act = () => result.ToApiResponse();
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*no reason code*");
+    }
+
+    [Fact]
     public void ToApiResponse_Should_DiscardNonValidationErrors_When_ValidationErrorsExist()
     {
         // Comportamento normativo da secao 7: havendo >=1 VALIDATION_ERROR, a
         // resposta e VALIDATION_ERROR e os erros de outro tipo sao descartados.
         var result = Result<string>.Failure([
             new Error("BOOKING_OVERLAPPING_PERIOD", "Overlapping."),
-            Error.Validation("email", "Email is required."),
+            Error.Validation("email", "AUTH_EMAIL_REQUIRED", "Email is required."),
         ]);
 
         var response = result.ToApiResponse();
@@ -70,7 +98,7 @@ public sealed class ApiResponseMapperTests
     [Fact]
     public void ToApiResponse_Should_UseGeneralBucket_When_ValidationErrorHasNoField()
     {
-        var result = Result<string>.Failure(new Error(ErrorCodes.Validation, "Something is off."));
+        var result = Result<string>.Failure(new Error(ErrorCodes.Validation, "Something is off.", Reason: "TEST_SOMETHING_OFF"));
 
         var response = result.ToApiResponse();
 

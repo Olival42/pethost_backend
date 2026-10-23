@@ -12,19 +12,19 @@ public static class OwnersErrors
     // --- Validação de formato (VALIDATION_ERROR, 400, acumulável) ---
 
     public static readonly Error CpfInvalid =
-        Error.Validation("cpf", "CPF is invalid.");
+        Error.Validation("cpf", "OWNER_CPF_INVALID", "CPF is invalid.");
 
     /// <summary>Trocar CPF ou data de nascimento é dado sensível: pede a senha da conta.</summary>
     public static readonly Error CurrentPasswordRequired =
-        Error.Validation("currentPassword", "Current password is required to change the CPF or the birth date.");
+        Error.Validation("currentPassword", "OWNER_CURRENT_PASSWORD_REQUIRED", "Current password is required to change the CPF or the birth date.");
 
     /// <summary>400 no campo, e não 401: o token é válido, quem errou foi a senha digitada.</summary>
     public static readonly Error CurrentPasswordIncorrect =
-        Error.Validation("currentPassword", "Current password is incorrect.");
+        Error.Validation("currentPassword", "OWNER_CURRENT_PASSWORD_INCORRECT", "Current password is incorrect.");
 
     /// <summary>400: excluir a conta pede a senha atual.</summary>
     public static readonly Error DeletionPasswordRequired =
-        Error.Validation("currentPassword", "Current password is required to delete the account.");
+        Error.Validation("currentPassword", "OWNER_DELETION_PASSWORD_REQUIRED", "Current password is required to delete the account.");
 
     // --- Regras de negócio ---
 
@@ -58,10 +58,10 @@ public static class OwnersErrors
         new("OWNER_CPF_RELEASED", "This owner's CPF was released, so the suspension cannot be lifted.");
 
     public static readonly Error ReasonRequired =
-        Error.Validation("reason", "A reason is required.");
+        Error.Validation("reason", "OWNER_REASON_REQUIRED", "A reason is required.");
 
     public static readonly Error ReasonTooLong =
-        Error.Validation("reason", $"Reason must be at most {Owner.AdminReasonMaxLength} characters.");
+        Error.Validation("reason", "OWNER_REASON_TOO_LONG", $"Reason must be at most {Owner.AdminReasonMaxLength} characters.", ("max", Owner.AdminReasonMaxLength));
 
     /// <summary>404: não existe tutor com esse id.</summary>
     public static Error NotFound(OwnerId id) =>
@@ -77,4 +77,15 @@ public static class OwnersErrors
     /// </summary>
     public static readonly Error HasOpenBooking =
         new("OWNER_HAS_OPEN_BOOKING", "This owner has open bookings. Cancel or finish them before deactivating or deleting the profile.");
+
+    // --- Validação: identificadores e campos obrigatórios de comandos internos e de rota ---
+
+    public static readonly Error UserIdRequired =
+        Error.Validation("userId", "OWNER_USER_ID_REQUIRED", "User id is required.");
+
+    public static readonly Error EmailRequired =
+        Error.Validation("email", "OWNER_EMAIL_REQUIRED", "Email is required.");
+
+    public static readonly Error PasswordRequired =
+        Error.Validation("password", "OWNER_PASSWORD_REQUIRED", "Password is required.");
 }

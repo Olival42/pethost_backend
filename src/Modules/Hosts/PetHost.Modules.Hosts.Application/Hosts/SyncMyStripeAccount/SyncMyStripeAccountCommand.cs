@@ -3,6 +3,7 @@ using PetHost.Modules.Hosts.Application.Hosts.Responses;
 using PetHost.Modules.Hosts.Application.Hosts.StripeOnboarding;
 using PetHost.Modules.Hosts.Domain.Errors;
 using PetHost.Modules.Hosts.Domain.Hosts;
+using PetHost.Shared.Contracts.Validation;
 using PetHost.Shared.Kernel.Messaging;
 using PetHost.Shared.Kernel.Results;
 
@@ -16,7 +17,7 @@ public sealed record SyncMyStripeAccountCommand(Guid UserId) : ICommand<StripeAc
 
 public sealed class SyncMyStripeAccountCommandValidator : AbstractValidator<SyncMyStripeAccountCommand>
 {
-    public SyncMyStripeAccountCommandValidator() => RuleFor(x => x.UserId).NotEmpty().WithMessage("User id is required.");
+    public SyncMyStripeAccountCommandValidator() => RuleFor(x => x.UserId).NotEmpty().WithError(HostsErrors.UserIdRequired);
 }
 
 /// <summary>

@@ -148,6 +148,47 @@ public sealed class BookingEndpointsTests(BookingsApiFixture fixture) : IAsyncLi
     }
 
     [Fact]
+    public async Task Create_Should_ReturnAStableCodePerRule_When_BodyIsEmpty()
+    {
+        var stay = await ArrangeAsync();
+
+        var response = await SendAsync(HttpMethod.Post, BookingsRoute, stay.OwnerToken, new { });
+
+        var body = await ReadAsync(response);
+        ErrorCodesByField(body).Should().BeEquivalentTo(new Dictionary<string, string[]>
+        {
+            ["listingId"] = ["BOOKING_LISTING_ID_REQUIRED"],
+            ["petIds"] = ["BOOKING_PET_IDS_REQUIRED"],
+            ["careTermsAccepted"] = ["BOOKING_CARE_TERMS_NOT_ACCEPTED"],
+            ["checkIn"] = ["BOOKING_CHECK_IN_REQUIRED"],
+            ["checkOut"] = ["BOOKING_CHECK_OUT_REQUIRED"],
+        });
+
+        // errors[i] corresponde a messages[i]: mesma ordem, mesmo tamanho, e a mensagem continua lá.
+        foreach (var detail in body.GetProperty("error").GetProperty("details").EnumerateArray())
+            detail.GetProperty("errors").GetArrayLength().Should().Be(detail.GetProperty("messages").GetArrayLength());
+    }
+
+    [Fact]
+    public async Task Create_Should_ReturnTheCodeWithParams_When_TheStayStartsInLessThan72Hours()
+    {
+        var stay = await ArrangeAsync();
+
+        var response = await SendAsync(HttpMethod.Post, BookingsRoute, stay.OwnerToken, Pedido(stay.ListingId, [stay.PipocaId], Today.AddDays(2)));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var detail = (await ReadAsync(response)).GetProperty("error").GetProperty("details").EnumerateArray().Single();
+        detail.GetProperty("field").GetString().Should().Be("checkIn");
+        detail.GetProperty("messages")[0].GetString().Should().StartWith("Check-in must be at least 72 hours ahead");
+
+        var error = detail.GetProperty("errors")[0];
+        error.GetProperty("code").GetString().Should().Be("BOOKING_CHECK_IN_TOO_SOON");
+        error.GetProperty("params").GetProperty("minimumHours").GetInt32().Should().Be(72);
+        error.GetProperty("params").GetProperty("responseHours").GetInt32().Should().Be(24);
+        error.GetProperty("params").GetProperty("acceptHours").GetInt32().Should().Be(48);
+    }
+
+    [Fact]
     public async Task Create_Should_Return400CheckInTooSoon_When_TheStayStartsInLessThan72Hours()
     {
         var stay = await ArrangeAsync();
@@ -1291,6 +1332,12 @@ public sealed class BookingEndpointsTests(BookingsApiFixture fixture) : IAsyncLi
     private static string? Status(JsonElement body) => Data(body).GetProperty("status").GetString();
 
     private static string? Code(JsonElement body) => body.GetProperty("error").GetProperty("code").GetString();
+
+    /// <summary>Campo → códigos estáveis (<c>details[].errors[].code</c>), na ordem em que vieram.</summary>
+    private static Dictionary<string, string[]> ErrorCodesByField(JsonElement body) =>
+        body.GetProperty("error").GetProperty("details").EnumerateArray().ToDictionary(
+            detail => detail.GetProperty("field").GetString()!,
+            detail => detail.GetProperty("errors").EnumerateArray().Select(error => error.GetProperty("code").GetString()!).ToArray());
 
     private static List<string?> Fields(JsonElement body) =>
         body.GetProperty("error").TryGetProperty("details", out var details) && details.ValueKind == JsonValueKind.Array

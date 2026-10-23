@@ -11,6 +11,6 @@ public static class PasswordRules
     /// o validador não repete a regra. Cada regra que falha vira uma mensagem no campo
     /// validado, então o cliente recebe a lista do que falta.
     /// </summary>
-    public static IRuleBuilderOptionsConditions<T, string?> StrongPassword<T>(this IRuleBuilder<T, string?> ruleBuilder) =>
+    public static IRuleBuilderOptions<T, string?> StrongPassword<T>(this IRuleBuilder<T, string?> ruleBuilder) =>
         ruleBuilder.MustBeValid(Password.Create);
 }

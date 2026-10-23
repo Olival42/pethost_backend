@@ -1,4 +1,6 @@
 using FluentValidation;
+using PetHost.Modules.Auth.Domain.Errors;
+using PetHost.Shared.Contracts.Validation;
 
 namespace PetHost.Modules.Auth.Application.Sessions.RevokeSession;
 
@@ -7,6 +9,6 @@ public sealed class RevokeSessionCommandValidator : AbstractValidator<RevokeSess
     public RevokeSessionCommandValidator()
     {
         RuleFor(x => x.RefreshToken)
-            .NotEmpty().WithMessage("Refresh token is required.");
+            .NotEmpty().WithError(AuthErrors.RefreshTokenRequired);
     }
 }

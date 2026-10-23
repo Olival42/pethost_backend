@@ -27,10 +27,6 @@ namespace PetHost.Shared.Infrastructure.Http;
 /// </remarks>
 public sealed class MalformedRequestBodyFilter : IActionFilter
 {
-    public const string Field = "body";
-    public const string Message = "The request body is missing or is not valid JSON.";
-    public const string InvalidValueMessage = "The value has an invalid type or format.";
-
     /// <summary>Prefixo que o leitor de JSON põe no caminho do campo com problema.</summary>
     private const string JsonPathRoot = "$.";
 
@@ -52,12 +48,12 @@ public sealed class MalformedRequestBodyFilter : IActionFilter
             .Where(entry => entry.Key.StartsWith(JsonPathRoot, StringComparison.Ordinal)
                 && entry.Value is { Errors.Count: > 0 } state
                 && state.Errors.All(IsTypeConversionError))
-            .Select(entry => new DataErrors(entry.Key[JsonPathRoot.Length..], [InvalidValueMessage]))
+            .Select(entry => RequestErrors.ValueInvalid(entry.Key[JsonPathRoot.Length..]))
             .ToList();
 
-        var details = fieldErrors.Count > 0
-            ? fieldErrors
-            : [new DataErrors(Field, [Message])];
+        var details = (fieldErrors.Count > 0 ? fieldErrors : [RequestErrors.BodyInvalid])
+            .Select(error => new DataErrors(error.Field!, [error.Message], [FieldErrorItem.From(error)]))
+            .ToList();
 
         var response = ApiResponse<Unit>.Fail(new ErrorResponse(ErrorCodes.Validation, "Validation failed", details));
 

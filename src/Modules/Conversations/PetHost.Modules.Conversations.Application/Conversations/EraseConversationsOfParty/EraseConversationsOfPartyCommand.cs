@@ -1,8 +1,10 @@
 using FluentValidation;
 using PetHost.Modules.Conversations.Domain.Conversations;
+using PetHost.Modules.Conversations.Domain.Errors;
 using PetHost.Modules.Conversations.Domain.Messages;
 using PetHost.Shared.Contracts.Audit;
 using PetHost.Shared.Contracts.Storage;
+using PetHost.Shared.Contracts.Validation;
 using PetHost.Shared.Kernel.Messaging;
 using PetHost.Shared.Kernel.Results;
 
@@ -20,8 +22,8 @@ public sealed class EraseConversationsOfPartyCommandValidator : AbstractValidato
 {
     public EraseConversationsOfPartyCommandValidator()
     {
-        RuleFor(x => x.Party).IsInEnum().WithMessage("Party is invalid.");
-        RuleFor(x => x.PartyId).NotEmpty().WithMessage("Party id is required.");
+        RuleFor(x => x.Party).IsInEnum().WithError(ConversationsErrors.PartyInvalid);
+        RuleFor(x => x.PartyId).NotEmpty().WithError(ConversationsErrors.PartyIdRequired);
     }
 }
 

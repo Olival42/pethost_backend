@@ -2,6 +2,7 @@ using FluentValidation;
 using PetHost.Modules.Hosts.Application.HostApplications.Responses;
 using PetHost.Modules.Hosts.Domain.Errors;
 using PetHost.Shared.Contracts.Storage;
+using PetHost.Shared.Contracts.Validation;
 using PetHost.Shared.Kernel.Messaging;
 
 namespace PetHost.Modules.Hosts.Application.HostApplications.UploadHostApplicationDocuments;
@@ -30,5 +31,5 @@ public sealed class UploadHostApplicationDocumentsCommandValidator : AbstractVal
         RuleFor(x => x)
             .Must(x => x.Front is not null || x.Back is not null || x.Selfie is not null)
             .OverridePropertyName(HostsErrors.DocumentsRequired.Field!)
-            .WithMessage(HostsErrors.DocumentsRequired.Message);
+            .WithError(HostsErrors.DocumentsRequired);
 }

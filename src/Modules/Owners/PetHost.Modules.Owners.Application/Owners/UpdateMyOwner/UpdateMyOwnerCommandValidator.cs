@@ -2,6 +2,7 @@ using FluentValidation;
 using PetHost.Modules.Owners.Application.Abstractions;
 using PetHost.Modules.Owners.Domain.Errors;
 using PetHost.Modules.Owners.Domain.Owners;
+using PetHost.Shared.Contracts.Validation;
 using PetHost.Shared.Kernel.Errors;
 
 namespace PetHost.Modules.Owners.Application.Owners.UpdateMyOwner;
@@ -18,10 +19,10 @@ public sealed class UpdateMyOwnerCommandValidator : AbstractValidator<UpdateMyOw
 
         RuleFor(x => x.Cpf)
             .Must(cpf => Cpf.Create(cpf).IsSuccess)
-                .WithMessage(OwnersErrors.CpfInvalid.Message)
+                .WithError(OwnersErrors.CpfInvalid)
             .When(x => x.Cpf is not null);
 
-        RuleFor(x => x).CustomAsync(async (command, context, cancellationToken) =>
+        RuleFor(x => x).CustomErrorsAsync(async (command, context, cancellationToken) =>
         {
             var patch = command.ToProfilePatch();
             if (patch.IsEmpty)
@@ -36,7 +37,7 @@ public sealed class UpdateMyOwnerCommandValidator : AbstractValidator<UpdateMyOw
 
             // Só erros de formato; conta inexistente fica com o handler.
             foreach (var error in account.Errors!.Where(e => e.Code == ErrorCodes.Validation))
-                context.AddFailure(error.Field ?? string.Empty, error.Message);
+                context.AddFailure(error);
         });
     }
 }

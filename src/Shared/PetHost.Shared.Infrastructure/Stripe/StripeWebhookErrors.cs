@@ -7,7 +7,7 @@ public static class StripeWebhookErrors
 {
     /// <summary>Header <c>Stripe-Signature</c> ausente, assinatura que não confere ou vencida (400).</summary>
     public static readonly Error SignatureInvalid =
-        Error.Validation("stripeSignature", "The Stripe-Signature header is missing, invalid or expired.");
+        Error.Validation("stripeSignature", "STRIPE_WEBHOOK_SIGNATURE_INVALID", "The Stripe-Signature header is missing, invalid or expired.");
 
     /// <summary>Sem segredo de webhook configurado: não dá para conferir (503, o Stripe tenta de novo).</summary>
     public static readonly Error NotConfigured =

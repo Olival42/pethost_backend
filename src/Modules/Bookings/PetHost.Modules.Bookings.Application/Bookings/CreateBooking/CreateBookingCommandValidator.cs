@@ -1,6 +1,7 @@
 using FluentValidation;
 using PetHost.Modules.Bookings.Domain.Bookings;
 using PetHost.Modules.Bookings.Domain.Errors;
+using PetHost.Shared.Contracts.Validation;
 
 namespace PetHost.Modules.Bookings.Application.Bookings.CreateBooking;
 
@@ -16,32 +17,32 @@ public sealed class CreateBookingCommandValidator : AbstractValidator<CreateBook
         ArgumentNullException.ThrowIfNull(timeProvider);
 
         RuleFor(x => x.ListingId)
-            .NotEmpty().WithMessage(BookingsErrors.ListingIdRequired.Message);
+            .NotEmpty().WithError(BookingsErrors.ListingIdRequired);
 
         RuleFor(x => x.PetIds)
-            .Must(ids => ids is { Count: > 0 }).WithMessage(BookingsErrors.PetIdsRequired.Message)
+            .Must(ids => ids is { Count: > 0 }).WithError(BookingsErrors.PetIdsRequired)
             .DependentRules(() =>
             {
                 RuleFor(x => x.PetIds)
                     .Cascade(CascadeMode.Stop)
-                    .Must(ids => ids!.Count <= Booking.MaxPets).WithMessage(BookingsErrors.PetIdsTooMany.Message)
-                    .Must(ids => !ids!.Contains(Guid.Empty) && ids!.Distinct().Count() == ids!.Count).WithMessage(BookingsErrors.PetIdsInvalid.Message);
+                    .Must(ids => ids!.Count <= Booking.MaxPets).WithError(BookingsErrors.PetIdsTooMany)
+                    .Must(ids => !ids!.Contains(Guid.Empty) && ids!.Distinct().Count() == ids!.Count).WithError(BookingsErrors.PetIdsInvalid);
             });
 
         RuleFor(x => x.CareTermsAccepted)
-            .Equal(true).WithMessage(BookingsErrors.CareTermsNotAccepted.Message);
+            .Equal(true).WithError(BookingsErrors.CareTermsNotAccepted);
 
         RuleFor(x => x.CheckIn)
             .Cascade(CascadeMode.Stop)
-            .NotEmpty().WithMessage(BookingsErrors.CheckInRequired.Message)
-            .Must(text => StayPeriod.TryParseDate(text, out _)).WithMessage(BookingsErrors.CheckInInvalid.Message);
+            .NotEmpty().WithError(BookingsErrors.CheckInRequired)
+            .Must(text => StayPeriod.TryParseDate(text, out _)).WithError(BookingsErrors.CheckInInvalid);
 
         RuleFor(x => x.CheckOut)
             .Cascade(CascadeMode.Stop)
-            .NotEmpty().WithMessage(BookingsErrors.CheckOutRequired.Message)
-            .Must(text => StayPeriod.TryParseDate(text, out _)).WithMessage(BookingsErrors.CheckOutInvalid.Message);
+            .NotEmpty().WithError(BookingsErrors.CheckOutRequired)
+            .Must(text => StayPeriod.TryParseDate(text, out _)).WithError(BookingsErrors.CheckOutInvalid);
 
-        RuleFor(x => x).Custom((command, context) =>
+        RuleFor(x => x).CustomErrors((command, context) =>
         {
             if (!StayPeriod.TryParseDate(command.CheckIn, out var checkIn))
                 return;
@@ -61,7 +62,7 @@ public sealed class CreateBookingCommandValidator : AbstractValidator<CreateBook
                 errors.Add(BookingsErrors.CheckInTooSoon);
 
             foreach (var error in errors)
-                context.AddFailure(error.Field ?? string.Empty, error.Message);
+                context.AddFailure(error);
         });
     }
 }

@@ -1,5 +1,6 @@
 using FluentValidation;
 using PetHost.Modules.Conversations.Domain.Errors;
+using PetHost.Shared.Contracts.Validation;
 
 namespace PetHost.Modules.Conversations.Application.Preferences.UpdateNotificationSettings;
 
@@ -9,6 +10,6 @@ public sealed class UpdateNotificationSettingsCommandValidator : AbstractValidat
     public UpdateNotificationSettingsCommandValidator()
     {
         RuleFor(x => x.UnreadMessagesEmail)
-            .NotNull().WithMessage(ConversationsErrors.UnreadMessagesEmailRequired.Message);
+            .NotNull().WithError(ConversationsErrors.UnreadMessagesEmailRequired);
     }
 }

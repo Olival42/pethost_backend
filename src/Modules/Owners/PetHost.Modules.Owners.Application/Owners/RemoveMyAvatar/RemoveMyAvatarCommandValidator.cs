@@ -1,4 +1,6 @@
 using FluentValidation;
+using PetHost.Modules.Owners.Domain.Errors;
+using PetHost.Shared.Contracts.Validation;
 
 namespace PetHost.Modules.Owners.Application.Owners.RemoveMyAvatar;
 
@@ -8,6 +10,6 @@ public sealed class RemoveMyAvatarCommandValidator : AbstractValidator<RemoveMyA
     public RemoveMyAvatarCommandValidator()
     {
         RuleFor(x => x.UserId)
-            .NotEmpty().WithMessage("User id is required.");
+            .NotEmpty().WithError(OwnersErrors.UserIdRequired);
     }
 }

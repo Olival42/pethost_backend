@@ -1,6 +1,8 @@
 using FluentValidation;
 using PetHost.Modules.Payments.Application.Abstractions;
+using PetHost.Modules.Payments.Domain.Errors;
 using PetHost.Modules.Payments.Domain.Payments;
+using PetHost.Shared.Contracts.Validation;
 using PetHost.Shared.Kernel.Messaging;
 using PetHost.Shared.Kernel.Results;
 
@@ -25,7 +27,7 @@ public sealed class SyncPaymentIntentCommandValidator : AbstractValidator<SyncPa
     public SyncPaymentIntentCommandValidator()
     {
         RuleFor(x => x.StripeObjectId)
-            .NotEmpty().WithMessage("Stripe object id is required.");
+            .NotEmpty().WithError(PaymentsErrors.StripeObjectIdRequired);
     }
 }
 

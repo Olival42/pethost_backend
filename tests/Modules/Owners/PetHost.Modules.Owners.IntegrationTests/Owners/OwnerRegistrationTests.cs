@@ -100,6 +100,23 @@ public sealed class OwnerRegistrationTests(OwnersApiFixture fixture) : IAsyncLif
     }
 
     [Fact]
+    public async Task RegisterHost_Should_ReturnTheStableCodeOfEachAddressRule_When_AddressIsInvalid()
+    {
+        var payload = HostAccount(address: new { zipCode = "123", street = "", number = "1", neighborhood = "Zona 7", city = "Maringá", state = "XX" });
+
+        var response = await _client.PostAsJsonAsync(HostRegistrationRoute, payload, Ct);
+
+        var details = (await ReadAsync(response)).GetProperty("error").GetProperty("details").EnumerateArray()
+            .ToDictionary(detail => detail.GetProperty("field").GetString()!);
+
+        var zip = details["address.zipCode"].GetProperty("errors")[0];
+        zip.GetProperty("code").GetString().Should().Be("AUTH_ZIP_CODE_INVALID");
+        zip.GetProperty("params").GetProperty("digits").GetInt32().Should().Be(8);
+        details["address.street"].GetProperty("errors")[0].GetProperty("code").GetString().Should().Be("AUTH_STREET_REQUIRED");
+        details["address.state"].GetProperty("errors")[0].GetProperty("code").GetString().Should().Be("AUTH_ADDRESS_STATE_INVALID");
+    }
+
+    [Fact]
     public async Task RegisterHost_Should_Return400_When_PersonIsUnder18()
     {
         var seventeen = DateTime.UtcNow.AddYears(-17).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);

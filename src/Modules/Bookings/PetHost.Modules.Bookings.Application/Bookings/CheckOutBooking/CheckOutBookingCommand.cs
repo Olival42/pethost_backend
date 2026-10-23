@@ -5,6 +5,7 @@ using PetHost.Modules.Bookings.Domain.Bookings;
 using PetHost.Modules.Bookings.Domain.Errors;
 using PetHost.Shared.Contracts.Audit;
 using PetHost.Shared.Contracts.Authorization;
+using PetHost.Shared.Contracts.Validation;
 using PetHost.Shared.Kernel.Messaging;
 using PetHost.Shared.Kernel.Results;
 
@@ -27,12 +28,12 @@ public sealed class CheckOutBookingCommandValidator : AbstractValidator<CheckOut
     public CheckOutBookingCommandValidator()
     {
         RuleFor(x => x.BookingId)
-            .NotEmpty().WithMessage("Booking id is required.");
+            .NotEmpty().WithError(BookingsErrors.BookingIdRequired);
 
         RuleFor(x => x.Reason)
             .Cascade(CascadeMode.Stop)
-            .Must(reason => !string.IsNullOrWhiteSpace(reason)).WithMessage(BookingsErrors.AdminReasonRequired.Message)
-            .MaximumLength(Booking.ReasonMaxLength).WithMessage(BookingsErrors.ReasonTooLong.Message)
+            .Must(reason => !string.IsNullOrWhiteSpace(reason)).WithError(BookingsErrors.AdminReasonRequired)
+            .MaximumLength(Booking.ReasonMaxLength).WithError(BookingsErrors.ReasonTooLong)
             .When(x => x.Role == Roles.Admin);
     }
 }

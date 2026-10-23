@@ -1,5 +1,7 @@
 using FluentValidation;
 using PetHost.Modules.Auth.Application.Abstractions;
+using PetHost.Modules.Auth.Domain.Errors;
+using PetHost.Shared.Contracts.Validation;
 
 namespace PetHost.Modules.Auth.Application.Passwords.ResetPassword;
 
@@ -12,7 +14,7 @@ public sealed class ResetPasswordCommandValidator : AbstractValidator<ResetPassw
     public ResetPasswordCommandValidator()
     {
         RuleFor(x => x.Token)
-            .NotEmpty().WithMessage("Token is required.");
+            .NotEmpty().WithError(AuthErrors.ResetTokenRequired);
 
         RuleFor(x => x.NewPassword)
             .StrongPassword();

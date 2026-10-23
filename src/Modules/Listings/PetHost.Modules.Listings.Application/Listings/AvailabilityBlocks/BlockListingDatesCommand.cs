@@ -3,6 +3,7 @@ using PetHost.Modules.Listings.Application.Abstractions;
 using PetHost.Modules.Listings.Domain.Errors;
 using PetHost.Modules.Listings.Domain.Listings;
 using PetHost.Shared.Contracts.Audit;
+using PetHost.Shared.Contracts.Validation;
 using PetHost.Shared.Kernel.Messaging;
 using PetHost.Shared.Kernel.Results;
 
@@ -32,23 +33,23 @@ public sealed class BlockListingDatesCommandValidator : AbstractValidator<BlockL
         ArgumentNullException.ThrowIfNull(timeProvider);
 
         RuleFor(x => x.ListingId)
-            .NotEmpty().WithMessage("Listing id is required.");
+            .NotEmpty().WithError(ListingsErrors.ListingIdRequired);
 
         RuleFor(x => x.StartDate)
             .Cascade(CascadeMode.Stop)
-            .NotEmpty().WithMessage(ListingsErrors.AvailabilityBlockStartRequired.Message)
-            .Must(text => AvailabilityDates.TryParse(text, out _)).WithMessage(ListingsErrors.AvailabilityBlockStartInvalid.Message);
+            .NotEmpty().WithError(ListingsErrors.AvailabilityBlockStartRequired)
+            .Must(text => AvailabilityDates.TryParse(text, out _)).WithError(ListingsErrors.AvailabilityBlockStartInvalid);
 
         RuleFor(x => x.EndDate)
             .Cascade(CascadeMode.Stop)
-            .NotEmpty().WithMessage(ListingsErrors.AvailabilityBlockEndRequired.Message)
-            .Must(text => AvailabilityDates.TryParse(text, out _)).WithMessage(ListingsErrors.AvailabilityBlockEndInvalid.Message);
+            .NotEmpty().WithError(ListingsErrors.AvailabilityBlockEndRequired)
+            .Must(text => AvailabilityDates.TryParse(text, out _)).WithError(ListingsErrors.AvailabilityBlockEndInvalid);
 
         RuleFor(x => x.Reason)
             .Must(reason => reason is null || reason.Trim().Length <= AvailabilityBlock.ReasonMaxLength)
-            .WithMessage(ListingsErrors.AvailabilityBlockReasonTooLong.Message);
+            .WithError(ListingsErrors.AvailabilityBlockReasonTooLong);
 
-        RuleFor(x => x).Custom((command, context) =>
+        RuleFor(x => x).CustomErrors((command, context) =>
         {
             if (!AvailabilityDates.TryParse(command.StartDate, out var start))
                 return;
@@ -60,7 +61,7 @@ public sealed class BlockListingDatesCommandValidator : AbstractValidator<BlockL
             if (period.IsFailure)
             {
                 foreach (var error in period.Errors!.Where(error => hasEnd || error.Field == ListingsErrors.AvailabilityBlockStartInThePast.Field))
-                    context.AddFailure(error.Field ?? string.Empty, error.Message);
+                    context.AddFailure(error);
             }
         });
     }

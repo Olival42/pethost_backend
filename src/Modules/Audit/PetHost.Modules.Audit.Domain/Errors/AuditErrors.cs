@@ -11,11 +11,11 @@ public static class AuditErrors
     public const int MaxPageSize = 100;
 
     public static readonly Error PageInvalid =
-        Error.Validation("page", "Page must be 1 or greater.");
+        Error.Validation("page", "AUDIT_PAGE_INVALID", "Page must be 1 or greater.");
 
     public static readonly Error PageSizeInvalid =
-        Error.Validation("pageSize", $"Page size must be between 1 and {MaxPageSize}.");
+        Error.Validation("pageSize", "AUDIT_PAGE_SIZE_INVALID", $"Page size must be between 1 and {MaxPageSize}.", ("max", MaxPageSize));
 
     public static readonly Error PeriodInvalid =
-        Error.Validation("from", "'from' must be before 'to'.");
+        Error.Validation("from", "AUDIT_PERIOD_INVALID", "'from' must be before 'to'.");
 }

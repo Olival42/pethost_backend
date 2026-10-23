@@ -1,4 +1,6 @@
 using FluentValidation;
+using PetHost.Modules.Listings.Domain.Errors;
+using PetHost.Shared.Contracts.Validation;
 
 namespace PetHost.Modules.Listings.Application.Listings.ReactivateListing;
 
@@ -8,6 +10,6 @@ public sealed class ReactivateListingCommandValidator : AbstractValidator<Reacti
     public ReactivateListingCommandValidator()
     {
         RuleFor(x => x.ListingId)
-            .NotEmpty().WithMessage("Listing id is required.");
+            .NotEmpty().WithError(ListingsErrors.ListingIdRequired);
     }
 }

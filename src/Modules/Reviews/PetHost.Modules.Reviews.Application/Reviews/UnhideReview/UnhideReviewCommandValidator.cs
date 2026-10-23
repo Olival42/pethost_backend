@@ -1,5 +1,6 @@
 using FluentValidation;
 using PetHost.Modules.Reviews.Domain.Errors;
+using PetHost.Shared.Contracts.Validation;
 
 namespace PetHost.Modules.Reviews.Application.Reviews.UnhideReview;
 
@@ -9,6 +10,6 @@ public sealed class UnhideReviewCommandValidator : AbstractValidator<UnhideRevie
     public UnhideReviewCommandValidator()
     {
         RuleFor(x => x.ReviewId)
-            .NotEmpty().WithMessage(ReviewsErrors.ReviewIdRequired.Message);
+            .NotEmpty().WithError(ReviewsErrors.ReviewIdRequired);
     }
 }

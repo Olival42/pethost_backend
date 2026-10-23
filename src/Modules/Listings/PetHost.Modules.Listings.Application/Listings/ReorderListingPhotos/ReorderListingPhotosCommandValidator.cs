@@ -1,6 +1,7 @@
 using FluentValidation;
 using PetHost.Modules.Listings.Domain.Errors;
 using PetHost.Modules.Listings.Domain.Listings;
+using PetHost.Shared.Contracts.Validation;
 
 namespace PetHost.Modules.Listings.Application.Listings.ReorderListingPhotos;
 
@@ -13,11 +14,11 @@ public sealed class ReorderListingPhotosCommandValidator : AbstractValidator<Reo
     public ReorderListingPhotosCommandValidator()
     {
         RuleFor(x => x.ListingId)
-            .NotEmpty().WithMessage("Listing id is required.");
+            .NotEmpty().WithError(ListingsErrors.ListingIdRequired);
 
         RuleFor(x => x.PhotoIds)
-            .NotNull().WithMessage(ListingsErrors.PhotoOrderInvalid.Message)
+            .NotNull().WithError(ListingsErrors.PhotoOrderInvalid)
             .Must(ids => ids is null || (ids.Count <= Listing.MaxPhotos && !ids.Contains(Guid.Empty) && ids.Distinct().Count() == ids.Count))
-            .WithMessage(ListingsErrors.PhotoOrderInvalid.Message);
+            .WithError(ListingsErrors.PhotoOrderInvalid);
     }
 }

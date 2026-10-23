@@ -1,8 +1,10 @@
 using FluentValidation;
 using PetHost.Modules.Hosts.Application.Abstractions;
 using PetHost.Modules.Hosts.Application.Hosts.Responses;
+using PetHost.Modules.Hosts.Domain.Errors;
 using PetHost.Modules.Hosts.Domain.Hosts;
 using PetHost.Shared.Contracts.Audit;
+using PetHost.Shared.Contracts.Validation;
 using PetHost.Shared.Kernel.Messaging;
 using PetHost.Shared.Kernel.Results;
 
@@ -18,8 +20,8 @@ public sealed class ReactivateHostCommandValidator : AbstractValidator<Reactivat
 {
     public ReactivateHostCommandValidator()
     {
-        RuleFor(x => x.Email).NotEmpty().WithMessage("Email is required.");
-        RuleFor(x => x.Password).NotEmpty().WithMessage("Password is required.");
+        RuleFor(x => x.Email).NotEmpty().WithError(HostsErrors.EmailRequired);
+        RuleFor(x => x.Password).NotEmpty().WithError(HostsErrors.PasswordRequired);
     }
 }
 

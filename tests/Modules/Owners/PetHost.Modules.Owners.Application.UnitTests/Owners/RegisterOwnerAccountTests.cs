@@ -157,8 +157,8 @@ public sealed class RegisterOwnerAccountCommandValidatorTests
             .Setup(a => a.ValidateAsync(It.IsAny<AccountRegistration>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Result.Failure(
             [
-                Error.Validation("password", "Password must contain at least one number."),
-                Error.Validation("address.zipCode", "Zip code (CEP) must have 8 digits."),
+                Error.Validation("password", "AUTH_PASSWORD_MISSING_DIGIT", "Password must contain at least one number."),
+                Error.Validation("address.zipCode", "AUTH_ZIP_CODE_INVALID", "Zip code (CEP) must have 8 digits."),
             ]));
 
         var result = await _sut.ValidateAsync(Command("111.111.111-11"), TestContext.Current.CancellationToken);

@@ -1,4 +1,6 @@
 using FluentValidation;
+using PetHost.Modules.Pets.Domain.Errors;
+using PetHost.Shared.Contracts.Validation;
 
 namespace PetHost.Modules.Pets.Application.Pets.AddPetPhoto;
 
@@ -11,6 +13,6 @@ public sealed class AddPetPhotoCommandValidator : AbstractValidator<AddPetPhotoC
     public AddPetPhotoCommandValidator()
     {
         RuleFor(x => x.PetId)
-            .NotEmpty().WithMessage("Pet id is required.");
+            .NotEmpty().WithError(PetsErrors.PetIdRequired);
     }
 }

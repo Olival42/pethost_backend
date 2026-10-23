@@ -1,6 +1,7 @@
 using FluentValidation;
 using PetHost.Modules.Reviews.Domain.Errors;
 using PetHost.Modules.Reviews.Domain.Reviews;
+using PetHost.Shared.Contracts.Validation;
 
 namespace PetHost.Modules.Reviews.Application.Reviews.HideReview;
 
@@ -10,12 +11,12 @@ public sealed class HideReviewCommandValidator : AbstractValidator<HideReviewCom
     public HideReviewCommandValidator()
     {
         RuleFor(x => x.ReviewId)
-            .NotEmpty().WithMessage(ReviewsErrors.ReviewIdRequired.Message);
+            .NotEmpty().WithError(ReviewsErrors.ReviewIdRequired);
 
         RuleFor(x => x.Reason)
-            .Must(reason => Review.NormalizeText(reason) is not null).WithMessage(ReviewsErrors.HideReasonRequired.Message)
-            .MaximumLength(Review.CommentMaxLength).WithMessage(ReviewsErrors.HideReasonTooLong.Message)
+            .Must(reason => Review.NormalizeText(reason) is not null).WithError(ReviewsErrors.HideReasonRequired)
+            .MaximumLength(Review.CommentMaxLength).WithError(ReviewsErrors.HideReasonTooLong)
             .Must(reason => reason is null || !Review.HasForbiddenControlCharacters(reason))
-            .WithMessage(ReviewsErrors.HideReasonInvalidCharacters.Message);
+            .WithError(ReviewsErrors.HideReasonInvalidCharacters);
     }
 }

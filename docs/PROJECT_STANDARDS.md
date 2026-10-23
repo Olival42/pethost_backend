@@ -3,7 +3,7 @@
 > Documento normativo. Tudo é obrigatório salvo onde marcado como *recomendado*.
 > Em conflito com o código existente, este documento vence.
 
-**Atualizado:** 2026-10-18 · **Escopo:** backend (API)
+**Atualizado:** 2026-10-23 · **Escopo:** backend (API)
 
 ---
 
@@ -135,9 +135,11 @@ namespace PetHost.Shared.Kernel.Errors;
 /// <param name="Code">Código estável, legível por máquina (SCREAMING_SNAKE_CASE).</param>
 /// <param name="Message">Mensagem em inglês, frase completa.</param>
 /// <param name="Field">Campo do payload em camelCase. Só em erro de validação.</param>
-public sealed record Error(string Code, string Message, string? Field = null)
+/// <param name="Reason">Motivo estável da regra de validação (`MODULO_CAMPO_REGRA`). Só em erro de validação.</param>
+/// <param name="Params">Limites e formatos que a frase usa (`ErrorParams`). Só em erro de validação.</param>
+public sealed record Error(string Code, string Message, string? Field = null, string? Reason = null, ErrorParams? Params = null)
 {
-    public static Error Validation(string field, string message) => new(ErrorCodes.Validation, message, field);
+    public static Error Validation(string field, string reason, string message, params (string Name, object Value)[] parameters) => new(ErrorCodes.Validation, message, field, reason, ErrorParams.Of(parameters));
     public static Error NotFound(string message)     => new(ErrorCodes.NotFound, message);
     public static Error Conflict(string message)     => new(ErrorCodes.Conflict, message);
     public static Error Unauthorized(string message) => new(ErrorCodes.Unauthorized, message);
@@ -222,13 +224,14 @@ Extensões de composição em `ResultExtensions`: `Map`, `BindAsync`.
 | Acumular só em validação | Validação retorna N erros; regra de domínio retorna 1 |
 | `Field` em camelCase | Precisa casar com o campo no JSON da request |
 | `Code` nunca muda | É contrato público. Mudar = breaking change |
+| Validação tem `Reason` | `Error.Validation(field, reason, message, params?)`: o `Reason` é o código estável da regra (§10) |
 
 Erros centralizados por módulo em `<Module>Errors` — **zero** literal inline:
 
 ```csharp
 public static class BookingErrors
 {
-    public static readonly Error CheckInInThePast = Error.Validation("checkIn", "CheckIn cannot be in the past.");
+    public static readonly Error CheckInInThePast = Error.Validation("checkIn", "BOOKING_CHECK_IN_IN_THE_PAST", "CheckIn cannot be in the past.");
     public static readonly Error OverlappingPeriod = new("BOOKING_OVERLAPPING_PERIOD", "The host already has a booking in this period.");
     public static Error NotFound(BookingId id) => new("BOOKING_NOT_FOUND", $"Booking '{id.Value}' was not found.");
 }
@@ -288,6 +291,20 @@ public static class ApiResponseMapper
 
 **Comportamento normativo:** havendo ≥1 `VALIDATION_ERROR`, a resposta é `VALIDATION_ERROR` com `Details` agrupado por campo (erros de outro tipo na lista são descartados). Senão, vence o **primeiro** erro e `Details` fica `null`. `Field` nulo cai no bucket `"general"`.
 
+**Código por regra de validação (tarefa 090).** Cada item de `details` tem `messages` (frases em inglês, para log e compatibilidade) e `errors`, alinhado a `messages` (mesma ordem, mesmo tamanho): `errors[i]` é o motivo estável de `messages[i]`. O front traduz por `errors[i].code` e nunca mostra a frase da API.
+
+```json
+{ "field": "checkIn",
+  "messages": ["Check-in must be at least 72 hours ahead: the host answers in up to 24 hours and can only accept up to 48 hours before the stay."],
+  "errors": [ { "code": "BOOKING_CHECK_IN_TOO_SOON", "params": { "minimumHours": 72, "responseHours": 24, "acceptHours": 48 } } ] }
+```
+
+- `code`: `MODULO_CAMPO_REGRA` em `SCREAMING_SNAKE_CASE` (`AUTH_EMAIL_REQUIRED`, `PET_NAME_TOO_LONG`, `LISTING_NIGHTLY_RATE_OUT_OF_RANGE`). Estável: **renomear ou remover é breaking change**; adicionar é retrocompatível. O `code` de topo continua `VALIDATION_ERROR`.
+- `params`: só o que a frase precisa (`max`, `min`, `format`, `digits`, ou o que a regra nomear), com nome em camelCase e valor número, texto ou booleano. Nunca dado pessoal nem o valor enviado. Ausente quando a regra não tem parâmetros. As listas de valores aceitos ficam de fora (o front conhece as opções).
+- Regra de negócio tem código próprio; não há código genérico de validação (`FIELD_INVALID`).
+- O OpenAPI expõe `ApiFieldErrorItem` (`code` + `params`) em `ApiFieldErrors.errors` e o enum `ApiErrorCode` com **todos** os códigos (os de topo e os de validação). O enum é gerado por reflexão (`ErrorCatalog`) das classes `*Errors` e de `ErrorCodes`, não é lista manual: o front gera os tipos dele e o catálogo de textos é `Record<ApiErrorCode, ...>`.
+- Erros que nascem antes do caso de uso seguem a mesma regra: corpo ilegível é `REQUEST_BODY_INVALID` no campo `body`, valor com tipo errado é `REQUEST_VALUE_INVALID` no campo (`RequestErrors`), imagem ausente é `IMAGE_FILE_REQUIRED` (`ImageErrors`).
+
 ### Ponte com o ASP.NET Core
 
 ```csharp
@@ -345,7 +362,9 @@ Sucesso `200` · validação `400` · regra de negócio `422` · inesperado `500
 
 { "success": false, "data": null, "error": {
     "code": "VALIDATION_ERROR", "message": "Validation failed",
-    "details": [ { "field": "checkOut", "messages": ["CheckOut must be after CheckIn."] } ] },
+    "details": [ { "field": "checkOut",
+                   "messages": ["CheckOut must be after CheckIn."],
+                   "errors": [ { "code": "BOOKING_CHECK_OUT_NOT_AFTER_CHECK_IN" } ] } ] },
   "timestamp": "2026-10-07T13:45:12.331+00:00" }
 
 { "success": false, "data": null, "error": {
@@ -501,6 +520,21 @@ public sealed class BookingsController(
 
 - Toda `ICommand` tem validador, mesmo trivial. `IQuery` só com filtro/paginação.
 - O handler **nunca** chama o validador: um `ValidationCommandHandlerDecorator` registrado no DI intercepta, acumula as falhas como `Error.Validation(...)` e retorna antes de executar.
+- **Toda regra de validação declara o erro em `<Module>Errors` e o validador o usa por inteiro**, sem texto nem código inline:
+
+  ```csharp
+  // <Module>Errors (Domain)
+  public static readonly Error NameTooLong =
+      Error.Validation("name", "PET_NAME_TOO_LONG", $"Name must be at most {PetProfile.NameMaxLength} characters.", ("max", PetProfile.NameMaxLength));
+
+  // Validador (Application)
+  RuleFor(x => x.Name).MaximumLength(PetProfile.NameMaxLength).WithError(PetsErrors.NameTooLong);
+  RuleFor(x => x).CustomErrors((command, context) => { /* ... */ context.AddFailure(error); });
+  ```
+
+  `WithError`, `CustomErrors`, `CustomErrorsAsync` e `AddFailure(Error)` (`Shared.Contracts/Validation`) levam mensagem, código e parâmetros do mesmo `Error`. **Proibido** `.WithMessage(...)`, `.Custom(...)`, `.CustomAsync(...)`, `new ValidationFailure(...)` e `AddFailure(campo, texto)` em `src/`: o decorator lança `InvalidOperationException` para a regra sem código.
+- O código é `<MODULO>_<CAMPO>_<REGRA>`, derivado do nome do membro (`PetsErrors.NameTooLong` → `PET_NAME_TOO_LONG`). Dois erros só dividem um código se tiverem o mesmo campo, os mesmos parâmetros e a mesma frase.
+- `ErrorCodeCoverageTests` (em `PetHost.ArchitectureTests`) falha se surgir validação sem código, código fora do formato, validação com código genérico, código repetido com outro significado, ou `WithMessage`/`Custom` em `src/`.
 - `PropertyName` do FluentValidation é convertido para **camelCase** (`CheckOut` → `checkOut`) para casar com o JSON.
 - Validador **não** acessa banco. Unicidade (e-mail duplicado, período sobreposto) é regra de domínio → `CONFLICT` ou código de módulo.
 - Mensagem em inglês, frase completa, terminada em ponto.
