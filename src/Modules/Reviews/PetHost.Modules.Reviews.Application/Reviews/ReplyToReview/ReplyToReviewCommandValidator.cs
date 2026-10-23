@@ -1,6 +1,7 @@
 using FluentValidation;
 using PetHost.Modules.Reviews.Domain.Errors;
 using PetHost.Modules.Reviews.Domain.Reviews;
+using PetHost.Shared.Contracts.Validation;
 
 namespace PetHost.Modules.Reviews.Application.Reviews.ReplyToReview;
 
@@ -10,12 +11,12 @@ public sealed class ReplyToReviewCommandValidator : AbstractValidator<ReplyToRev
     public ReplyToReviewCommandValidator()
     {
         RuleFor(x => x.ReviewId)
-            .NotEmpty().WithMessage(ReviewsErrors.ReviewIdRequired.Message);
+            .NotEmpty().WithError(ReviewsErrors.ReviewIdRequired);
 
         RuleFor(x => x.Text)
-            .Must(text => Review.NormalizeText(text) is not null).WithMessage(ReviewsErrors.ReplyRequired.Message)
-            .MaximumLength(Review.CommentMaxLength).WithMessage(ReviewsErrors.ReplyTooLong.Message)
+            .Must(text => Review.NormalizeText(text) is not null).WithError(ReviewsErrors.ReplyRequired)
+            .MaximumLength(Review.CommentMaxLength).WithError(ReviewsErrors.ReplyTooLong)
             .Must(text => text is null || !Review.HasForbiddenControlCharacters(text))
-            .WithMessage(ReviewsErrors.ReplyInvalidCharacters.Message);
+            .WithError(ReviewsErrors.ReplyInvalidCharacters);
     }
 }

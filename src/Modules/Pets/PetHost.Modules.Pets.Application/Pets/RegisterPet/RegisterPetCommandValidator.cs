@@ -1,5 +1,6 @@
 using FluentValidation;
 using PetHost.Modules.Pets.Domain.Pets;
+using PetHost.Shared.Contracts.Validation;
 
 namespace PetHost.Modules.Pets.Application.Pets.RegisterPet;
 
@@ -13,14 +14,14 @@ public sealed class RegisterPetCommandValidator : AbstractValidator<RegisterPetC
     {
         ArgumentNullException.ThrowIfNull(timeProvider);
 
-        RuleFor(x => x).Custom((command, context) =>
+        RuleFor(x => x).CustomErrors((command, context) =>
         {
             var profile = PetProfile.Create(command.ToProfileData(), timeProvider.GetUtcNow());
             if (profile.IsSuccess)
                 return;
 
             foreach (var error in profile.Errors!)
-                context.AddFailure(error.Field ?? string.Empty, error.Message);
+                context.AddFailure(error);
         });
     }
 }

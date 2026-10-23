@@ -13,101 +13,101 @@ public static class HostsErrors
     // --- Validação de formato (VALIDATION_ERROR, 400, acumulável) ---
 
     public static readonly Error CpfInvalid =
-        Error.Validation("cpf", "CPF is invalid.");
+        Error.Validation("cpf", "HOST_CPF_INVALID", "CPF is invalid.");
 
     public static readonly Error CnpjInvalid =
-        Error.Validation("cnpj", "CNPJ is invalid.");
+        Error.Validation("cnpj", "HOST_CNPJ_INVALID", "CNPJ is invalid.");
 
     public static readonly Error LegalNameRequired =
-        Error.Validation("legalName", "Legal name is required for a company.");
+        Error.Validation("legalName", "HOST_LEGAL_NAME_REQUIRED", "Legal name is required for a company.");
 
     public static readonly Error LegalNameTooLong =
-        Error.Validation("legalName", $"Legal name must be at most {Host.LegalNameMaxLength} characters.");
+        Error.Validation("legalName", "HOST_LEGAL_NAME_TOO_LONG", $"Legal name must be at most {Host.LegalNameMaxLength} characters.", ("max", Host.LegalNameMaxLength));
 
     public static readonly Error TradeNameRequired =
-        Error.Validation("tradeName", "Trade name is required for a company.");
+        Error.Validation("tradeName", "HOST_TRADE_NAME_REQUIRED", "Trade name is required for a company.");
 
     public static readonly Error TradeNameTooLong =
-        Error.Validation("tradeName", $"Trade name must be at most {Host.TradeNameMaxLength} characters.");
+        Error.Validation("tradeName", "HOST_TRADE_NAME_TOO_LONG", $"Trade name must be at most {Host.TradeNameMaxLength} characters.", ("max", Host.TradeNameMaxLength));
 
     // --- Endereço da empresa (o campo leva o prefixo "companyAddress." porque o JSON é aninhado) ---
 
     public static readonly Error CompanyZipCodeInvalid =
-        Error.Validation("companyAddress.zipCode", $"Zip code (CEP) must have {CompanyAddress.ZipCodeLength} digits.");
+        Error.Validation("companyAddress.zipCode", "HOST_COMPANY_ZIP_CODE_INVALID", $"Zip code (CEP) must have {CompanyAddress.ZipCodeLength} digits.", ("digits", CompanyAddress.ZipCodeLength));
 
     public static readonly Error CompanyStreetRequired =
-        Error.Validation("companyAddress.street", "Street is required.");
+        Error.Validation("companyAddress.street", "HOST_COMPANY_STREET_REQUIRED", "Street is required.");
 
     public static readonly Error CompanyStreetTooLong =
-        Error.Validation("companyAddress.street", $"Street must be at most {CompanyAddress.StreetMaxLength} characters.");
+        Error.Validation("companyAddress.street", "HOST_COMPANY_STREET_TOO_LONG", $"Street must be at most {CompanyAddress.StreetMaxLength} characters.", ("max", CompanyAddress.StreetMaxLength));
 
     public static readonly Error CompanyStreetNumberRequired =
-        Error.Validation("companyAddress.number", "Number is required. Use 'S/N' when there is none.");
+        Error.Validation("companyAddress.number", "HOST_COMPANY_STREET_NUMBER_REQUIRED", "Number is required. Use 'S/N' when there is none.");
 
     public static readonly Error CompanyStreetNumberTooLong =
-        Error.Validation("companyAddress.number", $"Number must be at most {CompanyAddress.NumberMaxLength} characters.");
+        Error.Validation("companyAddress.number", "HOST_COMPANY_STREET_NUMBER_TOO_LONG", $"Number must be at most {CompanyAddress.NumberMaxLength} characters.", ("max", CompanyAddress.NumberMaxLength));
 
     public static readonly Error CompanyComplementTooLong =
-        Error.Validation("companyAddress.complement", $"Complement must be at most {CompanyAddress.ComplementMaxLength} characters.");
+        Error.Validation("companyAddress.complement", "HOST_COMPANY_COMPLEMENT_TOO_LONG", $"Complement must be at most {CompanyAddress.ComplementMaxLength} characters.", ("max", CompanyAddress.ComplementMaxLength));
 
     public static readonly Error CompanyNeighborhoodRequired =
-        Error.Validation("companyAddress.neighborhood", "Neighborhood is required.");
+        Error.Validation("companyAddress.neighborhood", "HOST_COMPANY_NEIGHBORHOOD_REQUIRED", "Neighborhood is required.");
 
     public static readonly Error CompanyNeighborhoodTooLong =
-        Error.Validation("companyAddress.neighborhood", $"Neighborhood must be at most {CompanyAddress.NeighborhoodMaxLength} characters.");
+        Error.Validation("companyAddress.neighborhood", "HOST_COMPANY_NEIGHBORHOOD_TOO_LONG", $"Neighborhood must be at most {CompanyAddress.NeighborhoodMaxLength} characters.", ("max", CompanyAddress.NeighborhoodMaxLength));
 
     public static readonly Error CompanyCityRequired =
-        Error.Validation("companyAddress.city", "City is required.");
+        Error.Validation("companyAddress.city", "HOST_COMPANY_CITY_REQUIRED", "City is required.");
 
     public static readonly Error CompanyCityTooLong =
-        Error.Validation("companyAddress.city", $"City must be at most {CompanyAddress.CityMaxLength} characters.");
+        Error.Validation("companyAddress.city", "HOST_COMPANY_CITY_TOO_LONG", $"City must be at most {CompanyAddress.CityMaxLength} characters.", ("max", CompanyAddress.CityMaxLength));
 
     public static readonly Error CompanyStateInvalid =
-        Error.Validation("companyAddress.state", "State must be a valid Brazilian state code, e.g. 'PR'.");
+        Error.Validation("companyAddress.state", "HOST_COMPANY_STATE_INVALID", "State must be a valid Brazilian state code, e.g. 'PR'.");
 
     // --- Solicitação de cadastro: validação de formato ---
 
     public static readonly Error DocumentTypeInvalid =
-        Error.Validation("documentType", $"Document type must be one of: {string.Join(", ", IdentityDocumentTypeValues.All)}.");
+        Error.Validation("documentType", "HOST_DOCUMENT_TYPE_INVALID", $"Document type must be one of: {string.Join(", ", IdentityDocumentTypeValues.All)}.");
 
     public static readonly Error DocumentKindInvalid =
-        Error.Validation("kind", $"Document kind must be one of: {string.Join(", ", DocumentKindValues.All)}.");
+        Error.Validation("kind", "HOST_DOCUMENT_KIND_INVALID", $"Document kind must be one of: {string.Join(", ", DocumentKindValues.All)}.");
 
     /// <summary>O envio das fotos veio sem nenhuma das partes <c>front</c>, <c>back</c> ou <c>selfie</c>.</summary>
     public static readonly Error DocumentsRequired =
-        Error.Validation("documents", $"Send at least one photo in a multipart/form-data request, in the fields: {string.Join(", ", DocumentKindValues.All)}.");
+        Error.Validation("documents", "HOST_DOCUMENTS_REQUIRED", $"Send at least one photo in a multipart/form-data request, in the fields: {string.Join(", ", DocumentKindValues.All)}.");
 
     /// <summary>Sem ler e aceitar o aviso de uso das fotos, a verificação não começa.</summary>
     public static readonly Error NoticeNotAccepted =
-        Error.Validation("acceptNotice", "You must read and accept how the photos are used before starting the verification.");
+        Error.Validation("acceptNotice", "HOST_NOTICE_NOT_ACCEPTED", "You must read and accept how the photos are used before starting the verification.");
 
     public static readonly Error RejectionReasonInvalid =
-        Error.Validation("rejectionReason", $"Rejection reason must be one of: {string.Join(", ", RejectionReasonValues.All)}.");
+        Error.Validation("rejectionReason", "HOST_REJECTION_REASON_INVALID", $"Rejection reason must be one of: {string.Join(", ", RejectionReasonValues.All)}.");
 
     public static readonly Error ReasonRequired =
-        Error.Validation("reason", "A reason is required.");
+        Error.Validation("reason", "HOST_REASON_REQUIRED", "A reason is required.");
 
     public static readonly Error ReasonTooLong =
-        Error.Validation("reason", $"Reason must be at most {HostApplication.ReviewNotesMaxLength} characters.");
+        Error.Validation("reason", "HOST_REASON_TOO_LONG", $"Reason must be at most {HostApplication.ReviewNotesMaxLength} characters.", ("max", HostApplication.ReviewNotesMaxLength));
 
     public static readonly Error StatusFilterInvalid =
-        Error.Validation("status", $"Status must be one of: {string.Join(", ", HostApplicationStatusValues.All)}.");
+        Error.Validation("status", "HOST_STATUS_FILTER_INVALID", $"Status must be one of: {string.Join(", ", HostApplicationStatusValues.All)}.");
 
     public static readonly Error StripeStatusFilterInvalid =
-        Error.Validation("stripeStatus", $"Stripe status must be one of: {string.Join(", ", StripeOnboardingStatusValues.All)}.");
+        Error.Validation("stripeStatus", "HOST_STRIPE_STATUS_FILTER_INVALID", $"Stripe status must be one of: {string.Join(", ", StripeOnboardingStatusValues.All)}.");
 
     public static readonly Error DashboardMonthInvalid =
-        Error.Validation("month", "Month must be in the format yyyy-MM (e.g. 2026-10).");
+        Error.Validation("month", "HOST_DASHBOARD_MONTH_INVALID", "Month must be in the format yyyy-MM (e.g. 2026-10).");
 
     public static readonly Error DashboardMonthInFuture =
-        Error.Validation("month", "Month cannot be in the future.");
+        Error.Validation("month", "HOST_DASHBOARD_MONTH_IN_FUTURE", "Month cannot be in the future.");
 
     public static readonly Error PersonTypeInvalid =
-        Error.Validation("personType", $"Person type must be one of: {PersonTypeValues.Individual}, {PersonTypeValues.Company}.");
+        Error.Validation("personType", "HOST_PERSON_TYPE_INVALID", $"Person type must be one of: {PersonTypeValues.Individual}, {PersonTypeValues.Company}.");
 
     /// <summary>Pessoa física não manda dados de empresa (o campo indica onde está o erro).</summary>
     public static readonly Error CompanyDataNotExpected =
-        Error.Validation("cnpj", "Company data is only accepted when personType is 'company'.");
+        Error.Validation("cnpj", "HOST_COMPANY_DATA_NOT_EXPECTED", "Company data is only accepted when personType is 'company'.");
 
     // --- Solicitação de cadastro: regras de negócio ---
 
@@ -254,9 +254,26 @@ public static class HostsErrors
 
     /// <summary>400: excluir a conta pede a senha atual.</summary>
     public static readonly Error DeletionPasswordRequired =
-        Error.Validation("currentPassword", "Current password is required to delete the account.");
+        Error.Validation("currentPassword", "HOST_DELETION_PASSWORD_REQUIRED", "Current password is required to delete the account.");
 
     /// <summary>400: a senha atual não confere.</summary>
     public static readonly Error CurrentPasswordIncorrect =
-        Error.Validation("currentPassword", "Current password is incorrect.");
+        Error.Validation("currentPassword", "HOST_CURRENT_PASSWORD_INCORRECT", "Current password is incorrect.");
+
+    // --- Validação: identificadores e campos obrigatórios de comandos internos e de rota ---
+
+    public static readonly Error UserIdRequired =
+        Error.Validation("userId", "HOST_USER_ID_REQUIRED", "User id is required.");
+
+    public static readonly Error EmailRequired =
+        Error.Validation("email", "HOST_EMAIL_REQUIRED", "Email is required.");
+
+    public static readonly Error PasswordRequired =
+        Error.Validation("password", "HOST_PASSWORD_REQUIRED", "Password is required.");
+
+    public static readonly Error HostIdRequired =
+        Error.Validation("hostId", "HOST_HOST_ID_REQUIRED", "Host id is required.");
+
+    public static readonly Error StripeAccountIdRequired =
+        Error.Validation("stripeAccountId", "HOST_STRIPE_ACCOUNT_ID_REQUIRED", "Stripe account id is required.");
 }

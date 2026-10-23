@@ -1,4 +1,6 @@
 using FluentValidation;
+using PetHost.Modules.Listings.Domain.Errors;
+using PetHost.Shared.Contracts.Validation;
 
 namespace PetHost.Modules.Listings.Application.Listings.DeactivateListing;
 
@@ -8,6 +10,6 @@ public sealed class DeactivateListingCommandValidator : AbstractValidator<Deacti
     public DeactivateListingCommandValidator()
     {
         RuleFor(x => x.ListingId)
-            .NotEmpty().WithMessage("Listing id is required.");
+            .NotEmpty().WithError(ListingsErrors.ListingIdRequired);
     }
 }

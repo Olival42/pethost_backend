@@ -2,6 +2,7 @@ using FluentValidation;
 using PetHost.Modules.Conversations.Domain.Errors;
 using PetHost.Modules.Conversations.Domain.Messages;
 using PetHost.Modules.Conversations.Domain.Reports;
+using PetHost.Shared.Contracts.Validation;
 
 namespace PetHost.Modules.Conversations.Application.Reports.ResolveMessageReport;
 
@@ -14,15 +15,15 @@ public sealed class ResolveMessageReportCommandValidator : AbstractValidator<Res
     public ResolveMessageReportCommandValidator()
     {
         RuleFor(x => x.ReportId)
-            .NotEmpty().WithMessage(ConversationsErrors.ReportIdRequired.Message);
+            .NotEmpty().WithError(ConversationsErrors.ReportIdRequired);
 
         RuleFor(x => x.Outcome)
-            .Must(outcome => ReportStatusValues.TryOutcomeFromWire(outcome, out _)).WithMessage(ConversationsErrors.OutcomeInvalid.Message);
+            .Must(outcome => ReportStatusValues.TryOutcomeFromWire(outcome, out _)).WithError(ConversationsErrors.OutcomeInvalid);
 
         RuleFor(x => x.Note)
             .Cascade(CascadeMode.Stop)
-            .Must(note => !string.IsNullOrWhiteSpace(note)).WithMessage(ConversationsErrors.NoteRequired.Message)
-            .Must(note => note!.Trim().Length <= MessageReport.ResolutionNoteMaxLength).WithMessage(ConversationsErrors.NoteTooLong.Message)
-            .Must(note => !Message.HasControlCharacters(note!)).WithMessage(ConversationsErrors.NoteInvalidCharacters.Message);
+            .Must(note => !string.IsNullOrWhiteSpace(note)).WithError(ConversationsErrors.NoteRequired)
+            .Must(note => note!.Trim().Length <= MessageReport.ResolutionNoteMaxLength).WithError(ConversationsErrors.NoteTooLong)
+            .Must(note => !Message.HasControlCharacters(note!)).WithError(ConversationsErrors.NoteInvalidCharacters);
     }
 }

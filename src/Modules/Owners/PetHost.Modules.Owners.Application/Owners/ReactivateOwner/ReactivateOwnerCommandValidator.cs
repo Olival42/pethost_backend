@@ -1,4 +1,6 @@
 using FluentValidation;
+using PetHost.Modules.Owners.Domain.Errors;
+using PetHost.Shared.Contracts.Validation;
 
 namespace PetHost.Modules.Owners.Application.Owners.ReactivateOwner;
 
@@ -7,7 +9,7 @@ public sealed class ReactivateOwnerCommandValidator : AbstractValidator<Reactiva
 {
     public ReactivateOwnerCommandValidator()
     {
-        RuleFor(x => x.Email).NotEmpty().WithMessage("Email is required.");
-        RuleFor(x => x.Password).NotEmpty().WithMessage("Password is required.");
+        RuleFor(x => x.Email).NotEmpty().WithError(OwnersErrors.EmailRequired);
+        RuleFor(x => x.Password).NotEmpty().WithError(OwnersErrors.PasswordRequired);
     }
 }

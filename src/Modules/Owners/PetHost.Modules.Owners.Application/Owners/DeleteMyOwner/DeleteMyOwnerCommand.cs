@@ -4,6 +4,7 @@ using PetHost.Modules.Owners.Domain.Errors;
 using PetHost.Modules.Owners.Domain.Owners;
 using PetHost.Shared.Contracts.Audit;
 using PetHost.Shared.Contracts.Storage;
+using PetHost.Shared.Contracts.Validation;
 using PetHost.Shared.Kernel.Messaging;
 using PetHost.Shared.Kernel.Primitives;
 using PetHost.Shared.Kernel.Results;
@@ -19,8 +20,8 @@ public sealed class DeleteMyOwnerCommandValidator : AbstractValidator<DeleteMyOw
 {
     public DeleteMyOwnerCommandValidator()
     {
-        RuleFor(x => x.UserId).NotEmpty().WithMessage("User id is required.");
-        RuleFor(x => x.CurrentPassword).NotEmpty().WithMessage(OwnersErrors.DeletionPasswordRequired.Message);
+        RuleFor(x => x.UserId).NotEmpty().WithError(OwnersErrors.UserIdRequired);
+        RuleFor(x => x.CurrentPassword).NotEmpty().WithError(OwnersErrors.DeletionPasswordRequired);
     }
 }
 

@@ -1,6 +1,7 @@
 using FluentValidation;
 using PetHost.Modules.Conversations.Domain.Errors;
 using PetHost.Modules.Conversations.Domain.Messages;
+using PetHost.Shared.Contracts.Validation;
 
 namespace PetHost.Modules.Conversations.Application.Messages.SendPhotoMessage;
 
@@ -15,11 +16,11 @@ public sealed class SendPhotoMessageCommandValidator : AbstractValidator<SendPho
     public SendPhotoMessageCommandValidator()
     {
         RuleFor(x => x.ConversationId)
-            .NotEmpty().WithMessage(ConversationsErrors.ConversationIdRequired.Message);
+            .NotEmpty().WithError(ConversationsErrors.ConversationIdRequired);
 
         RuleFor(x => x.Body)
-            .Must(body => body!.Trim().Length <= Message.BodyMaxLength).WithMessage(ConversationsErrors.BodyTooLong.Message)
-            .Must(body => !Message.HasControlCharacters(body!)).WithMessage(ConversationsErrors.BodyInvalidCharacters.Message)
+            .Must(body => body!.Trim().Length <= Message.BodyMaxLength).WithError(ConversationsErrors.BodyTooLong)
+            .Must(body => !Message.HasControlCharacters(body!)).WithError(ConversationsErrors.BodyInvalidCharacters)
             .When(x => x.Body is not null);
     }
 }

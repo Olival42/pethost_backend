@@ -4,6 +4,7 @@ using PetHost.Modules.Bookings.Application.Bookings.Responses;
 using PetHost.Modules.Bookings.Domain.Bookings;
 using PetHost.Modules.Bookings.Domain.Errors;
 using PetHost.Shared.Contracts.Audit;
+using PetHost.Shared.Contracts.Validation;
 using PetHost.Shared.Kernel.Messaging;
 using PetHost.Shared.Kernel.Results;
 
@@ -20,10 +21,10 @@ public sealed class DeclineBookingCommandValidator : AbstractValidator<DeclineBo
     public DeclineBookingCommandValidator()
     {
         RuleFor(x => x.BookingId)
-            .NotEmpty().WithMessage("Booking id is required.");
+            .NotEmpty().WithError(BookingsErrors.BookingIdRequired);
 
         RuleFor(x => x.Reason)
-            .MaximumLength(Booking.ReasonMaxLength).WithMessage(BookingsErrors.ReasonTooLong.Message);
+            .MaximumLength(Booking.ReasonMaxLength).WithError(BookingsErrors.ReasonTooLong);
     }
 }
 

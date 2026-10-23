@@ -4,6 +4,7 @@ using PetHost.Modules.Hosts.Application.Hosts.Responses;
 using PetHost.Modules.Hosts.Domain.Errors;
 using PetHost.Modules.Hosts.Domain.Hosts;
 using PetHost.Shared.Contracts.Storage;
+using PetHost.Shared.Contracts.Validation;
 using PetHost.Shared.Kernel.Messaging;
 using PetHost.Shared.Kernel.Results;
 
@@ -20,12 +21,12 @@ public sealed record RemoveMyHostAvatarCommand(Guid UserId) : ICommand<HostRespo
 /// <summary>Só a conta: o arquivo é conferido pelo bucket, depois de saber que o perfil existe.</summary>
 public sealed class ChangeMyHostAvatarCommandValidator : AbstractValidator<ChangeMyHostAvatarCommand>
 {
-    public ChangeMyHostAvatarCommandValidator() => RuleFor(x => x.UserId).NotEmpty().WithMessage("User id is required.");
+    public ChangeMyHostAvatarCommandValidator() => RuleFor(x => x.UserId).NotEmpty().WithError(HostsErrors.UserIdRequired);
 }
 
 public sealed class RemoveMyHostAvatarCommandValidator : AbstractValidator<RemoveMyHostAvatarCommand>
 {
-    public RemoveMyHostAvatarCommandValidator() => RuleFor(x => x.UserId).NotEmpty().WithMessage("User id is required.");
+    public RemoveMyHostAvatarCommandValidator() => RuleFor(x => x.UserId).NotEmpty().WithError(HostsErrors.UserIdRequired);
 }
 
 /// <summary>

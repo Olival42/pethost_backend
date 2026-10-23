@@ -1,5 +1,7 @@
 using FluentValidation;
+using PetHost.Modules.Auth.Domain.Errors;
 using PetHost.Modules.Auth.Domain.Users;
+using PetHost.Shared.Contracts.Validation;
 
 namespace PetHost.Modules.Auth.Application.Sessions.SwitchSession;
 
@@ -9,11 +11,11 @@ public sealed class SwitchSessionCommandValidator : AbstractValidator<SwitchSess
     {
         RuleFor(x => x.Role)
             .Must(role => UserRoleValues.TryParse(role, out var parsed) && parsed is UserRole.Owner or UserRole.Host)
-                .WithMessage("Role must be either 'owner' or 'host'.");
+                .WithError(AuthErrors.RoleInvalid);
 
         RuleFor(x => x.Password)
-            .NotEmpty().WithMessage("Password is required.")
+            .NotEmpty().WithError(AuthErrors.PasswordRequired)
             .MaximumLength(Password.MaxLength)
-                .WithMessage($"Password must be at most {Password.MaxLength} characters.");
+                .WithError(AuthErrors.PasswordTooLong);
     }
 }

@@ -1,4 +1,6 @@
 using FluentValidation;
+using PetHost.Modules.Owners.Domain.Errors;
+using PetHost.Shared.Contracts.Validation;
 
 namespace PetHost.Modules.Owners.Application.Owners.ChangeMyAvatar;
 
@@ -11,6 +13,6 @@ public sealed class ChangeMyAvatarCommandValidator : AbstractValidator<ChangeMyA
     public ChangeMyAvatarCommandValidator()
     {
         RuleFor(x => x.UserId)
-            .NotEmpty().WithMessage("User id is required.");
+            .NotEmpty().WithError(OwnersErrors.UserIdRequired);
     }
 }

@@ -1,4 +1,6 @@
 using FluentValidation;
+using PetHost.Modules.Pets.Domain.Errors;
+using PetHost.Shared.Contracts.Validation;
 
 namespace PetHost.Modules.Pets.Application.Pets.UpdatePet;
 
@@ -12,6 +14,6 @@ public sealed class UpdatePetCommandValidator : AbstractValidator<UpdatePetComma
     public UpdatePetCommandValidator()
     {
         RuleFor(x => x.PetId)
-            .NotEmpty().WithMessage("Pet id is required.");
+            .NotEmpty().WithError(PetsErrors.PetIdRequired);
     }
 }

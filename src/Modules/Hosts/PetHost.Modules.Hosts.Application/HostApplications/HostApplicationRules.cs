@@ -2,6 +2,7 @@ using FluentValidation;
 using PetHost.Modules.Hosts.Domain.Errors;
 using PetHost.Modules.Hosts.Domain.HostApplications;
 using PetHost.Modules.Hosts.Domain.Hosts;
+using PetHost.Shared.Contracts.Validation;
 using PetHost.Shared.Kernel.Results;
 
 namespace PetHost.Modules.Hosts.Application.HostApplications;
@@ -13,20 +14,20 @@ namespace PetHost.Modules.Hosts.Application.HostApplications;
 internal static class HostApplicationRules
 {
     public static IRuleBuilderOptions<T, string?> ValidCpf<T>(this IRuleBuilderInitial<T, string?> rule) =>
-        rule.Must(cpf => Cpf.Create(cpf).IsSuccess).WithMessage(HostsErrors.CpfInvalid.Message);
+        rule.Must(cpf => Cpf.Create(cpf).IsSuccess).WithError(HostsErrors.CpfInvalid);
 
     public static IRuleBuilderOptions<T, string?> ValidDocumentType<T>(this IRuleBuilderInitial<T, string?> rule) =>
-        rule.Must(type => IdentityDocumentTypeValues.TryParse(type, out _)).WithMessage(HostsErrors.DocumentTypeInvalid.Message);
+        rule.Must(type => IdentityDocumentTypeValues.TryParse(type, out _)).WithError(HostsErrors.DocumentTypeInvalid);
 
     public static IRuleBuilderOptions<T, string?> ValidDocumentKind<T>(this IRuleBuilderInitial<T, string?> rule) =>
-        rule.Must(kind => DocumentKindValues.TryParse(kind, out _)).WithMessage(HostsErrors.DocumentKindInvalid.Message);
+        rule.Must(kind => DocumentKindValues.TryParse(kind, out _)).WithError(HostsErrors.DocumentKindInvalid);
 
     /// <summary>Toda decisão do admin leva motivo: ele vai para a nota e para a trilha.</summary>
     public static IRuleBuilderOptions<T, string?> AdminReason<T>(this IRuleBuilderInitial<T, string?> rule) =>
         rule
             .Cascade(CascadeMode.Stop)
-            .NotEmpty().WithMessage(HostsErrors.ReasonRequired.Message)
-            .Must(reason => reason!.Trim().Length <= HostApplication.ReviewNotesMaxLength).WithMessage(HostsErrors.ReasonTooLong.Message);
+            .NotEmpty().WithError(HostsErrors.ReasonRequired)
+            .Must(reason => reason!.Trim().Length <= HostApplication.ReviewNotesMaxLength).WithError(HostsErrors.ReasonTooLong);
 
     /// <summary>Veio algum dado de empresa no corpo?</summary>
     public static bool HasCompanyData(ICompanyFields fields) =>
@@ -79,7 +80,7 @@ internal static class HostApplicationRules
         if (company.IsFailure)
         {
             foreach (var error in company.Errors!)
-                context.AddFailure(error.Field ?? "company", error.Message);
+                context.AddFailure(error);
         }
     }
 

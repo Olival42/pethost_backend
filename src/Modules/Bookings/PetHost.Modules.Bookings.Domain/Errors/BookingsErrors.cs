@@ -16,66 +16,69 @@ public static class BookingsErrors
     // --- Validação: pedido (VALIDATION_ERROR, 400, acumulável) ---
 
     public static readonly Error ListingIdRequired =
-        Error.Validation("listingId", "Listing id is required.");
+        Error.Validation("listingId", "BOOKING_LISTING_ID_REQUIRED", "Listing id is required.");
 
     public static readonly Error PetIdsRequired =
-        Error.Validation("petIds", "Choose at least one pet.");
+        Error.Validation("petIds", "BOOKING_PET_IDS_REQUIRED", "Choose at least one pet.");
 
     public static readonly Error PetIdsTooMany =
-        Error.Validation("petIds", $"A booking can have at most {Booking.MaxPets} pets.");
+        Error.Validation("petIds", "BOOKING_PET_IDS_TOO_MANY", $"A booking can have at most {Booking.MaxPets} pets.", ("max", Booking.MaxPets));
 
     public static readonly Error PetIdsInvalid =
-        Error.Validation("petIds", "Each pet must be a valid id and appear only once.");
+        Error.Validation("petIds", "BOOKING_PET_IDS_INVALID", "Each pet must be a valid id and appear only once.");
 
     public static readonly Error CareTermsNotAccepted =
-        Error.Validation("careTermsAccepted", "Confirm that you will bring the pet's food and hand over its medicines to the host.");
+        Error.Validation("careTermsAccepted", "BOOKING_CARE_TERMS_NOT_ACCEPTED", "Confirm that you will bring the pet's food and hand over its medicines to the host.");
 
     public static readonly Error CheckInRequired =
-        Error.Validation("checkIn", "Check-in date is required.");
+        Error.Validation("checkIn", "BOOKING_CHECK_IN_REQUIRED", "Check-in date is required.");
 
     public static readonly Error CheckOutRequired =
-        Error.Validation("checkOut", "Check-out date is required.");
+        Error.Validation("checkOut", "BOOKING_CHECK_OUT_REQUIRED", "Check-out date is required.");
 
     public static readonly Error CheckInInvalid =
-        Error.Validation("checkIn", $"Check-in must be a date in the format {StayPeriod.DateFormat}.");
+        Error.Validation("checkIn", "BOOKING_CHECK_IN_INVALID", $"Check-in must be a date in the format {StayPeriod.DateFormat}.", ("format", StayPeriod.DateFormat));
 
     public static readonly Error CheckOutInvalid =
-        Error.Validation("checkOut", $"Check-out must be a date in the format {StayPeriod.DateFormat}.");
+        Error.Validation("checkOut", "BOOKING_CHECK_OUT_INVALID", $"Check-out must be a date in the format {StayPeriod.DateFormat}.", ("format", StayPeriod.DateFormat));
 
     public static readonly Error CheckInInThePast =
-        Error.Validation("checkIn", "Check-in cannot be in the past.");
+        Error.Validation("checkIn", "BOOKING_CHECK_IN_IN_THE_PAST", "Check-in cannot be in the past.");
 
     public static readonly Error CheckInTooSoon =
         Error.Validation(
-            "checkIn",
-            $"Check-in must be at least {Booking.MinimumRequestNotice.TotalHours:0} hours ahead: the host answers in up to {Booking.ResponseWindow.TotalHours:0} hours and can only accept up to {Booking.MinimumAcceptNotice.TotalHours:0} hours before the stay.");
+            "checkIn", "BOOKING_CHECK_IN_TOO_SOON",
+            $"Check-in must be at least {Booking.MinimumRequestNotice.TotalHours:0} hours ahead: the host answers in up to {Booking.ResponseWindow.TotalHours:0} hours and can only accept up to {Booking.MinimumAcceptNotice.TotalHours:0} hours before the stay.",
+            ("minimumHours", (int)Booking.MinimumRequestNotice.TotalHours),
+            ("responseHours", (int)Booking.ResponseWindow.TotalHours),
+            ("acceptHours", (int)Booking.MinimumAcceptNotice.TotalHours));
 
     public static readonly Error CheckInTooFarAhead =
-        Error.Validation("checkIn", $"Check-in can be at most {StayPeriod.MaxDaysAhead} days ahead.");
+        Error.Validation("checkIn", "BOOKING_CHECK_IN_TOO_FAR_AHEAD", $"Check-in can be at most {StayPeriod.MaxDaysAhead} days ahead.", ("max", StayPeriod.MaxDaysAhead));
 
     public static readonly Error CheckOutNotAfterCheckIn =
-        Error.Validation("checkOut", "Check-out must be after check-in.");
+        Error.Validation("checkOut", "BOOKING_CHECK_OUT_NOT_AFTER_CHECK_IN", "Check-out must be after check-in.");
 
     public static readonly Error StayTooLong =
-        Error.Validation("checkOut", $"A stay can have at most {StayPeriod.MaxNights} nights.");
+        Error.Validation("checkOut", "BOOKING_STAY_TOO_LONG", $"A stay can have at most {StayPeriod.MaxNights} nights.", ("max", StayPeriod.MaxNights));
 
     public static readonly Error ReasonTooLong =
-        Error.Validation("reason", $"Reason must be at most {Booking.ReasonMaxLength} characters.");
+        Error.Validation("reason", "BOOKING_REASON_TOO_LONG", $"Reason must be at most {Booking.ReasonMaxLength} characters.", ("max", Booking.ReasonMaxLength));
 
     /// <summary>Toda ação do admin sobre a reserva de outra pessoa leva motivo (§15).</summary>
     public static readonly Error AdminReasonRequired =
-        Error.Validation("reason", "A reason is required when an admin acts on a booking.");
+        Error.Validation("reason", "BOOKING_ADMIN_REASON_REQUIRED", "A reason is required when an admin acts on a booking.");
 
     // --- Validação: listagem ---
 
     public static readonly Error StatusFilterInvalid =
-        Error.Validation("status", $"Status must be among: {string.Join(", ", BookingStatusValues.All)}.");
+        Error.Validation("status", "BOOKING_STATUS_FILTER_INVALID", $"Status must be among: {string.Join(", ", BookingStatusValues.All)}.");
 
     public static readonly Error PageInvalid =
-        Error.Validation("page", "Page must be 1 or greater.");
+        Error.Validation("page", "BOOKING_PAGE_INVALID", "Page must be 1 or greater.");
 
     public static readonly Error PageSizeInvalid =
-        Error.Validation("pageSize", $"Page size must be between 1 and {MaxPageSize}.");
+        Error.Validation("pageSize", "BOOKING_PAGE_SIZE_INVALID", $"Page size must be between 1 and {MaxPageSize}.", ("max", MaxPageSize));
 
     // --- Quem pede ---
 
@@ -217,4 +220,15 @@ public static class BookingsErrors
     /// <summary>409: outra pessoa alterou a reserva ao mesmo tempo. Leia de novo e tente outra vez.</summary>
     public static readonly Error Conflict =
         new("BOOKING_CONFLICT", "This booking was changed by someone else at the same time. Reload it and try again.");
+
+    // --- Validação: identificadores e campos obrigatórios de comandos internos e de rota ---
+
+    public static readonly Error BookingIdRequired =
+        Error.Validation("bookingId", "BOOKING_BOOKING_ID_REQUIRED", "Booking id is required.");
+
+    public static readonly Error SuspendedPartyInvalid =
+        Error.Validation("suspended", "BOOKING_SUSPENDED_PARTY_INVALID", "Only the owner or the host can be suspended.");
+
+    public static readonly Error PartyIdRequired =
+        Error.Validation("partyId", "BOOKING_PARTY_ID_REQUIRED", "Party id is required.");
 }

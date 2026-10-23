@@ -32,7 +32,7 @@ public sealed class ResultTests
     [Fact]
     public void Failure_Should_CarryEveryError_When_CreatedWithMany()
     {
-        var errors = new[] { Error.Validation("email", "A."), Error.Validation("role", "B.") };
+        var errors = new[] { Error.Validation("email", "TEST_EMAIL_INVALID", "A."), Error.Validation("role", "TEST_ROLE_INVALID", "B.") };
 
         var result = Result.Failure(errors);
 
@@ -86,8 +86,8 @@ public sealed class ResultOfTTests
     {
         // A secao 6 manda propagar, nao recriar: nenhum erro pode se perder no caminho.
         var original = Result.Failure([
-            Error.Validation("email", "A."),
-            Error.Validation("role", "B."),
+            Error.Validation("email", "TEST_EMAIL_INVALID", "A."),
+            Error.Validation("role", "TEST_ROLE_INVALID", "B."),
         ]);
 
         var propagated = Result<string>.FromFailure(original);

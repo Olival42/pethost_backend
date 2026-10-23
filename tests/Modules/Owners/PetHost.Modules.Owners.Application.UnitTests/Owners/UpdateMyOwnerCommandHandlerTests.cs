@@ -287,7 +287,7 @@ public sealed class UpdateMyOwnerCommandValidatorTests
     {
         _ownerAccounts
             .Setup(a => a.ValidateProfileAsync(It.IsAny<Guid>(), It.IsAny<AccountProfilePatch>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Result.Failure([Error.Validation("phone", "Phone is invalid."), Error.Validation("address.zipCode", "CEP.")]));
+            .ReturnsAsync(Result.Failure([Error.Validation("phone", "AUTH_PHONE_INVALID", "Phone is invalid."), Error.Validation("address.zipCode", "AUTH_ZIP_CODE_INVALID", "CEP.")]));
 
         var result = await _sut.ValidateAsync(
             new UpdateMyOwnerCommand(Guid.CreateVersion7(), null, "abc", null, null, "111.111.111-11", null),

@@ -1,6 +1,8 @@
 using FluentValidation;
+using PetHost.Modules.Listings.Domain.Errors;
 using PetHost.Modules.Listings.Domain.Listings;
 using PetHost.Shared.Contracts.Storage;
+using PetHost.Shared.Contracts.Validation;
 using PetHost.Shared.Kernel.Messaging;
 using PetHost.Shared.Kernel.Results;
 
@@ -16,7 +18,7 @@ public sealed record EraseListingsOfHostCommand(Guid HostId) : ICommand<int>;
 
 public sealed class EraseListingsOfHostCommandValidator : AbstractValidator<EraseListingsOfHostCommand>
 {
-    public EraseListingsOfHostCommandValidator() => RuleFor(x => x.HostId).NotEmpty().WithMessage("Host id is required.");
+    public EraseListingsOfHostCommandValidator() => RuleFor(x => x.HostId).NotEmpty().WithError(ListingsErrors.HostIdRequired);
 }
 
 /// <summary>

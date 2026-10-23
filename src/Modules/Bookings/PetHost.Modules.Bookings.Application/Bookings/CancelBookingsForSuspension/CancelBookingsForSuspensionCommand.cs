@@ -4,6 +4,7 @@ using PetHost.Modules.Bookings.Application.Bookings.Responses;
 using PetHost.Modules.Bookings.Domain.Bookings;
 using PetHost.Modules.Bookings.Domain.Errors;
 using PetHost.Shared.Contracts.Audit;
+using PetHost.Shared.Contracts.Validation;
 using PetHost.Shared.Kernel.Messaging;
 using PetHost.Shared.Kernel.Results;
 
@@ -26,10 +27,10 @@ public sealed class CancelBookingsForSuspensionCommandValidator : AbstractValida
     public CancelBookingsForSuspensionCommandValidator()
     {
         RuleFor(x => x.Suspended)
-            .Must(party => party is BookingParty.Owner or BookingParty.Host).WithMessage("Only the owner or the host can be suspended.");
+            .Must(party => party is BookingParty.Owner or BookingParty.Host).WithError(BookingsErrors.SuspendedPartyInvalid);
 
         RuleFor(x => x.PartyId)
-            .NotEmpty().WithMessage("Party id is required.");
+            .NotEmpty().WithError(BookingsErrors.PartyIdRequired);
     }
 }
 

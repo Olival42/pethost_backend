@@ -3,6 +3,7 @@ using PetHost.Modules.Hosts.Application.Abstractions;
 using PetHost.Modules.Hosts.Domain.Errors;
 using PetHost.Modules.Hosts.Domain.Hosts;
 using PetHost.Shared.Contracts.Audit;
+using PetHost.Shared.Contracts.Validation;
 using PetHost.Shared.Kernel.Messaging;
 using PetHost.Shared.Kernel.Primitives;
 using PetHost.Shared.Kernel.Results;
@@ -15,7 +16,7 @@ public sealed record DeactivateMyHostCommand(Guid UserId) : ICommand<Unit>;
 
 public sealed class DeactivateMyHostCommandValidator : AbstractValidator<DeactivateMyHostCommand>
 {
-    public DeactivateMyHostCommandValidator() => RuleFor(x => x.UserId).NotEmpty().WithMessage("User id is required.");
+    public DeactivateMyHostCommandValidator() => RuleFor(x => x.UserId).NotEmpty().WithError(HostsErrors.UserIdRequired);
 }
 
 /// <summary>

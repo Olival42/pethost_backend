@@ -128,7 +128,7 @@ public sealed class ImageUploadEndpointAttribute : Attribute, IAsyncResourceFilt
         new(ApiResponse<Unit>.Fail(new ErrorResponse(
             ErrorCodes.Validation,
             "Validation failed",
-            new List<DataErrors> { new(ImageErrors.Field, [ImageErrors.FileRequired.Message]) })))
+            new List<DataErrors> { new(ImageErrors.Field, [ImageErrors.FileRequired.Message], [FieldErrorItem.From(ImageErrors.FileRequired)]) })))
         {
             StatusCode = StatusCodes.Status400BadRequest,
         };

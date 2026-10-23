@@ -2,6 +2,7 @@ using FluentValidation;
 using PetHost.Modules.Hosts.Application.HostApplications.Responses;
 using PetHost.Modules.Hosts.Domain.Errors;
 using PetHost.Modules.Hosts.Domain.HostApplications;
+using PetHost.Shared.Contracts.Validation;
 using PetHost.Shared.Kernel.Messaging;
 
 namespace PetHost.Modules.Hosts.Application.HostApplications.RejectHostApplication;
@@ -18,7 +19,7 @@ public sealed class RejectHostApplicationCommandValidator : AbstractValidator<Re
     public RejectHostApplicationCommandValidator()
     {
         RuleFor(x => x.RejectionReason)
-            .Must(reason => RejectionReasonValues.TryParse(reason, out _)).WithMessage(HostsErrors.RejectionReasonInvalid.Message);
+            .Must(reason => RejectionReasonValues.TryParse(reason, out _)).WithError(HostsErrors.RejectionReasonInvalid);
         RuleFor(x => x.Reason).AdminReason();
     }
 }

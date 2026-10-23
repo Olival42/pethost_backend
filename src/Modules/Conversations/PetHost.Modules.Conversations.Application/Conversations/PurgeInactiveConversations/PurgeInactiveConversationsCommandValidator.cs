@@ -1,5 +1,6 @@
 using FluentValidation;
 using PetHost.Modules.Conversations.Domain.Errors;
+using PetHost.Shared.Contracts.Validation;
 
 namespace PetHost.Modules.Conversations.Application.Conversations.PurgeInactiveConversations;
 
@@ -12,10 +13,10 @@ public sealed class PurgeInactiveConversationsCommandValidator : AbstractValidat
     public PurgeInactiveConversationsCommandValidator()
     {
         RuleFor(x => x.InactivityDays)
-            .GreaterThan(0).WithMessage(ConversationsErrors.InactivityDaysInvalid.Message);
+            .GreaterThan(0).WithError(ConversationsErrors.InactivityDaysInvalid);
 
         RuleFor(x => x.BatchSize)
             .InclusiveBetween(1, ConversationsErrors.MaxRetentionBatchSize)
-            .WithMessage(ConversationsErrors.BatchSizeInvalid.Message);
+            .WithError(ConversationsErrors.BatchSizeInvalid);
     }
 }

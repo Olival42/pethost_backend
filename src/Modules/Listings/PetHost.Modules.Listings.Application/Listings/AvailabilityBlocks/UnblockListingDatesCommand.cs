@@ -3,6 +3,7 @@ using PetHost.Modules.Listings.Application.Abstractions;
 using PetHost.Modules.Listings.Domain.Errors;
 using PetHost.Modules.Listings.Domain.Listings;
 using PetHost.Shared.Contracts.Audit;
+using PetHost.Shared.Contracts.Validation;
 using PetHost.Shared.Kernel.Messaging;
 using PetHost.Shared.Kernel.Results;
 
@@ -21,10 +22,10 @@ public sealed class UnblockListingDatesCommandValidator : AbstractValidator<Unbl
     public UnblockListingDatesCommandValidator()
     {
         RuleFor(x => x.ListingId)
-            .NotEmpty().WithMessage("Listing id is required.");
+            .NotEmpty().WithError(ListingsErrors.ListingIdRequired);
 
         RuleFor(x => x.BlockId)
-            .NotEmpty().WithMessage("Block id is required.");
+            .NotEmpty().WithError(ListingsErrors.BlockIdRequired);
     }
 }
 

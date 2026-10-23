@@ -1,6 +1,7 @@
 using FluentValidation;
 using PetHost.Modules.Reviews.Domain.Errors;
 using PetHost.Modules.Reviews.Domain.Reviews;
+using PetHost.Shared.Contracts.Validation;
 
 namespace PetHost.Modules.Reviews.Application.Reviews;
 
@@ -21,15 +22,15 @@ public sealed class ReviewPetInputValidator : AbstractValidator<ReviewPetInput>
     public ReviewPetInputValidator()
     {
         RuleFor(x => x.PetId)
-            .NotEmpty().WithMessage(ReviewsErrors.PetIdRequired.Message);
+            .NotEmpty().WithError(ReviewsErrors.PetIdRequired);
 
         RuleFor(x => x.Rating)
-            .NotNull().WithMessage(ReviewsErrors.PetRatingInvalid.Message)
-            .InclusiveBetween(Review.MinRating, Review.MaxRating).WithMessage(ReviewsErrors.PetRatingInvalid.Message);
+            .NotNull().WithError(ReviewsErrors.PetRatingInvalid)
+            .InclusiveBetween(Review.MinRating, Review.MaxRating).WithError(ReviewsErrors.PetRatingInvalid);
 
         RuleFor(x => x.Comment)
-            .MaximumLength(Review.CommentMaxLength).WithMessage(ReviewsErrors.PetCommentTooLong.Message)
+            .MaximumLength(Review.CommentMaxLength).WithError(ReviewsErrors.PetCommentTooLong)
             .Must(comment => comment is null || !Review.HasForbiddenControlCharacters(comment))
-            .WithMessage(ReviewsErrors.PetCommentInvalidCharacters.Message);
+            .WithError(ReviewsErrors.PetCommentInvalidCharacters);
     }
 }

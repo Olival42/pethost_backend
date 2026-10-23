@@ -1,5 +1,6 @@
 using FluentValidation;
 using PetHost.Modules.Conversations.Domain.Errors;
+using PetHost.Shared.Contracts.Validation;
 
 namespace PetHost.Modules.Conversations.Application.Conversations.MarkConversationRead;
 
@@ -9,6 +10,6 @@ public sealed class MarkConversationReadCommandValidator : AbstractValidator<Mar
     public MarkConversationReadCommandValidator()
     {
         RuleFor(x => x.ConversationId)
-            .NotEmpty().WithMessage(ConversationsErrors.ConversationIdRequired.Message);
+            .NotEmpty().WithError(ConversationsErrors.ConversationIdRequired);
     }
 }

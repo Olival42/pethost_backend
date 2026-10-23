@@ -3,6 +3,7 @@ using PetHost.Modules.Auth.Application.Abstractions;
 using PetHost.Modules.Auth.Domain.Errors;
 using PetHost.Modules.Auth.Domain.Users;
 using PetHost.Shared.Contracts.Accounts;
+using PetHost.Shared.Contracts.Validation;
 using PetHost.Shared.Kernel.Results;
 
 namespace PetHost.Modules.Auth.Application.Users.RegisterAccount;
@@ -24,28 +25,28 @@ public sealed class RegisterAccountCommandValidator : AbstractValidator<Register
 
         RuleFor(x => x.Role)
             .Must(role => UserRoleValues.TryParse(role, out var parsed) && parsed is UserRole.Owner or UserRole.Host)
-                .WithMessage("Role must be either 'owner' or 'host'.");
+                .WithError(AuthErrors.RoleInvalid);
 
         RuleFor(x => x.Phone)
             .Cascade(CascadeMode.Stop)
-            .NotEmpty().WithMessage("Phone is required.")
+            .NotEmpty().WithError(AuthErrors.PhoneRequired)
             .MustBeValid(PhoneNumber.Create);
 
         RuleFor(x => x.BirthDate)
             .Cascade(CascadeMode.Stop)
-            .NotEmpty().WithMessage(AuthErrors.BirthDateRequired.Message)
+            .NotEmpty().WithError(AuthErrors.BirthDateRequired)
             .Must(text => TryParseBirthDate(text, out _))
-                .WithMessage(AuthErrors.BirthDateInvalidFormat.Message)
+                .WithError(AuthErrors.BirthDateInvalidFormat)
             .Must(text => TryParseBirthDate(text, out var date)
                 && date <= DateOnly.FromDateTime(timeProvider.GetUtcNow().UtcDateTime))
-                .WithMessage(AuthErrors.BirthDateInFuture.Message)
+                .WithError(AuthErrors.BirthDateInFuture)
             .Must(text => TryParseBirthDate(text, out var date)
                 && User.AgeAt(date, timeProvider.GetUtcNow()) >= User.MinimumAge)
-                .WithMessage(AuthErrors.Underage.Message);
+                .WithError(AuthErrors.Underage);
 
         RuleFor(x => x.Address)
             .Cascade(CascadeMode.Stop)
-            .NotNull().WithMessage(AuthErrors.AddressRequired.Message)
+            .NotNull().WithError(AuthErrors.AddressRequired)
             .MustBeValidComposite<RegisterAccountCommand, AddressData, Address>(CreateAddress);
     }
 

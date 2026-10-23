@@ -1,6 +1,7 @@
 using FluentValidation;
 using PetHost.Modules.Reviews.Domain.Errors;
 using PetHost.Modules.Reviews.Domain.Reviews;
+using PetHost.Shared.Contracts.Validation;
 
 namespace PetHost.Modules.Reviews.Application.Reviews.UpdateReview;
 
@@ -10,16 +11,16 @@ public sealed class UpdateReviewCommandValidator : AbstractValidator<UpdateRevie
     public UpdateReviewCommandValidator()
     {
         RuleFor(x => x.ReviewId)
-            .NotEmpty().WithMessage(ReviewsErrors.ReviewIdRequired.Message);
+            .NotEmpty().WithError(ReviewsErrors.ReviewIdRequired);
 
         RuleFor(x => x.Rating)
-            .InclusiveBetween(Review.MinRating, Review.MaxRating).WithMessage(ReviewsErrors.RatingInvalid.Message)
+            .InclusiveBetween(Review.MinRating, Review.MaxRating).WithError(ReviewsErrors.RatingInvalid)
             .When(x => x.Rating is not null);
 
         RuleFor(x => x.Comment)
-            .MaximumLength(Review.CommentMaxLength).WithMessage(ReviewsErrors.CommentTooLong.Message)
+            .MaximumLength(Review.CommentMaxLength).WithError(ReviewsErrors.CommentTooLong)
             .Must(comment => comment is null || !Review.HasForbiddenControlCharacters(comment))
-            .WithMessage(ReviewsErrors.CommentInvalidCharacters.Message);
+            .WithError(ReviewsErrors.CommentInvalidCharacters);
 
         RuleForEach(x => x.Pets).SetValidator(new ReviewPetInputValidator());
     }

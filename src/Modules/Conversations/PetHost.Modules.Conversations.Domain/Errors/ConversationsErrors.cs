@@ -20,87 +20,87 @@ public static class ConversationsErrors
     // --- Validação (VALIDATION_ERROR, 400, acumulável) ---
 
     public static readonly Error ListingIdRequired =
-        Error.Validation("listingId", "Listing id is required.");
+        Error.Validation("listingId", "CONVERSATION_LISTING_ID_REQUIRED", "Listing id is required.");
 
     public static readonly Error ConversationIdRequired =
-        Error.Validation("conversationId", "Conversation id is required.");
+        Error.Validation("conversationId", "CONVERSATION_CONVERSATION_ID_REQUIRED", "Conversation id is required.");
 
     public static readonly Error BodyRequired =
-        Error.Validation("body", "Message text is required.");
+        Error.Validation("body", "CONVERSATION_BODY_REQUIRED", "Message text is required.");
 
     public static readonly Error BodyTooLong =
-        Error.Validation("body", $"Message text must be at most {Message.BodyMaxLength} characters.");
+        Error.Validation("body", "CONVERSATION_BODY_TOO_LONG", $"Message text must be at most {Message.BodyMaxLength} characters.", ("max", Message.BodyMaxLength));
 
     public static readonly Error BodyInvalidCharacters =
-        Error.Validation("body", "Message text must not contain control characters other than line breaks and tabs.");
+        Error.Validation("body", "CONVERSATION_BODY_INVALID_CHARACTERS", "Message text must not contain control characters other than line breaks and tabs.");
 
     // A URL da foto vem do bucket, não do cliente: estes dois só aparecem com o storage mal configurado.
     public static readonly Error ImageUrlInvalid =
-        Error.Validation("imageUrl", "Image URL must be an absolute http or https address.");
+        Error.Validation("imageUrl", "CONVERSATION_IMAGE_URL_INVALID", "Image URL must be an absolute http or https address.");
 
     public static readonly Error ImageUrlTooLong =
-        Error.Validation("imageUrl", $"Image URL must be at most {Message.ImageUrlMaxLength} characters.");
+        Error.Validation("imageUrl", "CONVERSATION_IMAGE_URL_TOO_LONG", $"Image URL must be at most {Message.ImageUrlMaxLength} characters.", ("max", Message.ImageUrlMaxLength));
 
     public static readonly Error PageInvalid =
-        Error.Validation("page", "Page must be 1 or greater.");
+        Error.Validation("page", "CONVERSATION_PAGE_INVALID", "Page must be 1 or greater.");
 
     public static readonly Error PageSizeInvalid =
-        Error.Validation("pageSize", $"Page size must be between 1 and {MaxPageSize}.");
+        Error.Validation("pageSize", "CONVERSATION_PAGE_SIZE_INVALID", $"Page size must be between 1 and {MaxPageSize}.", ("max", MaxPageSize));
 
     public static readonly Error BeforeInvalid =
-        Error.Validation("before", "Before must be the id of a message in this conversation.");
+        Error.Validation("before", "CONVERSATION_BEFORE_INVALID", "Before must be the id of a message in this conversation.");
 
     // --- Validação: moderação (denúncia e análise do admin) ---
 
     public static readonly Error MessageIdRequired =
-        Error.Validation("messageId", "Message id is required.");
+        Error.Validation("messageId", "CONVERSATION_MESSAGE_ID_REQUIRED", "Message id is required.");
 
     public static readonly Error ReportIdRequired =
-        Error.Validation("reportId", "Report id is required.");
+        Error.Validation("reportId", "CONVERSATION_REPORT_ID_REQUIRED", "Report id is required.");
 
     public static readonly Error ReasonInvalid =
-        Error.Validation("reason", $"Reason must be one of: {string.Join(", ", ReportReasonValues.All)}.");
+        Error.Validation("reason", "CONVERSATION_REASON_INVALID", $"Reason must be one of: {string.Join(", ", ReportReasonValues.All)}.");
 
     public static readonly Error DescriptionRequired =
-        Error.Validation("description", $"Description is required when the reason is '{ReportReasonValues.Other}'.");
+        Error.Validation("description", "CONVERSATION_DESCRIPTION_REQUIRED", $"Description is required when the reason is '{ReportReasonValues.Other}'.");
 
     public static readonly Error DescriptionTooLong =
-        Error.Validation("description", $"Description must be at most {MessageReport.DescriptionMaxLength} characters.");
+        Error.Validation("description", "CONVERSATION_DESCRIPTION_TOO_LONG", $"Description must be at most {MessageReport.DescriptionMaxLength} characters.", ("max", MessageReport.DescriptionMaxLength));
 
     public static readonly Error DescriptionInvalidCharacters =
-        Error.Validation("description", "Description must not contain control characters other than line breaks and tabs.");
+        Error.Validation("description", "CONVERSATION_DESCRIPTION_INVALID_CHARACTERS", "Description must not contain control characters other than line breaks and tabs.");
 
     public static readonly Error OutcomeInvalid =
-        Error.Validation("outcome", $"Outcome must be one of: {string.Join(", ", ReportStatusValues.Outcomes)}.");
+        Error.Validation("outcome", "CONVERSATION_OUTCOME_INVALID", $"Outcome must be one of: {string.Join(", ", ReportStatusValues.Outcomes)}.");
 
     public static readonly Error NoteRequired =
-        Error.Validation("note", "A note is required to resolve a report.");
+        Error.Validation("note", "CONVERSATION_NOTE_REQUIRED", "A note is required to resolve a report.");
 
     public static readonly Error NoteTooLong =
-        Error.Validation("note", $"Note must be at most {MessageReport.ResolutionNoteMaxLength} characters.");
+        Error.Validation("note", "CONVERSATION_NOTE_TOO_LONG", $"Note must be at most {MessageReport.ResolutionNoteMaxLength} characters.", ("max", MessageReport.ResolutionNoteMaxLength));
 
     public static readonly Error NoteInvalidCharacters =
-        Error.Validation("note", "Note must not contain control characters other than line breaks and tabs.");
+        Error.Validation("note", "CONVERSATION_NOTE_INVALID_CHARACTERS", "Note must not contain control characters other than line breaks and tabs.");
 
     public static readonly Error UnreadMessagesEmailRequired =
-        Error.Validation("unreadMessagesEmail", "Unread messages e-mail choice is required (true or false).");
+        Error.Validation("unreadMessagesEmail", "CONVERSATION_UNREAD_MESSAGES_EMAIL_REQUIRED", "Unread messages e-mail choice is required (true or false).");
 
     public static readonly Error StatusInvalid =
-        Error.Validation("status", $"Status must be one of: {string.Join(", ", ReportStatusValues.All)}.");
+        Error.Validation("status", "CONVERSATION_STATUS_INVALID", $"Status must be one of: {string.Join(", ", ReportStatusValues.All)}.");
 
     // --- Validação: configuração da retenção (comando da tarefa em segundo plano) ---
 
     public static readonly Error InactivityDaysInvalid =
-        Error.Validation("inactivityDays", "Inactivity days must be greater than zero.");
+        Error.Validation("inactivityDays", "CONVERSATION_INACTIVITY_DAYS_INVALID", "Inactivity days must be greater than zero.");
 
     public static readonly Error UnreadDelayInvalid =
-        Error.Validation("delayMinutes", "Unread e-mail delay must be greater than zero.");
+        Error.Validation("delayMinutes", "CONVERSATION_UNREAD_DELAY_INVALID", "Unread e-mail delay must be greater than zero.");
 
     public static readonly Error UnreadCooldownInvalid =
-        Error.Validation("cooldownMinutes", "Unread e-mail cooldown must be greater than zero.");
+        Error.Validation("cooldownMinutes", "CONVERSATION_UNREAD_COOLDOWN_INVALID", "Unread e-mail cooldown must be greater than zero.");
 
     public static readonly Error BatchSizeInvalid =
-        Error.Validation("batchSize", $"Batch size must be between 1 and {MaxRetentionBatchSize}.");
+        Error.Validation("batchSize", "CONVERSATION_BATCH_SIZE_INVALID", $"Batch size must be between 1 and {MaxRetentionBatchSize}.", ("max", MaxRetentionBatchSize));
 
     // --- Regras de negócio ---
 
@@ -193,4 +193,12 @@ public static class ConversationsErrors
     /// <summary>409: a conversa mudou (ou foi apagada pela retenção) ao mesmo tempo.</summary>
     public static readonly Error Conflict =
         new("CONVERSATION_CONFLICT", "This conversation was changed at the same time. Reload it and try again.");
+
+    // --- Validação: identificadores e campos obrigatórios de comandos internos e de rota ---
+
+    public static readonly Error PartyInvalid =
+        Error.Validation("party", "CONVERSATION_PARTY_INVALID", "Party is invalid.");
+
+    public static readonly Error PartyIdRequired =
+        Error.Validation("partyId", "CONVERSATION_PARTY_ID_REQUIRED", "Party id is required.");
 }

@@ -1,6 +1,7 @@
 using FluentValidation;
 using PetHost.Modules.Conversations.Domain.Errors;
 using PetHost.Modules.Conversations.Domain.Messages;
+using PetHost.Shared.Contracts.Validation;
 
 namespace PetHost.Modules.Conversations.Application.Messages.SendMessage;
 
@@ -13,12 +14,12 @@ public sealed class SendMessageCommandValidator : AbstractValidator<SendMessageC
     public SendMessageCommandValidator()
     {
         RuleFor(x => x.ConversationId)
-            .NotEmpty().WithMessage(ConversationsErrors.ConversationIdRequired.Message);
+            .NotEmpty().WithError(ConversationsErrors.ConversationIdRequired);
 
         RuleFor(x => x.Body)
             .Cascade(CascadeMode.Stop)
-            .Must(body => !string.IsNullOrWhiteSpace(body)).WithMessage(ConversationsErrors.BodyRequired.Message)
-            .Must(body => body!.Trim().Length <= Message.BodyMaxLength).WithMessage(ConversationsErrors.BodyTooLong.Message)
-            .Must(body => !Message.HasControlCharacters(body!)).WithMessage(ConversationsErrors.BodyInvalidCharacters.Message);
+            .Must(body => !string.IsNullOrWhiteSpace(body)).WithError(ConversationsErrors.BodyRequired)
+            .Must(body => body!.Trim().Length <= Message.BodyMaxLength).WithError(ConversationsErrors.BodyTooLong)
+            .Must(body => !Message.HasControlCharacters(body!)).WithError(ConversationsErrors.BodyInvalidCharacters);
     }
 }

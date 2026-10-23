@@ -2,6 +2,7 @@ using FluentValidation;
 using PetHost.Modules.Owners.Application.Owners.Responses;
 using PetHost.Modules.Owners.Domain.Errors;
 using PetHost.Modules.Owners.Domain.Owners;
+using PetHost.Shared.Contracts.Validation;
 using PetHost.Shared.Kernel.Messaging;
 
 namespace PetHost.Modules.Owners.Application.Owners.SuspendOwner;
@@ -32,6 +33,6 @@ internal static class AdminReasonRules
     public static IRuleBuilderOptions<T, string?> AdminReason<T>(this IRuleBuilderInitial<T, string?> rule) =>
         rule
             .Cascade(CascadeMode.Stop)
-            .NotEmpty().WithMessage(OwnersErrors.ReasonRequired.Message)
-            .Must(reason => reason!.Trim().Length <= Owner.AdminReasonMaxLength).WithMessage(OwnersErrors.ReasonTooLong.Message);
+            .NotEmpty().WithError(OwnersErrors.ReasonRequired)
+            .Must(reason => reason!.Trim().Length <= Owner.AdminReasonMaxLength).WithError(OwnersErrors.ReasonTooLong);
 }

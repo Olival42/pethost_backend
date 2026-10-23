@@ -20,6 +20,8 @@ internal sealed class ErrorResponsesDocumentTransformer : IOpenApiDocumentTransf
     private const string ErrorEnvelopeSchema = "ApiErrorResponse";
     private const string ErrorSchema = "ApiError";
     private const string FieldErrorsSchema = "ApiFieldErrors";
+    private const string FieldErrorItemSchema = "ApiFieldErrorItem";
+    private const string ErrorCodeSchema = "ApiErrorCode";
     private const string JsonContentType = "application/json";
     private const string ExampleTimestamp = "2026-10-21T12:00:00+00:00";
 
@@ -27,7 +29,7 @@ internal sealed class ErrorResponsesDocumentTransformer : IOpenApiDocumentTransf
     {
         [StatusCodes.Status200OK] = "Sucesso.",
         [StatusCodes.Status201Created] = "Criado. O header Location aponta para o recurso.",
-        [StatusCodes.Status400BadRequest] = "Dados inválidos. As mensagens vêm por campo em error.details.",
+        [StatusCodes.Status400BadRequest] = "Dados inválidos. Cada campo vem em error.details, com o código estável de cada regra em errors.",
         [StatusCodes.Status401Unauthorized] = "Sem token, token inválido ou expirado, ou credenciais erradas.",
         [StatusCodes.Status403Forbidden] = "Sem permissão para esta ação, ou conta inativa/suspensa.",
         [StatusCodes.Status404NotFound] = "Recurso não encontrado (ou não visível para quem pediu).",
@@ -111,18 +113,59 @@ internal sealed class ErrorResponsesDocumentTransformer : IOpenApiDocumentTransf
         // Era o error do ApiResponse<T>, que agora descreve só o sucesso.
         document.Components.Schemas.Remove("ErrorResponse");
 
+        // Todos os códigos que a API pode devolver (topo e validação), descobertos nas classes *Errors:
+        // o front gera o tipo daqui e o catálogo de textos é Record<ApiErrorCode, ...>.
+        document.Components.Schemas[ErrorCodeSchema] = new OpenApiSchema
+        {
+            Type = JsonSchemaType.String,
+            Description = "Código estável de erro (SCREAMING_SNAKE_CASE). Os de topo (error.code) e os de validação (details[].errors[].code) estão aqui, gerados das classes *Errors.",
+            Enum = [.. ErrorCatalog.Codes(ErrorCatalog.DiscoverLoaded()).Select(code => (JsonNode)JsonValue.Create(code)!)],
+        };
+
+        document.Components.Schemas[FieldErrorItemSchema] = new OpenApiSchema
+        {
+            Type = JsonSchemaType.Object,
+            Description = "A regra de validação que falhou, com os parâmetros que a frase dela usa.",
+            Required = new HashSet<string>(StringComparer.Ordinal) { "code" },
+            Properties = new Dictionary<string, IOpenApiSchema>
+            {
+                ["code"] = new OpenApiSchemaReference(ErrorCodeSchema, document),
+                ["params"] = new OpenApiSchema
+                {
+                    Type = JsonSchemaType.Object,
+                    Description = "Limites e formatos da regra (ex.: max, min, format). Nunca o valor enviado. Ausente quando a regra não tem parâmetros.",
+                    AdditionalProperties = new OpenApiSchema
+                    {
+                        OneOf =
+                        [
+                            new OpenApiSchema { Type = JsonSchemaType.String },
+                            new OpenApiSchema { Type = JsonSchemaType.Number },
+                            new OpenApiSchema { Type = JsonSchemaType.Boolean },
+                        ],
+                    },
+                },
+            },
+        };
+
         document.Components.Schemas[FieldErrorsSchema] = new OpenApiSchema
         {
             Type = JsonSchemaType.Object,
-            Description = "Mensagens de validação de um campo.",
-            Required = new HashSet<string>(StringComparer.Ordinal) { "field", "messages" },
+            Description = "Falhas de validação de um campo. errors[i] corresponde a messages[i] (mesma ordem, mesmo tamanho).",
+            Required = new HashSet<string>(StringComparer.Ordinal) { "field", "messages", "errors" },
             Properties = new Dictionary<string, IOpenApiSchema>
             {
                 ["field"] = new OpenApiSchema { Type = JsonSchemaType.String, Description = "Campo do corpo, em camelCase." },
                 ["messages"] = new OpenApiSchema
                 {
                     Type = JsonSchemaType.Array,
+                    Description = "Frases em inglês, para log e compatibilidade. Não mostre ao usuário: traduza pelo código.",
                     Items = new OpenApiSchema { Type = JsonSchemaType.String },
+                },
+                ["errors"] = new OpenApiSchema
+                {
+                    Type = JsonSchemaType.Array,
+                    Description = "O código estável (e os parâmetros) de cada mensagem, na mesma ordem.",
+                    Items = new OpenApiSchemaReference(FieldErrorItemSchema, document),
                 },
             },
         };
@@ -133,11 +176,7 @@ internal sealed class ErrorResponsesDocumentTransformer : IOpenApiDocumentTransf
             Required = new HashSet<string>(StringComparer.Ordinal) { "code", "message" },
             Properties = new Dictionary<string, IOpenApiSchema>
             {
-                ["code"] = new OpenApiSchema
-                {
-                    Type = JsonSchemaType.String,
-                    Description = "Código estável (SCREAMING_SNAKE_CASE). É por ele que o front decide o que fazer.",
-                },
+                ["code"] = new OpenApiSchemaReference(ErrorCodeSchema, document),
                 ["message"] = new OpenApiSchema { Type = JsonSchemaType.String, Description = "Mensagem em inglês, para log." },
                 ["details"] = new OpenApiSchema
                 {
@@ -182,6 +221,7 @@ internal sealed class ErrorResponsesDocumentTransformer : IOpenApiDocumentTransf
                 {
                     ["field"] = "email",
                     ["messages"] = new JsonArray("Email is required."),
+                    ["errors"] = new JsonArray(new JsonObject { ["code"] = "AUTH_EMAIL_REQUIRED" }),
                 })),
             StatusCodes.Status401Unauthorized => Error(ErrorCodes.Unauthorized, "Authentication is required to access this resource."),
             StatusCodes.Status403Forbidden => Error(ErrorCodes.Forbidden, "You do not have permission to access this resource."),
