@@ -208,7 +208,9 @@ public sealed class BookingEndpointsTests(BookingsApiFixture fixture) : IAsyncLi
         var response = await SendAsync(HttpMethod.Post, BookingsRoute, stay.OwnerToken, Pedido(stay.ListingId, [stay.PipocaId]));
 
         response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
-        Code(await ReadAsync(response)).Should().Be("BOOKING_WEEKDAY_NOT_AVAILABLE");
+        var body = await ReadAsync(response);
+        Code(body).Should().Be("BOOKING_WEEKDAY_NOT_AVAILABLE");
+        ErrorParam(body, "date").GetString().Should().Be(Iso(Arrival.AddDays(1)), "the front reads the closed day from params, not from the sentence");
     }
 
     [Fact]
@@ -221,7 +223,9 @@ public sealed class BookingEndpointsTests(BookingsApiFixture fixture) : IAsyncLi
         var response = await SendAsync(HttpMethod.Post, BookingsRoute, stay.OwnerToken, Pedido(stay.ListingId, [stay.ThorId]));
 
         response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
-        Code(await ReadAsync(response)).Should().Be("BOOKING_CAPACITY_EXCEEDED");
+        var body = await ReadAsync(response);
+        Code(body).Should().Be("BOOKING_CAPACITY_EXCEEDED");
+        ErrorParam(body, "date").GetString().Should().Be(Iso(Arrival));
     }
 
     [Fact]
@@ -233,7 +237,10 @@ public sealed class BookingEndpointsTests(BookingsApiFixture fixture) : IAsyncLi
         var response = await SendAsync(HttpMethod.Post, BookingsRoute, stay.OwnerToken, Pedido(stay.ListingId, [stay.PipocaId]));
 
         response.StatusCode.Should().Be(HttpStatusCode.Conflict);
-        Code(await ReadAsync(response)).Should().Be("BOOKING_PET_PERIOD_CONFLICT");
+        var body = await ReadAsync(response);
+        Code(body).Should().Be("BOOKING_PET_PERIOD_CONFLICT");
+        ErrorParam(body, "petId").GetGuid().Should().Be(stay.PipocaId);
+        body.GetProperty("error").GetProperty("params").EnumerateObject().Select(p => p.Name).Should().Equal("petId");
     }
 
     [Fact]
@@ -1330,6 +1337,10 @@ public sealed class BookingEndpointsTests(BookingsApiFixture fixture) : IAsyncLi
     private static JsonElement Data(JsonElement body) => body.GetProperty("data");
 
     private static string? Status(JsonElement body) => Data(body).GetProperty("status").GetString();
+
+    /// <summary>Parâmetro do erro de topo (<c>error.params</c>).</summary>
+    private static JsonElement ErrorParam(JsonElement body, string name) =>
+        body.GetProperty("error").GetProperty("params").GetProperty(name);
 
     private static string? Code(JsonElement body) => body.GetProperty("error").GetProperty("code").GetString();
 

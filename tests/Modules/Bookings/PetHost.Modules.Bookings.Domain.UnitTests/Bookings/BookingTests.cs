@@ -147,7 +147,7 @@ public sealed class BookingRequestTests
         var result = Request(pets: [BookingBuilder.Pipoca() with { IsActive = false }]);
 
         // Assert
-        result.FirstError.Should().Be(BookingsErrors.PetInactive("Pipoca"));
+        result.FirstError.Should().Be(BookingsErrors.PetInactive(BookingBuilder.PipocaId, "Pipoca"));
     }
 
     [Fact]
@@ -157,7 +157,7 @@ public sealed class BookingRequestTests
         var result = Request(listing: BookingBuilder.Listing() with { AcceptedSpecies = ["cat"] });
 
         // Assert
-        result.FirstError.Should().Be(BookingsErrors.SpeciesNotAccepted("Pipoca", "dog"));
+        result.FirstError.Should().Be(BookingsErrors.SpeciesNotAccepted(BookingBuilder.PipocaId, "Pipoca", "dog"));
     }
 
     [Fact]
@@ -167,7 +167,7 @@ public sealed class BookingRequestTests
         var result = Request(pets: [BookingBuilder.Pipoca() with { Size = "large" }]);
 
         // Assert
-        result.FirstError.Should().Be(BookingsErrors.SizeNotAccepted("Pipoca", "large"));
+        result.FirstError.Should().Be(BookingsErrors.SizeNotAccepted(BookingBuilder.PipocaId, "Pipoca", "large"));
     }
 
     [Fact]
@@ -177,7 +177,7 @@ public sealed class BookingRequestTests
         var result = Request(busy: [BookingBuilder.PipocaId]);
 
         // Assert
-        result.FirstError.Should().Be(BookingsErrors.PetPeriodConflict("Pipoca"));
+        result.FirstError.Should().Be(BookingsErrors.PetPeriodConflict(BookingBuilder.PipocaId, "Pipoca"));
     }
 
     [Fact]

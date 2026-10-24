@@ -124,6 +124,31 @@ public sealed class ErrorCodeCoverageTests
     }
 
     [Fact]
+    public void Catalog_Should_NeverExposePersonalDataInParams()
+    {
+        // Id de recurso e valor de regra podem; nome de pessoa ou de pet, contato e documento, não.
+        var personal = new[] { "name", "fullName", "petName", "email", "phone", "cpf", "cnpj", "address", "password", "token", "birthDate" };
+
+        Catalog.SelectMany(entry => entry.ParamNames.Select(param => (entry.Source, Param: param)))
+            .Where(item => personal.Contains(item.Param))
+            .Select(item => $"{item.Source}: '{item.Param}'")
+            .Should().BeEmpty("error params carry limits, dates and resource ids, never personal data");
+    }
+
+    [Fact]
+    public void Catalog_Should_CarryParamsOnTheTopLevelErrorsThatQuoteValues()
+    {
+        var byCode = Catalog.Where(entry => !entry.IsValidation).GroupBy(entry => entry.Code).ToDictionary(group => group.Key, group => group.First().ParamNames);
+
+        byCode["BOOKING_WEEKDAY_NOT_AVAILABLE"].Should().Equal("date");
+        byCode["BOOKING_CAPACITY_EXCEEDED"].Should().Equal("date");
+        byCode["BOOKING_DATES_BLOCKED"].Should().Equal("date");
+        byCode["BOOKING_PET_PERIOD_CONFLICT"].Should().Equal("petId");
+        byCode["PAYMENT_INSTALLMENT_ALREADY_PAID"].Should().Equal("number");
+        byCode["LISTING_PHOTO_LIMIT_REACHED"].Should().Equal("max");
+    }
+
+    [Fact]
     public void ApiErrorCode_Should_ListEachCodeOnce()
     {
         var codes = ErrorCatalog.Codes(Catalog);

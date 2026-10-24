@@ -126,20 +126,24 @@ public static class BookingsErrors
         new("BOOKING_PET_NOT_FOUND", $"Pet '{petId}' was not found.");
 
     /// <summary>422: o pet foi desativado pelo tutor.</summary>
-    public static Error PetInactive(string petName) =>
-        new("BOOKING_PET_INACTIVE", $"{petName} is deactivated. Reactivate the pet before booking.");
+    public static Error PetInactive(Guid petId, string petName) =>
+        new Error("BOOKING_PET_INACTIVE", $"{petName} is deactivated. Reactivate the pet before booking.")
+            .WithParams(("petId", petId.ToString()));
 
     /// <summary>422: o cantinho não aceita a espécie do pet.</summary>
-    public static Error SpeciesNotAccepted(string petName, string species) =>
-        new("BOOKING_PET_SPECIES_NOT_ACCEPTED", $"This listing does not accept {species}, so {petName} cannot stay here.");
+    public static Error SpeciesNotAccepted(Guid petId, string petName, string species) =>
+        new Error("BOOKING_PET_SPECIES_NOT_ACCEPTED", $"This listing does not accept {species}, so {petName} cannot stay here.")
+            .WithParams(("petId", petId.ToString()), ("species", species));
 
     /// <summary>422: o cantinho não aceita o porte do pet.</summary>
-    public static Error SizeNotAccepted(string petName, string size) =>
-        new("BOOKING_PET_SIZE_NOT_ACCEPTED", $"This listing does not accept {size} pets, so {petName} cannot stay here.");
+    public static Error SizeNotAccepted(Guid petId, string petName, string size) =>
+        new Error("BOOKING_PET_SIZE_NOT_ACCEPTED", $"This listing does not accept {size} pets, so {petName} cannot stay here.")
+            .WithParams(("petId", petId.ToString()), ("size", size));
 
     /// <summary>409: o pet já está em outra reserva em aberto que divide noite com este período.</summary>
-    public static Error PetPeriodConflict(string petName) =>
-        new("BOOKING_PET_PERIOD_CONFLICT", $"{petName} already has another booking in this period.");
+    public static Error PetPeriodConflict(Guid petId, string petName) =>
+        new Error("BOOKING_PET_PERIOD_CONFLICT", $"{petName} already has another booking in this period.")
+            .WithParams(("petId", petId.ToString()));
 
     /// <summary>422: o tutor tem parcela em atraso (estadia já feita e não paga). Paga antes de pedir outra.</summary>
     public static readonly Error OwnListing =
@@ -150,15 +154,17 @@ public static class BookingsErrors
 
     /// <summary>422: o cantinho não recebe pets num dia do período.</summary>
     public static Error WeekdayNotAvailable(DateOnly day) =>
-        new(
+        new Error(
             "BOOKING_WEEKDAY_NOT_AVAILABLE",
-            string.Create(CultureInfo.InvariantCulture, $"The host does not receive pets on {day.DayOfWeek}s ({day:yyyy-MM-dd}). Every day of the stay must be one of the listing's available weekdays."));
+            string.Create(CultureInfo.InvariantCulture, $"The host does not receive pets on {day.DayOfWeek}s ({day:yyyy-MM-dd}). Every day of the stay must be one of the listing's available weekdays."))
+            .WithParams(("date", IsoDate(day)));
 
     /// <summary>422: o anfitrião fechou na agenda um dia do período.</summary>
     public static Error DatesBlocked(DateOnly day) =>
-        new(
+        new Error(
             "BOOKING_DATES_BLOCKED",
-            string.Create(CultureInfo.InvariantCulture, $"The host is not available on {day:yyyy-MM-dd}. Every day of the stay must be open on the listing's calendar."));
+            string.Create(CultureInfo.InvariantCulture, $"The host is not available on {day:yyyy-MM-dd}. Every day of the stay must be open on the listing's calendar."))
+            .WithParams(("date", IsoDate(day)));
 
     /// <summary>
     /// 422: o cantinho não pode receber reservas agora (inativo, anfitrião sem repasses liberados
@@ -169,9 +175,10 @@ public static class BookingsErrors
 
     /// <summary>422: em alguma noite do período o cantinho passaria da capacidade.</summary>
     public static Error CapacityExceeded(DateOnly night) =>
-        new(
+        new Error(
             "BOOKING_CAPACITY_EXCEEDED",
-            string.Create(CultureInfo.InvariantCulture, $"The listing has no room for these pets on the night of {night:yyyy-MM-dd}."));
+            string.Create(CultureInfo.InvariantCulture, $"The listing has no room for these pets on the night of {night:yyyy-MM-dd}."))
+            .WithParams(("date", IsoDate(night)));
 
     // --- Transições ---
 
@@ -205,9 +212,12 @@ public static class BookingsErrors
 
     /// <summary>422: ainda não chegou o dia da chegada.</summary>
     public static Error CheckInTooEarly(DateOnly checkIn) =>
-        new(
+        new Error(
             "BOOKING_CHECK_IN_TOO_EARLY",
-            string.Create(CultureInfo.InvariantCulture, $"Check-in opens on {checkIn:yyyy-MM-dd}."));
+            string.Create(CultureInfo.InvariantCulture, $"Check-in opens on {checkIn:yyyy-MM-dd}."))
+            .WithParams(("date", IsoDate(checkIn)));
+
+    private static string IsoDate(DateOnly day) => day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
     /// <summary>422: chegou o dia da saída sem check-in: a estadia não aconteceu.</summary>
     public static readonly Error CheckInWindowClosed =

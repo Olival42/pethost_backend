@@ -127,7 +127,7 @@ public static class PetsErrors
 
     /// <summary>422: o pet já tem o máximo de fotos. Tire uma antes de pôr outra.</summary>
     public static readonly Error PhotoLimitReached =
-        new("PET_PHOTO_LIMIT_REACHED", $"A pet can have at most {Pet.MaxPhotos} photos. Remove one before adding another.");
+        new Error("PET_PHOTO_LIMIT_REACHED", $"A pet can have at most {Pet.MaxPhotos} photos. Remove one before adding another.").WithParams(("max", Pet.MaxPhotos));
 
     /// <summary>409: o pet já tem esta mesma imagem (mesmo arquivo) em uma das fotos.</summary>
     public static readonly Error PhotoAlreadyExists =

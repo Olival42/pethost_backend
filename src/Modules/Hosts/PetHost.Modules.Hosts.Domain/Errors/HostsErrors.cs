@@ -144,7 +144,8 @@ public static class HostsErrors
 
     /// <summary>422: as tentativas acabaram.</summary>
     public static readonly Error AttemptsExceeded =
-        new("HOST_APPLICATION_ATTEMPTS_EXCEEDED", $"The limit of {HostApplication.MaxAttempts} host applications was reached. Contact support.");
+        new Error("HOST_APPLICATION_ATTEMPTS_EXCEEDED", $"The limit of {HostApplication.MaxAttempts} host applications was reached. Contact support.")
+            .WithParams(("max", HostApplication.MaxAttempts));
 
     /// <summary>409: o CPF já é de um anfitrião ou de uma solicitação aberta de outra conta.</summary>
     public static readonly Error CpfAlreadyRegistered =
@@ -156,7 +157,8 @@ public static class HostsErrors
 
     /// <summary>422: faltam fotos para enviar.</summary>
     public static Error DocumentsMissing(IEnumerable<DocumentKind> missing) =>
-        new("HOST_APPLICATION_DOCUMENTS_MISSING", $"Send all the photos before submitting. Missing: {string.Join(", ", missing.Select(DocumentKindValues.ToWire))}.");
+        new Error("HOST_APPLICATION_DOCUMENTS_MISSING", $"Send all the photos before submitting. Missing: {string.Join(", ", missing.Select(DocumentKindValues.ToWire))}.")
+            .WithParams(("missing", string.Join(",", missing.Select(DocumentKindValues.ToWire))));
 
     /// <summary>409: a mesma imagem já foi enviada em outra vaga (frente igual ao verso).</summary>
     public static readonly Error DocumentAlreadyUsed =

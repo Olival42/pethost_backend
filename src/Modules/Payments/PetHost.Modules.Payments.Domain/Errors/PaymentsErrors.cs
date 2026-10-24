@@ -77,19 +77,19 @@ public static class PaymentsErrors
 
     /// <summary>404: o plano não tem essa parcela.</summary>
     public static Error InstallmentNotFound(int number) =>
-        new("PAYMENT_INSTALLMENT_NOT_FOUND", $"Installment {number} does not exist in this payment plan.");
+        new Error("PAYMENT_INSTALLMENT_NOT_FOUND", $"Installment {number} does not exist in this payment plan.").WithParams(("number", number));
 
     /// <summary>422: a parcela já foi paga.</summary>
     public static Error InstallmentAlreadyPaid(int number) =>
-        new("PAYMENT_INSTALLMENT_ALREADY_PAID", $"Installment {number} is already paid.");
+        new Error("PAYMENT_INSTALLMENT_ALREADY_PAID", $"Installment {number} is already paid.").WithParams(("number", number));
 
     /// <summary>422: o pagamento da parcela está sendo confirmado (Pix compensando, cartão em análise).</summary>
     public static Error InstallmentProcessing(int number) =>
-        new("PAYMENT_INSTALLMENT_PROCESSING", $"The payment of installment {number} is being processed. Wait for the confirmation.");
+        new Error("PAYMENT_INSTALLMENT_PROCESSING", $"The payment of installment {number} is being processed. Wait for the confirmation.").WithParams(("number", number));
 
     /// <summary>422: há uma parcela anterior em aberto; as parcelas são pagas em ordem.</summary>
     public static Error InstallmentOutOfOrder(int earlier) =>
-        new("PAYMENT_INSTALLMENT_OUT_OF_ORDER", $"Pay installment {earlier} first; installments are paid in order.");
+        new Error("PAYMENT_INSTALLMENT_OUT_OF_ORDER", $"Pay installment {earlier} first; installments are paid in order.").WithParams(("earlier", earlier));
 
     // --- Stripe e gravação ---
 

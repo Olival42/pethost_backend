@@ -28,6 +28,7 @@ public static class ApiResponseMapper
         var first = errors.FirstOrDefault();
         return ApiResponse<T>.Fail(new ErrorResponse(
             first?.Code ?? ErrorCodes.Unexpected,
-            first?.Message ?? "Unknown error"));
+            first?.Message ?? "Unknown error",
+            Params: first?.Params?.Values));
     }
 }
