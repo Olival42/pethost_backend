@@ -72,14 +72,41 @@ public sealed class ValidationEnvelopeTests
     }
 
     [Fact]
-    public void Envelope_Should_NotCarryErrorsOrParams_ForNonValidationFailures()
+    public void Envelope_Should_NotCarryDetailsOrParams_ForATopLevelErrorWithoutParams()
     {
-        var result = Result<string>.Failure(new Error("BOOKING_CAPACITY_EXCEEDED", "No room."));
+        var result = Result<string>.Failure(new Error("BOOKING_OWN_LISTING", "Not your own listing."));
 
         var json = JsonNode.Parse(JsonSerializer.Serialize(result.ToApiResponse(), HostJson))!;
 
-        json["error"]!["code"]!.GetValue<string>().Should().Be("BOOKING_CAPACITY_EXCEEDED");
+        json["error"]!["code"]!.GetValue<string>().Should().Be("BOOKING_OWN_LISTING");
         json["error"]!.AsObject().ContainsKey("details").Should().BeFalse();
+        json["error"]!.AsObject().ContainsKey("params").Should().BeFalse();
+    }
+
+    [Fact]
+    public void Envelope_Should_CarryParamsAtTheTopLevel_When_TheErrorHasThem()
+    {
+        var error = new Error("BOOKING_CAPACITY_EXCEEDED", "No room on the night of 2026-12-25.")
+            .WithParams(("date", "2026-12-25"), ("nights", 2));
+
+        var json = JsonNode.Parse(JsonSerializer.Serialize(Result<string>.Failure(error).ToApiResponse(), HostJson))!;
+
+        json["error"]!["code"]!.GetValue<string>().Should().Be("BOOKING_CAPACITY_EXCEEDED");
+        json["error"]!["message"]!.GetValue<string>().Should().Be("No room on the night of 2026-12-25.");
+        json["error"]!["params"]!["date"]!.GetValue<string>().Should().Be("2026-12-25");
+        json["error"]!["params"]!["nights"]!.GetValue<int>().Should().Be(2);
+        json["error"]!.AsObject().ContainsKey("details").Should().BeFalse();
+    }
+
+    [Fact]
+    public void Envelope_Should_NotPutTopLevelParamsOnAValidationResponse()
+    {
+        var result = Result<string>.Failure(Error.Validation("name", "PET_NAME_TOO_LONG", "Too long.", ("max", 100)));
+
+        var json = JsonNode.Parse(JsonSerializer.Serialize(result.ToApiResponse(), HostJson))!;
+
+        json["error"]!.AsObject().ContainsKey("params").Should().BeFalse("validation params live in details[].errors[].params");
+        json["error"]!["details"]![0]!["errors"]![0]!["params"]!["max"]!.GetValue<int>().Should().Be(100);
     }
 }
 

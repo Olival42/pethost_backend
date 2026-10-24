@@ -297,7 +297,8 @@ public static class ListingsErrors
 
     /// <summary>422: pessoa física já tem o seu cantinho. Só empresa tem vários (um por filial).</summary>
     public static readonly Error LimitReached =
-        new("LISTING_LIMIT_REACHED", $"An individual host can have only {Listing.MaxListingsPerIndividual} listing. Reactivate or edit it instead; only companies can have one per branch.");
+        new Error("LISTING_LIMIT_REACHED", $"An individual host can have only {Listing.MaxListingsPerIndividual} listing. Reactivate or edit it instead; only companies can have one per branch.")
+            .WithParams(("max", Listing.MaxListingsPerIndividual));
 
     /// <summary>422: o geocodificador não achou o endereço do cantinho.</summary>
     public static readonly Error AddressNotLocated =
@@ -317,7 +318,8 @@ public static class ListingsErrors
 
     /// <summary>422: o cantinho já tem o máximo de fotos.</summary>
     public static readonly Error PhotoLimitReached =
-        new("LISTING_PHOTO_LIMIT_REACHED", $"A listing can have at most {Listing.MaxPhotos} photos. Remove one before adding another.");
+        new Error("LISTING_PHOTO_LIMIT_REACHED", $"A listing can have at most {Listing.MaxPhotos} photos. Remove one before adding another.")
+            .WithParams(("max", Listing.MaxPhotos));
 
     /// <summary>409: o cantinho já tem esta mesma imagem.</summary>
     public static readonly Error PhotoAlreadyExists =
@@ -329,13 +331,17 @@ public static class ListingsErrors
 
     /// <summary>422: o cantinho já tem o máximo de bloqueios em aberto.</summary>
     public static readonly Error AvailabilityBlockLimitReached =
-        new("LISTING_AVAILABILITY_BLOCK_LIMIT_REACHED", $"A listing can have at most {AvailabilityBlock.MaxOpenBlocks} upcoming blocked periods. Remove one or merge them.");
+        new Error("LISTING_AVAILABILITY_BLOCK_LIMIT_REACHED", $"A listing can have at most {AvailabilityBlock.MaxOpenBlocks} upcoming blocked periods. Remove one or merge them.")
+            .WithParams(("max", AvailabilityBlock.MaxOpenBlocks));
 
     /// <summary>422: o período sobrepõe outro bloqueio do cantinho (com as datas dele).</summary>
     public static Error AvailabilityBlockOverlap(DateOnly startDate, DateOnly endDate) =>
-        new(
+        new Error(
             "LISTING_AVAILABILITY_BLOCK_OVERLAP",
-            string.Create(CultureInfo.InvariantCulture, $"These dates overlap the period already blocked from {startDate:yyyy-MM-dd} to {endDate:yyyy-MM-dd}."));
+            string.Create(CultureInfo.InvariantCulture, $"These dates overlap the period already blocked from {startDate:yyyy-MM-dd} to {endDate:yyyy-MM-dd}."))
+            .WithParams(
+                ("startDate", startDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)),
+                ("endDate", endDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)));
 
     /// <summary>404: o cantinho não tem bloqueio com esse id.</summary>
     public static Error AvailabilityBlockNotFound(AvailabilityBlockId id) =>

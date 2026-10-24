@@ -202,7 +202,7 @@ public static class ReviewsErrors
 
     /// <summary>422: passou o prazo para avaliar ou editar (7 dias depois do check-out).</summary>
     public static readonly Error WindowClosed =
-        new("REVIEW_WINDOW_CLOSED", $"Reviews can only be written or changed up to {Review.WindowDays} days after check-out.");
+        new Error("REVIEW_WINDOW_CLOSED", $"Reviews can only be written or changed up to {Review.WindowDays} days after check-out.").WithParams(("days", Review.WindowDays));
 
     /// <summary>409: este lado já avaliou a reserva (um por lado; a apagada não libera outra).</summary>
     public static readonly Error AlreadyExists =

@@ -10,7 +10,7 @@ namespace PetHost.Shared.Kernel.Errors;
 /// <c>BOOKING_CHECK_IN_TOO_SOON</c>). Só em erro de validação, onde o <paramref name="Code"/> de topo
 /// é sempre <c>VALIDATION_ERROR</c>. É por ele que o front escolhe o texto.
 /// </param>
-/// <param name="Params">Números e textos que a frase da regra usa (limites, formatos). Só em erro de validação.</param>
+/// <param name="Params">Números e textos que a frase usa (limites, datas, ids de recurso). Em erro de validação e em erro de topo; o front lê daqui, nunca da frase.</param>
 public sealed record Error(
     string Code,
     string Message,
@@ -38,6 +38,12 @@ public sealed record Error(
 
         return new Error(ErrorCodes.Validation, message, field, reason, parameters.Length == 0 ? null : ErrorParams.Of(parameters));
     }
+
+    /// <summary>
+    /// Acrescenta os parâmetros que a frase do erro usa (só número, texto ou booleano, nome em camelCase;
+    /// nunca dado pessoal: id de recurso pode, nome de pessoa ou de pet não).
+    /// </summary>
+    public Error WithParams(params (string Name, object Value)[] parameters) => this with { Params = ErrorParams.Of(parameters) };
 
     public static Error NotFound(string message) => new(ErrorCodes.NotFound, message);
     public static Error Conflict(string message) => new(ErrorCodes.Conflict, message);

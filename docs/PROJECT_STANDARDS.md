@@ -136,7 +136,7 @@ namespace PetHost.Shared.Kernel.Errors;
 /// <param name="Message">Mensagem em inglês, frase completa.</param>
 /// <param name="Field">Campo do payload em camelCase. Só em erro de validação.</param>
 /// <param name="Reason">Motivo estável da regra de validação (`MODULO_CAMPO_REGRA`). Só em erro de validação.</param>
-/// <param name="Params">Limites e formatos que a frase usa (`ErrorParams`). Só em erro de validação.</param>
+/// <param name="Params">Valores que a frase usa (`ErrorParams`): limites e formatos na validação; datas, limites e ids no erro de topo.</param>
 public sealed record Error(string Code, string Message, string? Field = null, string? Reason = null, ErrorParams? Params = null)
 {
     public static Error Validation(string field, string reason, string message, params (string Name, object Value)[] parameters) => new(ErrorCodes.Validation, message, field, reason, ErrorParams.Of(parameters));
@@ -224,6 +224,7 @@ Extensões de composição em `ResultExtensions`: `Map`, `BindAsync`.
 | Acumular só em validação | Validação retorna N erros; regra de domínio retorna 1 |
 | `Field` em camelCase | Precisa casar com o campo no JSON da request |
 | `Code` nunca muda | É contrato público. Mudar = breaking change |
+| Erro de topo que cita valor leva `params` | `new Error(code, msg).WithParams(("date", "2026-12-25"))`: o front lê o valor de `error.params`, nunca da frase (§7) |
 | Validação tem `Reason` | `Error.Validation(field, reason, message, params?)`: o `Reason` é o código estável da regra (§10) |
 
 Erros centralizados por módulo em `<Module>Errors` — **zero** literal inline:
@@ -303,6 +304,29 @@ public static class ApiResponseMapper
 - `params`: só o que a frase precisa (`max`, `min`, `format`, `digits`, ou o que a regra nomear), com nome em camelCase e valor número, texto ou booleano. Nunca dado pessoal nem o valor enviado. Ausente quando a regra não tem parâmetros. As listas de valores aceitos ficam de fora (o front conhece as opções).
 - Regra de negócio tem código próprio; não há código genérico de validação (`FIELD_INVALID`).
 - O OpenAPI expõe `ApiFieldErrorItem` (`code` + `params`) em `ApiFieldErrors.errors` e o enum `ApiErrorCode` com **todos** os códigos (os de topo e os de validação). O enum é gerado por reflexão (`ErrorCatalog`) das classes `*Errors` e de `ErrorCodes`, não é lista manual: o front gera os tipos dele e o catálogo de textos é `Record<ApiErrorCode, ...>`.
+- **Erro de topo com `params`.** Quando a frase de um erro de topo cita um valor, o envelope leva o mesmo valor em `error.params` (objeto opcional, mesmas regras de `params` acima: número, texto ou booleano, nome em camelCase, nunca dado pessoal). Id de recurso pode; nome de pessoa ou de pet não. Declare no `*Errors` com `WithParams`:
+
+  ```json
+  { "success": false, "data": null, "error": {
+      "code": "BOOKING_CAPACITY_EXCEEDED",
+      "message": "The listing has no room for these pets on the night of 2026-12-25.",
+      "params": { "date": "2026-12-25" } } }
+  ```
+
+  | Código | `params` |
+  |--------|----------|
+  | `BOOKING_WEEKDAY_NOT_AVAILABLE`, `BOOKING_DATES_BLOCKED`, `BOOKING_CAPACITY_EXCEEDED`, `BOOKING_CHECK_IN_TOO_EARLY` | `date` (`yyyy-MM-dd`): o dia fechado, a noite cheia, o dia em que o check-in abre |
+  | `BOOKING_PET_PERIOD_CONFLICT`, `BOOKING_PET_INACTIVE` | `petId` |
+  | `BOOKING_PET_SPECIES_NOT_ACCEPTED` | `petId`, `species` |
+  | `BOOKING_PET_SIZE_NOT_ACCEPTED` | `petId`, `size` |
+  | `LISTING_AVAILABILITY_BLOCK_OVERLAP` | `startDate`, `endDate` |
+  | `LISTING_LIMIT_REACHED`, `LISTING_PHOTO_LIMIT_REACHED`, `LISTING_AVAILABILITY_BLOCK_LIMIT_REACHED`, `PET_PHOTO_LIMIT_REACHED`, `HOST_APPLICATION_ATTEMPTS_EXCEEDED` | `max` |
+  | `HOST_APPLICATION_DOCUMENTS_MISSING` | `missing` (tipos de foto separados por vírgula) |
+  | `PAYMENT_INSTALLMENT_NOT_FOUND`, `PAYMENT_INSTALLMENT_ALREADY_PAID`, `PAYMENT_INSTALLMENT_PROCESSING` | `number` |
+  | `PAYMENT_INSTALLMENT_OUT_OF_ORDER` | `earlier` |
+  | `REVIEW_WINDOW_CLOSED` | `days` |
+
+  Os `*_NOT_FOUND` não levam o id: é o que a própria requisição mandou. O OpenAPI expõe `ApiError.params` (opcional), pelo mesmo schema `ApiErrorParams` dos itens de validação.
 - Erros que nascem antes do caso de uso seguem a mesma regra: corpo ilegível é `REQUEST_BODY_INVALID` no campo `body`, valor com tipo errado é `REQUEST_VALUE_INVALID` no campo (`RequestErrors`), imagem ausente é `IMAGE_FILE_REQUIRED` (`ImageErrors`).
 
 ### Ponte com o ASP.NET Core

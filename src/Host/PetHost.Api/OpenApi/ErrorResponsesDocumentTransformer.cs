@@ -22,6 +22,7 @@ internal sealed class ErrorResponsesDocumentTransformer : IOpenApiDocumentTransf
     private const string FieldErrorsSchema = "ApiFieldErrors";
     private const string FieldErrorItemSchema = "ApiFieldErrorItem";
     private const string ErrorCodeSchema = "ApiErrorCode";
+    private const string ErrorParamsSchema = "ApiErrorParams";
     private const string JsonContentType = "application/json";
     private const string ExampleTimestamp = "2026-10-21T12:00:00+00:00";
 
@@ -122,6 +123,21 @@ internal sealed class ErrorResponsesDocumentTransformer : IOpenApiDocumentTransf
             Enum = [.. ErrorCatalog.Codes(ErrorCatalog.DiscoverLoaded()).Select(code => (JsonNode)JsonValue.Create(code)!)],
         };
 
+        document.Components.Schemas[ErrorParamsSchema] = new OpenApiSchema
+        {
+            Type = JsonSchemaType.Object,
+            Description = "Valores que a frase do erro cita (limites, datas yyyy-MM-dd, ids de recurso: max, date, petId...). Só número, texto ou booleano, nunca dado pessoal. Ausente quando o erro não tem parâmetros.",
+            AdditionalProperties = new OpenApiSchema
+            {
+                OneOf =
+                [
+                    new OpenApiSchema { Type = JsonSchemaType.String },
+                    new OpenApiSchema { Type = JsonSchemaType.Number },
+                    new OpenApiSchema { Type = JsonSchemaType.Boolean },
+                ],
+            },
+        };
+
         document.Components.Schemas[FieldErrorItemSchema] = new OpenApiSchema
         {
             Type = JsonSchemaType.Object,
@@ -130,20 +146,7 @@ internal sealed class ErrorResponsesDocumentTransformer : IOpenApiDocumentTransf
             Properties = new Dictionary<string, IOpenApiSchema>
             {
                 ["code"] = new OpenApiSchemaReference(ErrorCodeSchema, document),
-                ["params"] = new OpenApiSchema
-                {
-                    Type = JsonSchemaType.Object,
-                    Description = "Limites e formatos da regra (ex.: max, min, format). Nunca o valor enviado. Ausente quando a regra não tem parâmetros.",
-                    AdditionalProperties = new OpenApiSchema
-                    {
-                        OneOf =
-                        [
-                            new OpenApiSchema { Type = JsonSchemaType.String },
-                            new OpenApiSchema { Type = JsonSchemaType.Number },
-                            new OpenApiSchema { Type = JsonSchemaType.Boolean },
-                        ],
-                    },
-                },
+                ["params"] = new OpenApiSchemaReference(ErrorParamsSchema, document),
             },
         };
 
@@ -177,7 +180,8 @@ internal sealed class ErrorResponsesDocumentTransformer : IOpenApiDocumentTransf
             Properties = new Dictionary<string, IOpenApiSchema>
             {
                 ["code"] = new OpenApiSchemaReference(ErrorCodeSchema, document),
-                ["message"] = new OpenApiSchema { Type = JsonSchemaType.String, Description = "Mensagem em inglês, para log." },
+                ["message"] = new OpenApiSchema { Type = JsonSchemaType.String, Description = "Mensagem em inglês, para log. Não leia valores dela: use params." },
+                ["params"] = new OpenApiSchemaReference(ErrorParamsSchema, document),
                 ["details"] = new OpenApiSchema
                 {
                     Description = "Só em alguns erros: a lista por campo no VALIDATION_ERROR, o traceId no UNEXPECTED_ERROR.",

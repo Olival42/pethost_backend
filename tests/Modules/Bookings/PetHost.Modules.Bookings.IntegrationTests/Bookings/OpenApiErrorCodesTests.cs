@@ -39,11 +39,16 @@ public sealed class OpenApiErrorCodesTests(BookingsApiFixture fixture)
 
         schemas["ApiFieldErrorItem"]!["required"]!.AsArray().Select(name => name!.GetValue<string>()).Should().Equal("code");
         schemas["ApiFieldErrorItem"]!["properties"]!["code"]!["$ref"]!.GetValue<string>().Should().Be("#/components/schemas/ApiErrorCode");
-        schemas["ApiFieldErrorItem"]!["properties"]!["params"]!.AsObject().ContainsKey("additionalProperties").Should().BeTrue();
-
+        
         schemas["ApiFieldErrors"]!["required"]!.AsArray().Select(name => name!.GetValue<string>()).Should().Contain("errors");
         schemas["ApiFieldErrors"]!["properties"]!["errors"]!["items"]!["$ref"]!.GetValue<string>().Should().Be("#/components/schemas/ApiFieldErrorItem");
         schemas["ApiError"]!["properties"]!["code"]!["$ref"]!.GetValue<string>().Should().Be("#/components/schemas/ApiErrorCode");
+
+        // params no erro de topo (opcional) e nos itens de validação, ambos pelo mesmo schema.
+        schemas["ApiError"]!["required"]!.AsArray().Select(name => name!.GetValue<string>()).Should().NotContain("params");
+        schemas["ApiError"]!["properties"]!["params"]!["$ref"]!.GetValue<string>().Should().Be("#/components/schemas/ApiErrorParams");
+        schemas["ApiFieldErrorItem"]!["properties"]!["params"]!["$ref"]!.GetValue<string>().Should().Be("#/components/schemas/ApiErrorParams");
+        schemas["ApiErrorParams"]!["additionalProperties"]!["oneOf"]!.AsArray().Should().HaveCount(3);
 
         var output = Environment.GetEnvironmentVariable(OutputVariable);
         if (!string.IsNullOrWhiteSpace(output))

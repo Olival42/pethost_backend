@@ -166,7 +166,7 @@ public sealed class CreateBookingCommandHandlerTests
         var result = await Sut().HandleAsync(Command(), CancellationToken.None);
 
         // Assert
-        result.FirstError.Should().Be(BookingsErrors.SpeciesNotAccepted("Pipoca", "dog"));
+        result.FirstError.Should().Be(BookingsErrors.SpeciesNotAccepted(BookingBuilder.PipocaId, "Pipoca", "dog"));
         _repository.Verify(r => r.Add(It.IsAny<Booking>()), Times.Never);
         _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
@@ -183,7 +183,7 @@ public sealed class CreateBookingCommandHandlerTests
         var result = await Sut().HandleAsync(Command(), CancellationToken.None);
 
         // Assert
-        result.FirstError.Should().Be(BookingsErrors.PetPeriodConflict("Pipoca"));
+        result.FirstError.Should().Be(BookingsErrors.PetPeriodConflict(BookingBuilder.PipocaId, "Pipoca"));
     }
 
     [Fact]

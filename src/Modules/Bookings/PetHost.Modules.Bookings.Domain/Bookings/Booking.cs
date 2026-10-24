@@ -307,16 +307,16 @@ public sealed class Booking : Entity<BookingId>
             return Result.Failure(BookingsErrors.PetNotFound(petId));
 
         if (!pet.IsActive)
-            return Result.Failure(BookingsErrors.PetInactive(pet.Name));
+            return Result.Failure(BookingsErrors.PetInactive(petId, pet.Name));
 
         if (!listing.AcceptsSpecies(pet.Species))
-            return Result.Failure(BookingsErrors.SpeciesNotAccepted(pet.Name, pet.Species));
+            return Result.Failure(BookingsErrors.SpeciesNotAccepted(petId, pet.Name, pet.Species));
 
         if (!listing.AcceptsSize(pet.Size))
-            return Result.Failure(BookingsErrors.SizeNotAccepted(pet.Name, pet.Size ?? string.Empty));
+            return Result.Failure(BookingsErrors.SizeNotAccepted(petId, pet.Name, pet.Size ?? string.Empty));
 
         if (petsBookedElsewhere.Contains(petId))
-            return Result.Failure(BookingsErrors.PetPeriodConflict(pet.Name));
+            return Result.Failure(BookingsErrors.PetPeriodConflict(petId, pet.Name));
 
         return Result.Success();
     }
