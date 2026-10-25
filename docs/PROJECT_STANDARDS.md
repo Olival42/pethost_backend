@@ -3,7 +3,7 @@
 > Documento normativo. Tudo é obrigatório salvo onde marcado como *recomendado*.
 > Em conflito com o código existente, este documento vence.
 
-**Atualizado:** 2026-10-23 · **Escopo:** backend (API)
+**Atualizado:** 2026-10-25 · **Escopo:** backend (API)
 
 ---
 
@@ -226,7 +226,7 @@ Extensões de composição em `ResultExtensions`: `Map`, `BindAsync`.
 | `Code` nunca muda | É contrato público. Mudar = breaking change |
 | Validação tem `Reason` | `Error.Validation(field, reason, message, params?)`: o `Reason` é o código estável da regra (§10) |
 
-Erros centralizados por módulo em `<Module>Errors` — **zero** literal inline:
+Erros centralizados por módulo em `<Module>Errors` — **zero** literal inline. O exemplo abaixo (e os do §9 e §14, que continuam o mesmo caso) é **ilustrativo**: simplificado, não é o `BookingsErrors` real — os códigos de verdade estão nas classes `*Errors` e no enum `ApiErrorCode` do OpenAPI.
 
 ```csharp
 public static class BookingErrors
@@ -368,7 +368,7 @@ Sucesso `200` · validação `400` · regra de negócio `422` · inesperado `500
   "timestamp": "2026-10-07T13:45:12.331+00:00" }
 
 { "success": false, "data": null, "error": {
-    "code": "BOOKING_OVERLAPPING_PERIOD", "message": "The host already has a booking in this period.", "details": null },
+    "code": "BOOKING_CAPACITY_EXCEEDED", "message": "The listing has no room for these pets on the night of 2026-12-20.", "details": null },
   "timestamp": "2026-10-07T13:45:12.331+00:00" }
 
 { "success": false, "data": null, "error": {
@@ -392,13 +392,13 @@ Sucesso `200` · validação `400` · regra de negócio `422` · inesperado `500
 | `CONFLICT` | 409 | Duplicidade, concorrência otimista |
 | `BUSINESS_RULE_VIOLATION` | 422 | Payload válido, regra impede a operação |
 | `METHOD_NOT_ALLOWED` | 405 | A rota existe, mas não com esse método |
-| `PAYLOAD_TOO_LARGE` | 413 | Corpo acima do teto da rota (upload de imagem: 8 MB) |
+| `PAYLOAD_TOO_LARGE` | 413 | Corpo acima do teto da rota (upload de imagem: 8 MB; as outras rotas, o limite do Kestrel, 30 MB) |
 | `UNSUPPORTED_MEDIA_TYPE` | 415 | Corpo num content-type que a rota não aceita (use `application/json`) |
 | `TOO_MANY_REQUESTS` | 429 | Rate limit estourado. Vem com o header `Retry-After` (segundos) |
 | `<MODULE>_..._UNAVAILABLE` | 503 | Serviço externo fora do ar ou lento (ex.: `LISTING_GEOCODER_UNAVAILABLE`). Tente de novo depois |
 | `UNEXPECTED_ERROR` | 500 | Exceção não tratada |
 
-**Códigos de módulo:** `<MODULE>_<REASON>` em `SCREAMING_SNAKE_CASE` — `AUTH_INVALID_CREDENTIALS`, `AUTH_EMAIL_ALREADY_REGISTERED`, `BOOKING_NOT_FOUND`, `BOOKING_OVERLAPPING_PERIOD`, `BOOKING_ALREADY_CANCELLED`, `PET_MICROCHIP_ALREADY_REGISTERED`, `PAYMENT_GATEWAY_REJECTED`.
+**Códigos de módulo:** `<MODULE>_<REASON>` em `SCREAMING_SNAKE_CASE` — `AUTH_INVALID_CREDENTIALS`, `AUTH_EMAIL_ALREADY_REGISTERED`, `BOOKING_NOT_FOUND`, `BOOKING_CAPACITY_EXCEEDED`, `BOOKING_ALREADY_CANCELLED`, `PET_MICROCHIP_ALREADY_REGISTERED`, `PAYMENT_STRIPE_REQUEST_REJECTED`.
 
 **Recurso de outra conta responde `404`, não `403`.** Ler ou alterar pelo id um recurso que pertence a outro usuário (pet, reserva, mensagem) devolve o mesmo `<MODULE>_NOT_FOUND` de um id inexistente: um `403` confirmaria que o id existe. O `403` fica para o que não depende do recurso — papel errado no token (`FORBIDDEN`), conta desativada ou suspensa. O sufixo `_NOT_OWNED_BY_REQUESTER` → 403 continua no mapeador, mas não deve ser usado para recurso que se busca pelo id.
 
@@ -736,11 +736,11 @@ Rate limiting nativo do ASP.NET Core (`AddPetHostRateLimiting`, em `Shared.Infra
 | `registration` | Criar conta | IP | 10 / 1 h |
 | `password-reset` | Esqueci a senha (pedido e troca com o token) | IP | 5 / 15 min |
 | `session` | Refresh e logout | IP | 30 / 1 min |
-| `account-sensitive` | Logado, pede a senha ou derruba a conta: trocar senha, inativar | usuário | 5 / 15 min |
-| `account-update` | `PATCH` de perfil (inclui troca de CPF) | usuário | 20 / 15 min |
+| `account-sensitive` | Logado, pede a senha ou derruba a conta: trocar senha, inativar, excluir a conta | usuário | 5 / 15 min |
+| `account-update` | Logado, muda a própria conta ou cria algo no Stripe: `PATCH` de perfil (inclui troca de CPF), avatar, solicitação de verificação do anfitrião, cadastro de recebimento no Stripe, plano e cobrança do pagamento | usuário | 20 / 15 min |
 | `chat-messages` | Mensagem do chat, texto ou foto (contam juntos) | usuário | 30 / 1 min |
 | `review-writes` | Criar, editar e apagar avaliação; criar e apagar a resposta | usuário | 20 / 15 min |
-| `reports` | Denúncia (cada uma avisa o admin por e-mail) | usuário | 10 / 1 h |
+| `reports` | Denúncia de avaliação e de mensagem do chat (cada uma avisa o admin por e-mail; contam juntas) | usuário | 10 / 1 h |
 | geral | Todo endpoint | usuário ou IP | 120 / 1 min |
 
 - Estourou: `429 TOO_MANY_REQUESTS` no envelope + `Retry-After`. Log `Warning` com rota e IP.
@@ -941,7 +941,7 @@ Exceção é **falha inesperada**, nunca controle de fluxo.
 | Log no ponto de tratamento | Não logar e relançar |
 | Toda exceção 500 gera alerta | *Recomendado* (ainda não implementado): hoje a exceção vai para o log do Serilog com o `TraceId`; alerta depende de uma ferramenta de monitoramento |
 
-Um `IExceptionHandler` global no host é o **único** lugar que captura exceção não tratada: loga com `TraceId` e devolve `ApiResponse` com `UNEXPECTED_ERROR` + 500.
+Um `IExceptionHandler` global no host é o **único** lugar que captura exceção não tratada: loga com `TraceId` e devolve `ApiResponse` com `UNEXPECTED_ERROR` + 500. A exceção só não vira 500 quando é `BadHttpRequestException`, o pedido que o próprio servidor recusou (corpo acima de 30 MB, por exemplo): sai o status dela no envelope (413 `PAYLOAD_TOO_LARGE`; os outros, `VALIDATION_ERROR`), com log `Warning`. O log da requisição (`UseSerilogRequestLogging`) segue a mesma regra: `Error` para exceção e 5xx, `Warning` para o pedido recusado pelo servidor.
 
 | Item | Padrão |
 |------|--------|

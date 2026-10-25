@@ -105,6 +105,209 @@ Reserva de outra pessoa: `404 PAYMENT_BOOKING_NOT_FOUND` (§8). As rotas que cri
 
 **Erros do módulo:** `PAYMENT_BOOKING_NOT_FOUND`, `PAYMENT_NOT_FOUND`, `PAYMENT_OWNER_NOT_FOUND`, `PAYMENT_HOST_NOT_FOUND` (404); `PAYMENT_BOOKING_NOT_AWAITING_PAYMENT`, `PAYMENT_WINDOW_CLOSED`, `PAYMENT_INSTALLMENT_COUNT_NOT_ALLOWED`, `PAYMENT_PLAN_LOCKED`, `PAYMENT_CLOSED`, `PAYMENT_INSTALLMENT_ALREADY_PAID`, `PAYMENT_INSTALLMENT_PROCESSING`, `PAYMENT_INSTALLMENT_OUT_OF_ORDER`, `PAYMENT_STRIPE_REQUEST_REJECTED` (422); `PAYMENT_INSTALLMENT_NOT_FOUND` (404); `PAYMENT_CONFLICT` (409); `PAYMENT_STRIPE_UNAVAILABLE` (503); validação em `installmentCount`, `installmentNumber`, `page`, `pageSize` (400).
 
+Os exemplos abaixo mostram só o `data` do envelope (`{ "success": true, "data": ..., "timestamp": ... }`). Valores em **reais**, datas em ISO 8601 UTC, nulos omitidos. Exemplo usado: reserva de 5 noites a R$ 80,00 = **R$ 400,00**.
+
+### 4.1 Ver o pagamento — `GET /api/v1/bookings/{bookingId}/payment`
+
+Sem corpo. **Antes de escolher as parcelas** (reserva `accepted`), `status = not_started`, sem `id`, com o prazo e as opções (para o tutor e o admin):
+
+```json
+{
+  "bookingId": "0199d0a1-…",
+  "status": "not_started",
+  "totalAmount": 400,
+  "paidAmount": 0,
+  "refundedAmount": 0,
+  "currency": "brl",
+  "paymentDeadline": "2026-12-02T15:00:00+00:00",
+  "installments": [],
+  "options": [
+    { "count": 1, "firstAmount": 400, "otherAmount": 0,
+      "installments": [ { "number": 1, "amount": 400, "dueAt": "2026-12-02T15:00:00+00:00" } ] },
+    { "count": 3, "firstAmount": 133.34, "otherAmount": 133.33,
+      "installments": [
+        { "number": 1, "amount": 133.34, "dueAt": "2026-12-02T15:00:00+00:00" },
+        { "number": 2, "amount": 133.33, "dueAt": "2027-01-01T02:59:59+00:00" },
+        { "number": 3, "amount": 133.33, "dueAt": "2027-01-31T02:59:59+00:00" } ] }
+  ]
+}
+```
+
+(`options` traz de 1x até o máximo permitido; aqui só 1x e 3x, para encurtar.)
+
+**Depois de escolher** (e com a 1ª parcela paga), cada parcela com a sua situação:
+
+```json
+{
+  "id": "0199d0b7-…",
+  "bookingId": "0199d0a1-…",
+  "status": "active",
+  "totalAmount": 400,
+  "paidAmount": 133.34,
+  "refundedAmount": 0,
+  "currency": "brl",
+  "installmentCount": 3,
+  "installments": [
+    { "number": 1, "amount": 133.34, "dueAt": "2026-12-02T15:00:00+00:00", "status": "paid", "method": "pix",
+      "paidAt": "2026-12-01T18:22:10+00:00", "refundStatus": "none", "payoutStatus": "held", "disputeStatus": "none" },
+    { "number": 2, "amount": 133.33, "dueAt": "2027-01-01T02:59:59+00:00", "status": "pending",
+      "refundStatus": "none", "payoutStatus": "held", "disputeStatus": "none", "amountDue": 133.33 },
+    { "number": 3, "amount": 133.33, "dueAt": "2027-01-31T02:59:59+00:00", "status": "pending",
+      "refundStatus": "none", "payoutStatus": "held", "disputeStatus": "none", "amountDue": 133.33 }
+  ],
+  "payout": { "transferred": 0, "held": 120, "reversed": 0 },
+  "createdAt": "2026-12-01T18:20:03+00:00",
+  "updatedAt": "2026-12-01T18:22:11+00:00"
+}
+```
+
+| Campo | Quem vê | Significado |
+|---|---|---|
+| `status` | todos | `not_started`, `pending`, `active`, `paid`, `cancelled` (seção 2) |
+| `installments[].amountDue` | todos | Quanto pagar agora (valor + `lateFee`), só com a parcela em aberto |
+| `installments[].lateFee` | todos | Multa e juros por atraso (seção 10). Omitido quando não há |
+| `installments[].failureCode` | tutor, admin | Por que a última tentativa falhou (código do Stripe) |
+| `installments[].hostPayoutAmount`, `transferredAt` | todos | O que o anfitrião recebeu, depois do repasse |
+| `refundPercentage`, `installments[].refundedAmount` | todos | Reserva cancelada (seção 9) |
+| `payout` | anfitrião, admin | Repassado, guardado e estornado, somando as parcelas |
+| `installments[].stripe` | admin | `paymentIntentId`, `chargeId`, `refundId`, `transferId`, `transferReversalId`, `disputeId`, `payoutFailureCode` |
+| `options` | tutor, admin | Só enquanto o número de parcelas ainda pode ser escolhido ou trocado |
+
+| Status | Código | Quando |
+|---|---|---|
+| `200` | — | O pagamento (ou `not_started`) |
+| `404` | `PAYMENT_BOOKING_NOT_FOUND` | Reserva inexistente ou de outra pessoa |
+| `404` | `PAYMENT_NOT_FOUND` | Reserva que ainda não pede pagamento (ex.: `requested`, `declined`) |
+
+### 4.2 Escolher as parcelas — `PUT /api/v1/bookings/{bookingId}/payment`
+
+Só o tutor. Escolhe ou troca, antes de pagar qualquer parcela.
+
+```json
+{ "installmentCount": 3 }
+```
+
+Resposta: o pagamento no formato da seção 4.1, agora com `id`, `status = pending`, `installmentCount` e as parcelas.
+
+| Status | Código | Quando |
+|---|---|---|
+| `200` | — | Plano gravado |
+| `400` | `VALIDATION_ERROR` (`PAYMENT_INSTALLMENT_COUNT_INVALID`) | Fora de 1 a 6 |
+| `404` | `PAYMENT_BOOKING_NOT_FOUND` | Reserva de outra pessoa |
+| `409` | `PAYMENT_CONFLICT` | Alterado ao mesmo tempo; recarregue |
+| `422` | `PAYMENT_INSTALLMENT_COUNT_NOT_ALLOWED` | Alguma parcela ficaria abaixo de R$ 50,00 |
+| `422` | `PAYMENT_PLAN_LOCKED` | Já pagou (ou está pagando) uma parcela |
+| `422` | `PAYMENT_WINDOW_CLOSED` | Passou o prazo da 1ª parcela |
+| `422` | `PAYMENT_BOOKING_NOT_AWAITING_PAYMENT` / `PAYMENT_CLOSED` | Reserva que não espera pagamento / cancelada ou expirada |
+| `503` | `PAYMENT_STRIPE_UNAVAILABLE` | Stripe fora do ar (trocar o plano cancela as cobranças antigas lá) |
+
+### 4.3 Pagar uma parcela — `POST /api/v1/bookings/{bookingId}/payment/installments/{n}/payment-session`
+
+Só o tutor. Sem corpo; `n` é o número da parcela (1 a 6). Devolve o que o app precisa para abrir o **Payment Element** (seção 6):
+
+```json
+{
+  "bookingId": "0199d0a1-…",
+  "installmentNumber": 1,
+  "installmentCount": 3,
+  "amount": 133.34,
+  "paymentIntentId": "pi_3QxY…",
+  "clientSecret": "pi_3QxY…_secret_…",
+  "publishableKey": "pk_test_…",
+  "pixExpiresAt": 1796238000,
+  "paymentMethods": ["card", "pix"],
+  "lateFee": 0
+}
+```
+
+| Campo | Significado |
+|---|---|
+| `amount` | Quanto pagar agora: o valor da parcela + `lateFee` |
+| `clientSecret` | Segredo da cobrança, só deste tutor. O app passa para `stripe.elements({ clientSecret })` e **não guarda** |
+| `pixExpiresAt` | Até quando o QR code do Pix vale (Unix, segundos). Nunca depois do prazo da parcela |
+
+Chamar de novo reaproveita a mesma cobrança (mesmo `clientSecret`) enquanto ela estiver aberta.
+
+| Status | Código | Quando |
+|---|---|---|
+| `200` | — | Sessão aberta |
+| `400` | `VALIDATION_ERROR` (`PAYMENT_INSTALLMENT_NUMBER_INVALID`) | `n` fora de 1 a 6 |
+| `404` | `PAYMENT_BOOKING_NOT_FOUND`, `PAYMENT_NOT_FOUND`, `PAYMENT_INSTALLMENT_NOT_FOUND` | Reserva de outra pessoa, plano não escolhido, parcela que não existe no plano |
+| `422` | `PAYMENT_INSTALLMENT_OUT_OF_ORDER` | Há parcela anterior em aberto (adiantar a próxima pode; pular, não) |
+| `422` | `PAYMENT_INSTALLMENT_ALREADY_PAID` / `PAYMENT_INSTALLMENT_PROCESSING` | Já paga / sendo confirmada |
+| `422` | `PAYMENT_WINDOW_CLOSED` / `PAYMENT_CLOSED` | Prazo da 1ª parcela passou / reserva cancelada ou expirada |
+| `422` | `PAYMENT_STRIPE_REQUEST_REJECTED` | O Stripe recusou o pedido |
+| `503` | `PAYMENT_STRIPE_UNAVAILABLE` | Stripe fora do ar |
+
+### 4.4 Reler no Stripe — `POST /api/v1/bookings/{bookingId}/payment/synchronization`
+
+Tutor ou admin. Sem corpo. Relê as cobranças da reserva no Stripe e aplica o que mudou (confirma a reserva se a 1ª parcela foi paga, aplica reembolso e contestação, refaz o pendente), sem esperar o webhook. Resposta: o pagamento no formato da seção 4.1.
+
+| Status | Código | Quando |
+|---|---|---|
+| `200` | — | Pagamento atualizado |
+| `404` | `PAYMENT_BOOKING_NOT_FOUND` / `PAYMENT_NOT_FOUND` | Reserva de outra pessoa / sem plano |
+| `409` | `PAYMENT_CONFLICT` | Alterado ao mesmo tempo (ex.: o webhook chegou junto); tente de novo |
+| `503` | `PAYMENT_STRIPE_UNAVAILABLE` | Stripe fora do ar |
+
+### 4.5 Ganhos do anfitrião — `GET /api/v1/payments/payouts/me?page=1&pageSize=20`
+
+Só o anfitrião. Reservas com alguma parcela paga, da mais recente para a mais antiga.
+
+```json
+{
+  "items": [
+    {
+      "bookingId": "0199d0a1-…",
+      "paymentStatus": "active",
+      "totalAmount": 400,
+      "payout": { "transferred": 120, "held": 0, "reversed": 0 },
+      "installments": [
+        { "number": 1, "amount": 133.34, "status": "paid", "payoutStatus": "transferred", "hostAmount": 120,
+          "paidAt": "2026-12-01T18:22:10+00:00", "transferredAt": "2026-12-25T14:03:00+00:00", "lateFee": 0 },
+        { "number": 2, "amount": 133.33, "status": "pending", "payoutStatus": "held", "hostAmount": 0, "lateFee": 0 },
+        { "number": 3, "amount": 133.33, "status": "pending", "payoutStatus": "held", "hostAmount": 0, "lateFee": 0 }
+      ]
+    }
+  ],
+  "page": 1, "pageSize": 20, "totalCount": 1, "totalPages": 1
+}
+```
+
+`hostAmount` é o que o anfitrião recebe (ou recebeu) da parcela: **90%** do que ficou com o PetHost, multa e juros incluídos (seção 8).
+
+| Status | Código | Quando |
+|---|---|---|
+| `200` | — | A página |
+| `400` | `VALIDATION_ERROR` (`PAYMENT_PAGE_INVALID`, `PAYMENT_PAGE_SIZE_INVALID`) | `page` < 1 ou `pageSize` fora de 1 a 100 |
+| `404` | `PAYMENT_HOST_NOT_FOUND` | Conta de anfitrião ainda sem perfil verificado |
+
+### 4.6 Pendências — `GET /api/v1/payments/issues`
+
+Só o admin. Lista administrativa, sem paginação, da pendência mais antiga para a mais nova.
+
+```json
+[
+  {
+    "paymentId": "0199d0b7-…",
+    "bookingId": "0199d0a1-…",
+    "installmentNumber": 2,
+    "issue": "installment_overdue",
+    "amount": 133.33,
+    "since": "2027-01-01T02:59:59+00:00",
+    "stripeObjectId": "pi_3QxZ…"
+  }
+]
+```
+
+| `issue` | O que é | `stripeObjectId` |
+|---|---|---|
+| `installment_overdue` | Parcela vencida (seção 10) | `pi_` da parcela |
+| `dispute_open` / `dispute_lost` | Contestação aberta / perdida ainda sem estorno (seção 11) | `dp_` |
+| `refund_failed` | Reembolso que o Stripe recusou | `re_` |
+| `payout_failed` / `payout_blocked` | Repasse que não passou / Stripe bloqueou os repasses do anfitrião (`failureCode`) | `ch_` |
+| `payout_reversal_failed` | Contestação perdida e o estorno do repasse falhou | `tr_` |
+
 ## 5. Parcelas
 
 | Regra | Detalhe |
@@ -274,7 +477,7 @@ No sentido contrário, o Payments **implementa** `IPaymentDirectory` (`HasOverdu
 
 - **Domínio** (`Payments.Domain.UnitTests`, 93): ganhos do painel (mês de Brasília na virada da meia-noite, mês anterior e ano, composição com reembolso fechando com o repassado, estorno no mês dele, guardado por motivo e previsto das parcelas por pagar, sem pagamentos); opções e divisão do valor, mínimo de R$ 50, vencimentos mensais em Brasília, troca de plano (nova revisão, ids novos, travada depois de pagar), quem pode ser pago (ordem, prazo, já paga, processando, fechado), validade do Pix (prazo da 1ª, tolerância antes do check-in, 24h depois, mínimo de 1 minuto), releitura idempotente (pago, falha, cancelada, contestação aberta/fechada, reembolso que falha), reconciliação em cada ramo (repasse 90/10 no check-out e da parcela paga depois, reembolso 100%/50% sobre o que foi pago com repasse do retido, expirada com pagamento tardio, cobrança aberta cancelada, contestação aberta/ganha/perdida antes e depois do repasse com estorno, reembolso que falhou), atraso antes e depois do check-in, multa e juros (tolerância, 2 e 30 dias, 1ª e paga sem acréscimo, valor da cobrança, valor pago fixo, repasse 90/10 e reembolso sobre o pago), lembretes (do vencimento e o semanal do atraso), atraso de 4 semanas (alerta ao admin uma vez, lembretes param, nada se a parcela foi paga, sem lembrete se a manutenção só passa depois), arredondamentos e valores no banco.
 - **Application** (`Payments.Application.UnitTests`, 91): o reconciliador (confirma a reserva, reembolsa a expirada, cancela por parcela vencida, marca atraso com o valor acrescido, lembra — inclusive o lembrete semanal do atraso —, repassa para a conta conectada, sem conta, Stripe recusando ou fora do ar, cancelamento recusado porque o tutor pagou no último segundo, estorno e falha de estorno avisada uma vez, reserva sumida), cada handler com caminho feliz e cada falha (plano — inclusive reserva ainda não aceita —, checkout com cobrança nova/reaproveitada/cancelada/já paga e com multa e juros (cobrança nova e cobrança aberta atualizada para o valor do dia), leitura por tutor/anfitrião/admin, webhook por `pi_`/`dp_`/objeto alheio/Stripe fora/conflito, releitura, aviso do Bookings, manutenção, ganhos, pendências — inclusive `payout_blocked`) e o publicador (trilha e quem recebe cada aviso); atraso de 4 semanas virando alerta ao admin em vez de lembrete; repasse retido sem chamar o Stripe quando o anfitrião está bloqueado (alerta uma vez só) e repassado quando ele volta.
-- **Integração** (`Payments.IntegrationTests`, 20, Postgres + Redis + RustFS em container, Stripe em memória, webhook real assinado): o caminho inteiro (opções → 2x → checkout → Pix pago → webhook → confirmada → evento repetido ignorado → check-in/check-out → repasse 90% para a conta conectada → 2ª parcela paga depois e repassada na hora → ganhos do anfitrião → e-mails), validação e limite de R$ 50, plano em reserva não aceita, troca de plano cancelando a cobrança antiga, ordem das parcelas, acesso (404 para estranho, 403 para o anfitrião escolher), releitura sem webhook, manutenção confirmando pagamento cujo webhook nunca chegou, cancelamento pelo anfitrião (100%) e pelo tutor no dia (50% + repasse do retido), expiração cancelando o QR code aberto, parcela vencida antes do check-in (cancelada pela plataforma) e depois (atraso, tutor bloqueado, pendência do admin, liberado ao pagar), atraso com multa e juros (valor devido na leitura e no checkout, e-mail com o valor, repasse de 90% do que foi pago), contestação perdida depois do repasse (estorno, e-mail ao anfitrião, alerta ao admin), assinatura inválida e cobrança alheia; painel do anfitrião (`GET /hosts/me/dashboard`: pedido, aceite e estadia paga nos grupos certos, guardado antes do check-out (2x: a 1ª paga em `held.awaitingCheckOut`, a 2ª em `expected`), em andamento depois do check-in, recebido no mês depois do check-out com a composição, o total do ano e a estadia concluída, mês anterior sem o repasse, `400` em `month` e `403` para o tutor).
+- **Integração** (`Payments.IntegrationTests`, 61, Postgres + Redis + RustFS em container, Stripe em memória, webhook real assinado): o caminho inteiro (opções → 2x → checkout → Pix pago → webhook → confirmada → evento repetido ignorado → check-in/check-out → repasse 90% para a conta conectada → 2ª parcela paga depois e repassada na hora → ganhos do anfitrião → e-mails), validação e limite de R$ 50, plano em reserva não aceita, troca de plano cancelando a cobrança antiga, ordem das parcelas, acesso (404 para estranho, 403 para o anfitrião escolher), releitura sem webhook, manutenção confirmando pagamento cujo webhook nunca chegou, cancelamento pelo anfitrião (100%) e pelo tutor no dia (50% + repasse do retido), expiração cancelando o QR code aberto, parcela vencida antes do check-in (cancelada pela plataforma) e depois (atraso, tutor bloqueado, pendência do admin, liberado ao pagar), atraso com multa e juros (valor devido na leitura e no checkout, e-mail com o valor, repasse de 90% do que foi pago), contestação perdida depois do repasse (estorno, e-mail ao anfitrião, alerta ao admin), assinatura inválida e cobrança alheia; painel do anfitrião (`GET /hosts/me/dashboard`: pedido, aceite e estadia paga nos grupos certos, guardado antes do check-out (2x: a 1ª paga em `held.awaitingCheckOut`, a 2ª em `expected`), em andamento depois do check-in, recebido no mês depois do check-out com a composição, o total do ano e a estadia concluída, mês anterior sem o repasse, `400` em `month` e `403` para o tutor). O adaptador do Stripe (`StripePaymentsGateway`) tem testes próprios com o SDK de verdade falando com um Stripe de teste por HTTP (`StripePaymentsGatewayTests`): parâmetros de cada operação, chave de idempotência, leitura da cobrança, do reembolso e da contestação, e a tradução dos erros em `PAYMENT_STRIPE_REQUEST_REJECTED` ou `PAYMENT_STRIPE_UNAVAILABLE`.
 - **Arquitetura** (`PaymentsModuleBoundaryTests`): o Payments não referencia outro módulo nem é referenciado; Domain e Application sem EF, ASP.NET nem `Stripe.net`; Presentation sem Domain.
 
 ## 19. Decisões e pendências

@@ -8,6 +8,9 @@ using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
 using PetHost.Modules.Hosts.Application.HostApplications.PurgeHostApplications;
 using PetHost.Modules.Hosts.Application.HostApplications.Responses;
+using PetHost.Modules.Hosts.Domain.Errors;
+using PetHost.Modules.Hosts.Domain.HostApplications;
+using PetHost.Modules.Hosts.Domain.Hosts;
 using PetHost.Shared.Kernel.Messaging;
 using PetHost.TestKit;
 using Xunit;
@@ -327,6 +330,46 @@ public sealed partial class HostApplicationFlowTests(HostsApiFixture fixture) : 
         var again = await StartAsync(host);
         again.StatusCode.Should().Be(HttpStatusCode.Created);
         Data(again).GetProperty("attemptNumber").GetInt32().Should().Be(2);
+    }
+
+    [Fact]
+    public async Task Decision_Should_LetOnlyOneAdminWin_When_TwoDecideTheSameApplicationAtTheSameTime()
+    {
+        var host = await RegisterHostAccountAsync("cida@exemplo.com");
+        var applicationId = await SubmitCompleteApplicationAsync(host);
+        var admin = await AdminTokenAsync();
+
+        var responses = await Task.WhenAll(
+            SendAsync(HttpMethod.Post, $"{ReviewRoute}/{applicationId}/approval", admin, new { reason = "Documento e selfie conferidos" }),
+            SendAsync(HttpMethod.Post, $"{ReviewRoute}/{applicationId}/rejection", admin,
+                new { rejectionReason = "document_illegible", reason = "Foto escura" }));
+
+        // Quem chega depois encontra a solicitação já decidida (422) ou perde na gravação (409).
+        responses.Count(r => r.StatusCode == HttpStatusCode.OK).Should().Be(1);
+        var loser = responses.Single(r => r.StatusCode != HttpStatusCode.OK);
+        Code(loser).Should().BeOneOf("HOST_APPLICATION_CONFLICT", "HOST_APPLICATION_NOT_UNDER_REVIEW");
+        var detail = Data(await SendAsync(HttpMethod.Get, $"{ReviewRoute}/{applicationId}", admin));
+        detail.GetProperty("status").GetString().Should().BeOneOf("approved", "rejected");
+    }
+
+    [Fact]
+    public async Task Decision_Should_Return409ToTheSecondWrite_When_TwoAdminsLoadedTheSameApplication()
+    {
+        var host = await RegisterHostAccountAsync("cida@exemplo.com");
+        var applicationId = new HostApplicationId(await SubmitCompleteApplicationAsync(host));
+
+        await using var first = fixture.Services.CreateAsyncScope();
+        await using var second = fixture.Services.CreateAsyncScope();
+        var mine = await first.ServiceProvider.GetRequiredService<IHostApplicationRepository>().GetByIdAsync(applicationId, Ct);
+        var theirs = await second.ServiceProvider.GetRequiredService<IHostApplicationRepository>().GetByIdAsync(applicationId, Ct);
+
+        theirs!.Reject(TestIds.Of(1), RejectionReason.DocumentIllegible, "Foto escura", DateTimeOffset.UtcNow).IsSuccess.Should().BeTrue();
+        (await second.ServiceProvider.GetRequiredService<IHostsUnitOfWork>().SaveChangesAsync(Ct)).IsSuccess.Should().BeTrue();
+
+        mine!.Reject(TestIds.Of(2), RejectionReason.DocumentExpired, "CNH vencida", DateTimeOffset.UtcNow).IsSuccess.Should().BeTrue();
+        var result = await first.ServiceProvider.GetRequiredService<IHostsUnitOfWork>().SaveChangesAsync(Ct);
+
+        result.FirstError.Should().Be(HostsErrors.ApplicationConflict);
     }
 
     [Fact]

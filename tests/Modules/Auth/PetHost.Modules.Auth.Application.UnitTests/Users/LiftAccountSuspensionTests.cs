@@ -79,6 +79,18 @@ public sealed class LiftAccountSuspensionCommandHandlerTests
         _notifier.Verify(n => n.NotifyAsync(It.IsAny<AccountSuspensionLiftedNotification>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
+    [Fact]
+    public async Task HandleAsync_Should_ReturnNotFoundWithoutSaving_When_TheAccountDoesNotExist()
+    {
+        // Act
+        var result = await _sut.HandleAsync(new LiftAccountSuspensionCommand(TestIds.Of(7)), CancellationToken.None);
+
+        // Assert
+        result.FirstError!.Code.Should().Be("AUTH_USER_NOT_FOUND");
+        _unitOfWork.VerifyNoOtherCalls();
+        _notifier.VerifyNoOtherCalls();
+    }
+
     private User Given(User user)
     {
         _userRepository.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);

@@ -346,10 +346,12 @@ public sealed class ConversationsController(
     /// <c>other</c>). Só quem recebeu: a própria mensagem dá 422 <c>CONVERSATION_REPORT_OWN_MESSAGE</c>.
     /// Uma denúncia por mensagem: 409 <c>CONVERSATION_REPORT_ALREADY_EXISTS</c>. Mensagem que não é
     /// desta conversa: 404 <c>CONVERSATION_MESSAGE_NOT_FOUND</c>. Não bloqueia a conversa (é o
-    /// <c>PUT .../block</c>).
+    /// <c>PUT .../block</c>). Cada denúncia avisa o admin por e-mail: limite próprio
+    /// (<c>reports</c>, o mesmo das avaliações), 429 <c>TOO_MANY_REQUESTS</c>.
     /// </remarks>
     [HttpPost("{conversationId:guid}/messages/{messageId:guid}/report")]
     [Authorize(Roles = $"{Roles.Owner},{Roles.Host}")]
+    [EnableRateLimiting(RateLimitPolicies.Reports)]
     [ProducesResponseType<ApiResponse<SubmittedReportResponse>>(StatusCodes.Status201Created)]
     [ProducesResponseType<ApiResponse<SubmittedReportResponse>>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<ApiResponse<SubmittedReportResponse>>(StatusCodes.Status401Unauthorized)]
@@ -357,6 +359,7 @@ public sealed class ConversationsController(
     [ProducesResponseType<ApiResponse<SubmittedReportResponse>>(StatusCodes.Status404NotFound)]
     [ProducesResponseType<ApiResponse<SubmittedReportResponse>>(StatusCodes.Status409Conflict)]
     [ProducesResponseType<ApiResponse<SubmittedReportResponse>>(StatusCodes.Status422UnprocessableEntity)]
+    [ProducesResponseType<ApiResponse<SubmittedReportResponse>>(StatusCodes.Status429TooManyRequests)]
     public async Task<IActionResult> ReportAsync(
         Guid conversationId,
         Guid messageId,

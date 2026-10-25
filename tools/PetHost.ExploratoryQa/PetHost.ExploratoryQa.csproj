@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Roteiro exploratório (Entrega 2, seção 6.1): roda contra a API no ar, por HTTP e SignalR,
+    e grava o resultado em docs/evidencias. Não referencia nenhum projeto da API: vê só o que
+    um cliente vê. Como usar: docs/relatorio-de-testes.md, seção "Roteiro exploratório".
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>PetHost.ExploratoryQa</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <!--
+      CA1031  cada área do roteiro captura qualquer exceção e a registra como falha, para o
+              resto do roteiro continuar rodando e o relatório sair completo.
+    -->
+    <NoWarn>$(NoWarn);CA1031</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" />
+  </ItemGroup>
+
+</Project>

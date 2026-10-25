@@ -51,6 +51,7 @@ using PetHost.Shared.Infrastructure.Realtime;
 using PetHost.Shared.Infrastructure.Storage;
 using PetHost.Shared.Infrastructure.Stripe;
 using Serilog;
+using Serilog.Events;
 using Serilog.Formatting.Json;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -258,7 +259,14 @@ app.UseCors();
 
 // Erro sem corpo (rota inexistente, id fora do formato, método errado) sai no envelope.
 app.UseEmptyErrorEnvelope();
-app.UseSerilogRequestLogging();
+// Pedido que o servidor recusou (corpo acima de 30 MB) é erro do cliente: Warning, não Error.
+// O GlobalExceptionHandler responde com o status dele (413).
+app.UseSerilogRequestLogging(logging => logging.GetLevel = (context, _, exception) => exception switch
+{
+    Microsoft.AspNetCore.Http.BadHttpRequestException => LogEventLevel.Warning,
+    not null => LogEventLevel.Error,
+    _ => context.Response.StatusCode >= 500 ? LogEventLevel.Error : LogEventLevel.Information,
+});
 
 // Só fora de produção: o documento lista todas as rotas e o formato de cada uma.
 if (app.Environment.IsDevelopment())
