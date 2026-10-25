@@ -79,6 +79,36 @@ public sealed class OwnerAdminTests
     }
 
     [Fact]
+    public async Task Suspend_Should_LiftTheOwnerAgainAndRethrow_When_TheAccountCallThrows()
+    {
+        _ownerAccounts
+            .Setup(a => a.SuspendAsync(UserId, It.IsAny<string?>(), AdminId, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new TimeoutException("Postgres fora"));
+
+        var suspend = () => Suspend().HandleAsync(new SuspendOwnerCommand(AdminId, _owner.Id.Value, "fraude de CPF"), CancellationToken.None);
+
+        await suspend.Should().ThrowAsync<TimeoutException>();
+        _owner.IsSuspended.Should().BeFalse();
+        _ownerBookings.Verify(b => b.CancelForSuspensionAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Suspend_Should_KeepTheSuspensionWithoutRecordingAgain_When_TheOwnerWasAlreadySuspendedAndTheAccountFails()
+    {
+        // Já suspenso: a falha na conta não desfaz uma suspensão que vinha de antes.
+        _owner.Suspend(Accounts.Now);
+        _ownerAccounts
+            .Setup(a => a.SuspendAsync(UserId, It.IsAny<string?>(), AdminId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result.Failure(new Error("AUTH_USER_NOT_FOUND", "no")));
+
+        var result = await Suspend().HandleAsync(new SuspendOwnerCommand(AdminId, _owner.Id.Value, "x"), CancellationToken.None);
+
+        result.FirstError!.Code.Should().Be("AUTH_USER_NOT_FOUND");
+        _owner.IsSuspended.Should().BeTrue();
+        _auditTrail.Verify(a => a.RecordAsync(It.IsAny<AuditRecord>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
     public async Task Suspend_Should_ReturnNotFound_When_OwnerDoesNotExist()
     {
         var result = await Suspend().HandleAsync(new SuspendOwnerCommand(AdminId, Guid.CreateVersion7(), "x"), CancellationToken.None);
@@ -110,6 +140,55 @@ public sealed class OwnerAdminTests
 
         result.FirstError!.Code.Should().Be("OWNER_CPF_RELEASED");
         _ownerAccounts.Verify(a => a.LiftSuspensionAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Lift_Should_ReturnNotFound_When_OwnerDoesNotExist()
+    {
+        var result = await Lift().HandleAsync(new LiftOwnerSuspensionCommand(AdminId, Guid.CreateVersion7()), CancellationToken.None);
+
+        result.FirstError!.Code.Should().Be("OWNER_NOT_FOUND");
+        _ownerAccounts.Verify(a => a.LiftSuspensionAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Lift_Should_SuspendTheOwnerAgain_When_TheAccountCannotBeLifted()
+    {
+        // Compensação: perfil e conta nunca ficam com status diferentes.
+        _owner.Suspend(Accounts.Now);
+        _ownerAccounts
+            .Setup(a => a.LiftSuspensionAsync(UserId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result.Failure(new Error("AUTH_USER_NOT_FOUND", "no")));
+
+        var result = await Lift().HandleAsync(new LiftOwnerSuspensionCommand(AdminId, _owner.Id.Value), CancellationToken.None);
+
+        result.FirstError!.Code.Should().Be("AUTH_USER_NOT_FOUND");
+        _owner.IsSuspended.Should().BeTrue();
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Exactly(2));
+        _auditTrail.Verify(a => a.RecordAsync(It.IsAny<AuditRecord>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Lift_Should_SuspendTheOwnerAgainAndRethrow_When_TheAccountCallThrows()
+    {
+        _owner.Suspend(Accounts.Now);
+        _ownerAccounts
+            .Setup(a => a.LiftSuspensionAsync(UserId, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new TimeoutException("Postgres fora"));
+
+        var lift = () => Lift().HandleAsync(new LiftOwnerSuspensionCommand(AdminId, _owner.Id.Value), CancellationToken.None);
+
+        await lift.Should().ThrowAsync<TimeoutException>();
+        _owner.IsSuspended.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Lift_Should_SucceedWithoutRecording_When_TheOwnerWasNotSuspended()
+    {
+        var result = await Lift().HandleAsync(new LiftOwnerSuspensionCommand(AdminId, _owner.Id.Value), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _auditTrail.Verify(a => a.RecordAsync(It.IsAny<AuditRecord>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]

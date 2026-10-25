@@ -71,6 +71,25 @@ public sealed class ForgotPasswordCommandHandlerTests
     }
 
     [Fact]
+    public async Task HandleAsync_Should_SucceedWithoutNotifying_When_AccountIsSuspended()
+    {
+        // Suspenso não troca a senha por e-mail, mas a resposta é a mesma da conta existente.
+        var user = new UserBuilder().WithId(TestIds.Of(42)).WithEmail("camila@exemplo.com").Build();
+        user.Suspend("Uso de CPF de terceiro", TestIds.Of(1), Now).IsSuccess.Should().BeTrue();
+        _userRepository
+            .Setup(r => r.GetByEmailAndRoleAsync(It.IsAny<Email>(), UserRole.Owner, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(user);
+
+        var result = await _sut.HandleAsync(
+            new ForgotPasswordCommand("camila@exemplo.com", "owner"),
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _tokenStore.Verify(s => s.IssueAsync(It.IsAny<UserId>(), It.IsAny<CancellationToken>()), Times.Never);
+        _notifier.Verify(n => n.NotifyAsync(It.IsAny<PasswordResetNotification>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
     public async Task HandleAsync_Should_SucceedWithoutLookup_When_EmailIsMalformed()
     {
         var result = await _sut.HandleAsync(

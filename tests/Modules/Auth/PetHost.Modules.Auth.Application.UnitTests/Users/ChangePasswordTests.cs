@@ -99,6 +99,39 @@ public sealed class ChangePasswordCommandHandlerTests
         result.FirstError!.Code.Should().Be("AUTH_ACCOUNT_DEACTIVATED");
     }
 
+    [Fact]
+    public async Task HandleAsync_Should_ReturnSuspendedWithoutCheckingThePassword_When_AccountIsSuspended()
+    {
+        _user.Suspend("Uso de CPF de terceiro", TestIds.Of(99), Now);
+
+        var result = await _sut.HandleAsync(Command("Atual@123", "Nova@Senha123"), CancellationToken.None);
+
+        result.FirstError!.Code.Should().Be("AUTH_ACCOUNT_SUSPENDED");
+        _passwordHasher.Verify(h => h.Verify(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task HandleAsync_Should_ReturnNotFound_When_TheAccountDoesNotExist()
+    {
+        var result = await _sut.HandleAsync(new ChangePasswordCommand(TestIds.Of(8), "Atual@123", "Nova@Senha123"), CancellationToken.None);
+
+        result.FirstError!.Code.Should().Be("AUTH_USER_NOT_FOUND");
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task HandleAsync_Should_ReturnTheRulesWithoutSaving_When_TheNewPasswordIsWeak()
+    {
+        // O validador barra antes; o handler confere de novo pelo value object, sem confiar na entrada.
+        var result = await _sut.HandleAsync(Command("Atual@123", "fraca"), CancellationToken.None);
+
+        result.FirstError!.Code.Should().Be("VALIDATION_ERROR");
+        _passwordHasher.Verify(h => h.Hash(It.IsAny<string>()), Times.Never);
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+        _refreshTokenStore.Verify(s => s.RevokeAllAsync(It.IsAny<UserId>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
     private ChangePasswordCommand Command(string current, string next) => new(_user.Id.Value, current, next);
 }
 
