@@ -1,5 +1,9 @@
 # E-mails transacionais — identidade Quintal
 
+## Revisão visual de 29/10/2026
+
+Removida a frase sob a logo; todos os 34 títulos de produção usam PNG Caprasimo com alt textual para funcionar mesmo sem webfonts. Bordas e sombra agora seguem a geometria do modal com tabelas, sem depender de box-shadow. Corpo e botões continuam Atkinson com fallback conforme o cliente. Catálogo gerado, regeneração e validação atual (52 testes de template e 4 de assets) em [email-brand-fidelity.md](email-brand-fidelity.md); essa revisão substitui a apresentação anterior dos títulos HTML.
+
 Atualizado em 28/10/2026. O HTML e o texto puro são finalizados por `src/Shared/PetHost.Shared.Infrastructure/Email/EmailTemplate.cs`, chamado por `EmailOutbox.EnqueueAsync` antes de persistir. Todos os notifiers continuam responsáveis por seus textos, prazos, regras financeiras, privacidade e destinatários; não há um segundo mecanismo de envio.
 
 ## Aparência e compatibilidade

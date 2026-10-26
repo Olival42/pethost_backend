@@ -6,6 +6,45 @@ namespace PetHost.Shared.Infrastructure.UnitTests.Email;
 
 public sealed class EmailTemplateTests
 {
+    public static IEnumerable<object[]> ProductionHeadings => EmailHeadingAssets.Images.Keys.Select(title => new object[] { title });
+
+    [Theory]
+    [MemberData(nameof(ProductionHeadings))]
+    public void Render_Should_PreserveTheExactDisplayFontForEveryProductionHeading(string title)
+    {
+        var message = new EmailMessage("test@example.invalid", "Ana", $"PetHost — {title}", "Mensagem importante.", "<p>Mensagem importante.</p>");
+
+        var result = EmailTemplate.Render(message, "https://pethost.cfd");
+
+        result.HtmlBody.Should().Contain($"https://pethost.cfd{EmailHeadingAssets.Images[title].Path}")
+            .And.Contain($"alt=\"{System.Net.WebUtility.HtmlEncode(title)}\"")
+            .And.Contain("border:2px solid #1F1A17;border-radius:24px")
+            .And.Contain("padding:0 5px 5px 0")
+            .And.NotContain("Um cantinho de confiança para quem faz parte da família.")
+            .And.NotContain("box-shadow:");
+        result.TextBody.Should().Contain("Mensagem importante.");
+        result.Subject.Should().Be(message.Subject);
+    }
+
+    [Fact]
+    public void Render_Should_KeepDynamicPaymentIssueOutOfTheStaticImageAddress()
+    {
+        var message = new EmailMessage("test@example.invalid", null, "PetHost — pagamento precisa de atenção (payout_blocked)", "Pendência: payout_blocked", "<p>Pendência: payout_blocked</p>");
+        var result = EmailTemplate.Render(message, "https://pethost.cfd");
+        result.HtmlBody.Should().Contain($"https://pethost.cfd{EmailHeadingAssets.Images["pagamento precisa de atenção"].Path}")
+            .And.Contain("Pendência: payout_blocked</p>");
+        result.Subject.Should().Be(message.Subject);
+    }
+
+    [Fact]
+    public void Render_Should_KeepUnknownOrUnconfiguredHeadingsAsReadableText()
+    {
+        var message = new EmailMessage("test@example.invalid", null, "PetHost — título novo", "Texto", "<p>Texto</p>");
+        EmailTemplate.Render(message, "https://pethost.cfd").HtmlBody.Should().Contain($">{System.Net.WebUtility.HtmlEncode("título novo")}</h1>").And.NotContain("/brand/email-headings/");
+        var known = message with { Subject = "PetHost — redefinição de senha" };
+        EmailTemplate.Render(known, null).HtmlBody.Should().Contain($">{System.Net.WebUtility.HtmlEncode("redefinição de senha")}</h1>").And.NotContain("<img");
+    }
+
     [Fact]
     public void Render_Should_KeepTheContentAndProvideTheSameActionInBothAlternatives()
     {
