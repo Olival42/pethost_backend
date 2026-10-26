@@ -107,7 +107,7 @@ public sealed class AuthApiFixture : IAsyncLifetime
             foreach (var (key, value) in TestImageBucket.UnusedSettings)
                 builder.UseSetting(key, value);
             builder.UseSetting("PasswordReset:TokenLifetimeMinutes", "30");
-            builder.UseSetting("PasswordReset:ResetUrl", "https://app.pethost.test/redefinir-senha?token={token}");
+            builder.UseSetting("PasswordReset:ResetUrl", "https://app.pethost.test/reset-password#token={token}");
 
             builder.ConfigureTestServices(services =>
                 services.AddSingleton<IEmailSender>(Emails));

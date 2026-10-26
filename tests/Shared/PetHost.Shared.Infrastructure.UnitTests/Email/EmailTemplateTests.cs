@@ -63,6 +63,24 @@ public sealed class EmailTemplateTests
 
         result.HtmlBody.Should().NotContain("href=").And.Contain("Código: abc");
         result.TextBody.Should().Contain("Código: abc");
+        result.HtmlBody.Should().NotContain("@font-face").And.NotContain("<img");
+    }
+
+    [Fact]
+    public void Render_Should_UseTheFrontendBrandAssetsWithoutLeakingTheResetTokenToThem()
+    {
+        var message = new EmailMessage("test@example.invalid", null, "PetHost — senha", "texto", "<p>Abra o link.</p>",
+            new EmailAction("Criar senha", "https://pethost.vercel.app/reset-password#token=secret"));
+
+        var result = EmailTemplate.Render(message, "https://pethost.vercel.app");
+
+        result.HtmlBody.Should().Contain("src=\"https://pethost.vercel.app/brand/email-logo.png\"")
+            .And.Contain("alt=\"PetHost\"").And.Contain("font-family:'Caprasimo'")
+            .And.Contain("font-family:'Atkinson Hyperlegible Next'")
+            .And.Contain("https://pethost.vercel.app/fonts/caprasimo-latin-400-normal.woff2")
+            .And.Contain("https://pethost.vercel.app/fonts/atkinson-hyperlegible-next-latin-400-normal.woff2")
+            .And.Contain("https://pethost.vercel.app/fonts/atkinson-hyperlegible-next-latin-700-normal.woff2")
+            .And.NotContain("email-logo.png#token").And.NotContain("woff2#token");
     }
 
     [Theory]

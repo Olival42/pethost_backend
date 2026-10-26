@@ -25,8 +25,18 @@ public sealed class PasswordResetEmailNotifierTests
 
         var queued = outbox.Message;
         queued.Should().NotBeNull();
-        queued!.TextBody.Should().Contain("a+b&c").And.Contain("30 minutos").And.Contain("sua senha continua a mesma");
-        queued.HtmlBody.Should().Contain("Ana &lt;Teste&gt;").And.Contain("a+b&amp;c").And.NotContain("Ana <Teste>");
+        queued!.TextBody.Should().Contain("30 minutos").And.Contain("sua senha continua a mesma");
+        queued.HtmlBody.Should().Contain("Ana &lt;Teste&gt;").And.NotContain("Ana <Teste>");
+        if (expected is null)
+        {
+            queued.TextBody.Should().Contain("a+b&c");
+            queued.HtmlBody.Should().Contain("a+b&amp;c");
+        }
+        else
+        {
+            queued.TextBody.Should().Contain(expected);
+            queued.HtmlBody.Should().Contain("Você não precisa entrar na conta antes").And.NotContain("<strong>a+b&amp;c</strong>");
+        }
         (queued.Action?.Url).Should().Be(expected);
     }
 

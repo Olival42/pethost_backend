@@ -56,9 +56,9 @@ public sealed partial class PasswordEndpointsTests(AuthApiFixture fixture) : IAs
         var email = (await fixture.Emails.WaitForAsync(Email, 1, Ct)).Should().ContainSingle().Subject;
         email.Subject.Should().Contain("redefinição de senha");
         email.ToName.Should().Be("Camila Souza");
-        email.TextBody.Should().Contain("https://app.pethost.test/redefinir-senha?token=");
+        email.TextBody.Should().Contain("https://app.pethost.test/reset-password#token=");
         email.HtmlBody.Should().Contain("<!doctype html>").And.Contain("Criar uma senha nova")
-            .And.Contain("https://app.pethost.test/redefinir-senha?token=");
+            .And.Contain("https://app.pethost.test/reset-password#token=");
         TokenIn(email.TextBody).Should().NotBeNullOrWhiteSpace();
     }
 
@@ -238,10 +238,10 @@ public sealed partial class PasswordEndpointsTests(AuthApiFixture fixture) : IAs
     private static string? TokenIn(string body)
     {
         var match = TokenPattern().Match(body);
-        return match.Success ? match.Groups["token"].Value : null;
+        return match.Success ? Uri.UnescapeDataString(match.Groups["token"].Value) : null;
     }
 
-    [GeneratedRegex(@"código: (?<token>[A-Za-z0-9_-]+)")]
+    [GeneratedRegex(@"[#?&]token=(?<token>[A-Za-z0-9_%+-]+)")]
     private static partial Regex TokenPattern();
 
     private async Task CreateOwnerAsync()
