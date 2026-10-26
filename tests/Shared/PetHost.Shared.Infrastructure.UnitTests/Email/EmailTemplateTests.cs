@@ -113,13 +113,32 @@ public sealed class EmailTemplateTests
 
         var result = EmailTemplate.Render(message, "https://pethost.vercel.app");
 
-        result.HtmlBody.Should().Contain("src=\"https://pethost.vercel.app/brand/email-logo.png\"")
+        result.HtmlBody.Should().Contain("src=\"https://pethost.vercel.app/brand/email-logo.png?v=contrast-2\"")
             .And.Contain("alt=\"PetHost\"").And.Contain("font-family:'Caprasimo'")
             .And.Contain("font-family:'Atkinson Hyperlegible Next'")
             .And.Contain("https://pethost.vercel.app/fonts/caprasimo-latin-400-normal.woff2")
             .And.Contain("https://pethost.vercel.app/fonts/atkinson-hyperlegible-next-latin-400-normal.woff2")
             .And.Contain("https://pethost.vercel.app/fonts/atkinson-hyperlegible-next-latin-700-normal.woff2")
             .And.NotContain("email-logo.png#token").And.NotContain("woff2#token");
+    }
+
+    [Fact]
+    public void Render_Should_AdaptReadableTextAndUseProtectedBrandImagesInDarkMode()
+    {
+        var message = new EmailMessage("test@example.invalid", null, "PetHost — redefinição de senha", "Texto", "<p>Texto legível.</p>", new EmailAction("Abrir", "/reset-password#token=secret"));
+        var result = EmailTemplate.Render(message, "https://pethost.cfd");
+        result.HtmlBody.Should().Contain("name=\"color-scheme\" content=\"light dark\"")
+            .And.Contain("@media (prefers-color-scheme:dark)")
+            .And.Contain("[data-ogsc] .email-content")
+            .And.Contain("class=\"email-card\"")
+            .And.Contain("class=\"email-content\"")
+            .And.Contain("class=\"email-muted\"")
+            .And.Contain("class=\"email-link\"")
+            .And.Contain("color:#FEFAF3!important")
+            .And.Contain("background-color:#FFFFFF;border-radius:12px")
+            .And.Contain(".png?v=contrast-2\"")
+            .And.Contain("href=\"https://pethost.cfd/reset-password#token=secret\"");
+        result.TextBody.Should().Contain("Texto").And.Contain("/reset-password#token=secret");
     }
 
     [Theory]
