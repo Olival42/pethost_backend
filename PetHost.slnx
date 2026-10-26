@@ -127,4 +127,7 @@
     <Project Path="tests/Shared/PetHost.Shared.Infrastructure.UnitTests/PetHost.Shared.Infrastructure.UnitTests.csproj" />
     <Project Path="tests/Shared/PetHost.Shared.Kernel.UnitTests/PetHost.Shared.Kernel.UnitTests.csproj" />
   </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/PetHost.ExploratoryQa/PetHost.ExploratoryQa.csproj" />
+  </Folder>
 </Solution>

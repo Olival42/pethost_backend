@@ -57,6 +57,24 @@ public sealed class AcceptBookingCommandHandlerTests
     }
 
     [Fact]
+    public async Task HandleAsync_Should_ExpireAndReturnResponseExpired_When_TheHostAcceptsAfterTheDeadline()
+    {
+        // Arrange
+        _now = BookingBuilder.DefaultNow.AddDays(2);
+
+        // Act
+        var result = await AcceptAsync();
+
+        // Assert
+        result.FirstError.Should().Be(BookingsErrors.ResponseExpired);
+        _booking.Status.Should().Be(BookingStatus.Expired);
+        _booking.ExpiredAt.Should().Be(_now);
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+        _auditTrail.Verify(a => a.RecordAsync(It.Is<AuditRecord>(r => r.Action == AuditActions.BookingExpired), It.IsAny<CancellationToken>()), Times.Once);
+        _auditTrail.Verify(a => a.RecordAsync(It.Is<AuditRecord>(r => r.Action == AuditActions.BookingAccepted), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
     public async Task HandleAsync_Should_EmailOnlyTheOwnerWithoutContact_When_HostAccepts()
     {
         // Act

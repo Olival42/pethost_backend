@@ -3,6 +3,7 @@ using Microsoft.Extensions.Time.Testing;
 using Moq;
 using PetHost.Modules.Auth.Application.Abstractions;
 using PetHost.Modules.Auth.Application.Users.RegisterAccount;
+using PetHost.Modules.Auth.Domain.Errors;
 using PetHost.Modules.Auth.Domain.Users;
 using PetHost.Shared.Contracts.Accounts;
 using PetHost.TestKit;
@@ -157,5 +158,48 @@ public sealed class RegisterAccountCommandHandlerTests
 
         result.FirstError!.Code.Should().Be("AUTH_EMAIL_ALREADY_REGISTERED");
         _userRepository.Verify(r => r.Add(It.IsAny<User>()), Times.Never);
+    }
+
+    // O validador barra tudo isso antes; o handler confere de novo, sem confiar na entrada.
+
+    [Fact]
+    public async Task HandleAsync_Should_RequireTheAddressWithoutCreating_When_AddressIsMissing()
+    {
+        var command = Registration.Valid() with { Address = null };
+
+        var result = await _sut.HandleAsync(command, CancellationToken.None);
+
+        result.FirstError.Should().Be(AuthErrors.AddressRequired);
+        _userRepository.Verify(r => r.Add(It.IsAny<User>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task HandleAsync_Should_RefuseWithoutLookingUp_When_RoleIsUnknown()
+    {
+        var result = await _sut.HandleAsync(Registration.Valid(role: "admin-fake"), CancellationToken.None);
+
+        result.FirstError.Should().Be(AuthErrors.RoleInvalid);
+        _userRepository.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task HandleAsync_Should_RefuseWithoutLookingUp_When_BirthDateIsMalformed()
+    {
+        var command = Registration.Valid() with { BirthDate = "10/05/1990" };
+
+        var result = await _sut.HandleAsync(command, CancellationToken.None);
+
+        result.FirstError.Should().Be(AuthErrors.BirthDateInvalidFormat);
+        _userRepository.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task HandleAsync_Should_RefuseWithoutSaving_When_ThePersonIsUnder18()
+    {
+        var result = await _sut.HandleAsync(Registration.Valid(birthDate: new DateOnly(2015, 1, 1)), CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        _userRepository.Verify(r => r.Add(It.IsAny<User>()), Times.Never);
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 }

@@ -19,6 +19,7 @@ O **chat** é a conversa entre um tutor e um anfitrião: uma por dupla, que serv
     - [3.6 Bloqueio](#36-bloqueio)
     - [3.7 Denúncia e fila do admin](#37-denúncia-e-fila-do-admin)
     - [3.8 E-mail de mensagens não lidas](#38-e-mail-de-mensagens-não-lidas)
+    - [3.9 Entrada e saída de cada endpoint](#39-entrada-e-saída-de-cada-endpoint)
   - [4. Tempo real (hub)](#4-tempo-real-hub)
   - [5. Regras](#5-regras)
   - [6. Retenção (LGPD)](#6-retenção-lgpd)
@@ -137,7 +138,7 @@ O bloqueio grava dentro da **mesma trava** do envio (`RunLockedOnConversationAsy
 
 ### 3.7 Denúncia e fila do admin
 
-Quem **recebeu** a mensagem a denuncia (`POST .../messages/{messageId}/report`), com `reason` — `spam`, `harassment` (assédio, ofensa), `scam` (golpe, pagamento por fora), `inappropriate` (conteúdo impróprio) ou `other` — e `description` opcional (até 1.000 caracteres; obrigatória em `other`). Resposta `201` com `{ id, conversationId, messageId, reason, status: "pending", createdAt }`. A própria mensagem: `422 CONVERSATION_REPORT_OWN_MESSAGE`; de novo a mesma: `409 CONVERSATION_REPORT_ALREADY_EXISTS` (uma por mensagem, índice único); mensagem que não é desta conversa: `404 CONVERSATION_MESSAGE_NOT_FOUND`. Denunciar não bloqueia — o app pode oferecer "denunciar e bloquear" chamando as duas rotas — e não exige perfil ativo.
+Quem **recebeu** a mensagem a denuncia (`POST .../messages/{messageId}/report`), com `reason` — `spam`, `harassment` (assédio, ofensa), `scam` (golpe, pagamento por fora), `inappropriate` (conteúdo impróprio) ou `other` — e `description` opcional (até 1.000 caracteres; obrigatória em `other`). Resposta `201` com `{ id, conversationId, messageId, reason, status: "pending", createdAt }`. A própria mensagem: `422 CONVERSATION_REPORT_OWN_MESSAGE`; de novo a mesma: `409 CONVERSATION_REPORT_ALREADY_EXISTS` (uma por mensagem, índice único); mensagem que não é desta conversa: `404 CONVERSATION_MESSAGE_NOT_FOUND`. Denunciar não bloqueia — o app pode oferecer "denunciar e bloquear" chamando as duas rotas — e não exige perfil ativo. Como cada denúncia manda e-mail ao admin, a rota tem limite próprio: política `reports`, **10 por hora por conta** (a mesma das denúncias de avaliação, contando juntas), `429 TOO_MANY_REQUESTS` com `Retry-After`; não gasta o limite das mensagens.
 
 **Aviso por e-mail:** cada denúncia nova enfileira um e-mail para `ConversationModeration:AdminAlertEmail` (seção 9), pela caixa de saída (entregue em segundo plano). O e-mail leva o motivo, quem denunciou (tutor ou anfitrião, sem o nome), quantas denúncias esperam análise e o caminho da denúncia na API — **nunca** o texto da mensagem, a foto nem a descrição, porque o e-mail sai do sistema. Sem endereço configurado, não manda nada. É best-effort: falha ao enfileirar vai para o log e a denúncia continua registrada.
 
@@ -152,6 +153,221 @@ Quem não abre o app não fica sabendo da mensagem: a tarefa `UnreadEmailService
 - Perfil ou conta inativo ou suspenso não recebe (a pendência é dada como tratada, para não voltar a cada rodada).
 - A marcação é gravada depois que o e-mail foi para a caixa de saída: uma falha entre os dois repete o e-mail na rodada seguinte, nunca o perde.
 - **Dá para desligar** (`PUT /conversations/me/notification-settings` com `{ "unreadMessagesEmail": false }`), e ligar de novo. Vem ligado. A escolha é da **conta** (tabela `notification_preferences`, no schema do chat): o tutor e o anfitrião da mesma pessoa escolhem cada um. O front mostra a opção na tela de perfil; a rota fica no módulo do chat para não espalhar a regra por Owners e Hosts. Quem desligou é tratado como o suspenso: não recebe, e a pendência sai.
+
+### 3.9 Entrada e saída de cada endpoint
+
+Os exemplos mostram só o `data` do envelope (`{ "success": true, "data": ..., "timestamp": ... }`). Nulos são omitidos. O status HTTP de cada erro sai do sufixo do código (§7 do `PROJECT_STANDARDS`): `_NOT_FOUND` = 404, `_DEACTIVATED`/`_SUSPENDED`/`_FORBIDDEN` = 403, `_ALREADY_EXISTS`/`_CONFLICT` = 409, as outras regras = 422.
+
+#### Puxar conversa — `POST /api/v1/conversations`
+
+```json
+{ "listingId": "0199c7e2-…" }
+```
+
+Resposta (`201` com `Location: /api/v1/conversations/{id}` na primeira vez; `200` com a mesma conversa depois):
+
+```json
+{
+  "id": "0199d1f0-…",
+  "ownerId": "0199c5a2-…",
+  "owner": { "id": "0199c5a2-…", "name": "Camila Souza" },
+  "hostId": "0199c6b3-…",
+  "host": { "id": "0199c6b3-…", "name": "Cida Oliveira", "avatarUrl": "http://localhost:9000/pethost-images/avatars/….webp" },
+  "unreadCount": 0,
+  "blocked": false,
+  "blockedByMe": false,
+  "blockedByModeration": false,
+  "createdAt": "2026-12-01T12:00:00+00:00"
+}
+```
+
+Com mensagens, a conversa traz também `lastMessage` (formato da seção 3.2) e `lastMessageAt`.
+
+| Status | Código | Quando |
+|---|---|---|
+| `400` | `VALIDATION_ERROR` (`CONVERSATION_LISTING_ID_REQUIRED`) | Sem `listingId` |
+| `403` | `CONVERSATION_OWNER_DEACTIVATED` | Tutor inativo ou suspenso |
+| `404` | `CONVERSATION_LISTING_NOT_FOUND` / `CONVERSATION_OWNER_NOT_FOUND` | Cantinho inexistente ou fora da busca / conta sem perfil de tutor |
+| `422` | `CONVERSATION_OWN_LISTING` | Cantinho da própria pessoa (conta de anfitrião com o mesmo e-mail) |
+
+#### Minhas conversas — `GET /api/v1/conversations/me?page=1&pageSize=20`
+
+Sem corpo. Lista paginada de conversas (formato acima), da atividade mais recente para a mais antiga:
+
+```json
+{
+  "items": [
+    {
+      "id": "0199d1f0-…",
+      "…": "…",
+      "unreadCount": 2,
+      "lastMessage": { "id": "0199d2a4-…", "conversationId": "0199d1f0-…", "sentBy": "host", "body": "Pode trazer sim!", "createdAt": "2026-12-01T12:10:00+00:00" },
+      "lastMessageAt": "2026-12-01T12:10:00+00:00"
+    }
+  ],
+  "page": 1, "pageSize": 20, "totalCount": 1, "totalPages": 1
+}
+```
+
+Erros: `400` em `page` (`CONVERSATION_PAGE_INVALID`) ou `pageSize` (`CONVERSATION_PAGE_SIZE_INVALID`, 1 a 100).
+
+#### Não lidas — `GET /api/v1/conversations/me/unread-count`
+
+Sem corpo. Resposta: `{ "total": 3 }`. Anfitrião ainda não aprovado: `{ "total": 0 }`.
+
+#### Preferência de e-mail — `GET` e `PUT /api/v1/conversations/me/notification-settings`
+
+`GET` sem corpo; `PUT` com:
+
+```json
+{ "unreadMessagesEmail": false }
+```
+
+Os dois respondem `{ "unreadMessagesEmail": false }` (padrão `true`). `PUT` sem o campo: `400` (`CONVERSATION_UNREAD_MESSAGES_EMAIL_REQUIRED`).
+
+#### Uma conversa — `GET /api/v1/conversations/{conversationId}`
+
+Sem corpo. Resposta: a conversa (formato de "Puxar conversa"). De outra pessoa: `404 CONVERSATION_NOT_FOUND`.
+
+#### Mensagens — `GET /api/v1/conversations/{conversationId}/messages?before=&pageSize=50`
+
+Sem corpo. Da mais nova para a mais antiga, por cursor (seção 3.3):
+
+```json
+{
+  "items": [
+    { "id": "0199d2a4-…", "conversationId": "0199d1f0-…", "sentBy": "host", "body": "Pode trazer sim!", "createdAt": "2026-12-01T12:10:00+00:00" },
+    { "id": "0199d29c-…", "conversationId": "0199d1f0-…", "sentBy": "owner", "body": "Oi! Posso levar a caminha da Pipoca?", "createdAt": "2026-12-01T12:05:00+00:00" }
+  ],
+  "pageSize": 50,
+  "hasMore": false
+}
+```
+
+Para a página anterior: `?before=0199d29c-…` (o id da última mensagem recebida). Erros: `400` em `before` (`CONVERSATION_BEFORE_INVALID`) ou `pageSize`; `404 CONVERSATION_NOT_FOUND`.
+
+#### Enviar texto — `POST /api/v1/conversations/{conversationId}/messages`
+
+```json
+{ "body": "Oi! Posso levar a caminha da Pipoca?" }
+```
+
+Resposta `201`: a mensagem (seção 3.2). Durante uma estadia em andamento, ela vem com `bookingId`.
+
+| Status | Código | Quando |
+|---|---|---|
+| `400` | `VALIDATION_ERROR` (`CONVERSATION_BODY_REQUIRED`, `CONVERSATION_BODY_TOO_LONG`, `CONVERSATION_BODY_INVALID_CHARACTERS`) | Vazio, mais de 2.000 caracteres ou caractere de controle |
+| `403` | `CONVERSATION_OWNER_DEACTIVATED` / `CONVERSATION_HOST_DEACTIVATED` | Quem envia está inativo ou suspenso |
+| `403` | `CONVERSATION_RECIPIENT_SUSPENDED` | O outro lado está suspenso |
+| `404` | `CONVERSATION_NOT_FOUND` | Conversa de outra pessoa |
+| `422` | `CONVERSATION_BLOCKED` / `CONVERSATION_BLOCKED_BY_MODERATION` | Conversa bloqueada (seção 3.6) |
+| `429` | `TOO_MANY_REQUESTS` | Mais de 30 mensagens por minuto (seção 3.5) |
+
+#### Enviar foto — `POST /api/v1/conversations/{conversationId}/messages/photo`
+
+`multipart/form-data`:
+
+| Parte | Obrigatória | Conteúdo |
+|---|---|---|
+| `file` | sim | JPG/JPEG, PNG ou WebP, até 5 MB |
+| `body` | não | Legenda (mesmas regras do texto) |
+
+Resposta `201`:
+
+```json
+{
+  "id": "0199e8c1-…",
+  "conversationId": "0199d1f0-…",
+  "sentBy": "host",
+  "body": "A Pipoca chegou!",
+  "imageUrl": "http://localhost:9000/pethost-images/conversations/….webp",
+  "bookingId": "0199d0a1-…",
+  "createdAt": "2026-12-20T13:05:12+00:00"
+}
+```
+
+Erros: os do texto, mais os do arquivo no campo `file` (`IMAGE_FILE_REQUIRED`, formato ou tamanho), `413` para corpo acima de 8 MB e `415` para `Content-Type` que não é `multipart/form-data`.
+
+#### Marcar como lida — `PUT /api/v1/conversations/{conversationId}/read-marker`
+
+Sem corpo. Resposta: o contador novo da conta, `{ "total": 1 }`. Idempotente. De outra pessoa: `404 CONVERSATION_NOT_FOUND`.
+
+#### Bloquear e desbloquear — `PUT` e `DELETE /api/v1/conversations/{conversationId}/block`
+
+Sem corpo. Os dois devolvem a conversa:
+
+```json
+{ "id": "0199d1f0-…", "…": "…", "blocked": true, "blockedByMe": true, "blockedByModeration": false }
+```
+
+| Status | Código | Quando |
+|---|---|---|
+| `403` | `CONVERSATION_UNBLOCK_FORBIDDEN` | `DELETE` de quem não bloqueou |
+| `404` | `CONVERSATION_NOT_FOUND` | Conversa de outra pessoa |
+| `422` | `CONVERSATION_ALREADY_BLOCKED` | `PUT` numa conversa já bloqueada pelo outro lado |
+
+#### Denunciar mensagem — `POST /api/v1/conversations/{conversationId}/messages/{messageId}/report`
+
+```json
+{ "reason": "scam", "description": "Pediu para pagar por fora do app." }
+```
+
+`reason`: `spam`, `harassment`, `scam`, `inappropriate` ou `other`. Resposta `201` (`Location: /api/v1/conversations/reports/{id}`):
+
+```json
+{ "id": "0199e9d2-…", "conversationId": "0199d1f0-…", "messageId": "0199d2a4-…", "reason": "scam", "status": "pending", "createdAt": "2026-12-01T12:30:00+00:00" }
+```
+
+| Status | Código | Quando |
+|---|---|---|
+| `400` | `VALIDATION_ERROR` (`CONVERSATION_REASON_INVALID`, `CONVERSATION_DESCRIPTION_REQUIRED`, `CONVERSATION_DESCRIPTION_TOO_LONG`) | Motivo desconhecido; `other` sem descrição; descrição com mais de 1.000 caracteres |
+| `404` | `CONVERSATION_NOT_FOUND` / `CONVERSATION_MESSAGE_NOT_FOUND` | Conversa de outra pessoa / mensagem que não é desta conversa |
+| `409` | `CONVERSATION_REPORT_ALREADY_EXISTS` | A mensagem já foi denunciada |
+| `422` | `CONVERSATION_REPORT_OWN_MESSAGE` | A mensagem é de quem denuncia |
+| `429` | `TOO_MANY_REQUESTS` | Mais de 10 denúncias por hora (política `reports`, seção 3.7) |
+
+#### Admin: fila e detalhe — `GET /api/v1/conversations/reports?status=pending&page=1&pageSize=20` e `GET /api/v1/conversations/reports/{reportId}`
+
+Sem corpo. A fila é paginada (`items`, `page`, `pageSize`, `totalCount`, `totalPages`); cada item e o detalhe têm este formato (`context` só no detalhe):
+
+```json
+{
+  "id": "0199e9d2-…",
+  "conversationId": "0199d1f0-…",
+  "status": "pending",
+  "reason": "scam",
+  "description": "Pediu para pagar por fora do app.",
+  "reportedBy": "owner",
+  "reporter": { "id": "0199c5a2-…", "name": "Camila Souza" },
+  "reported": { "id": "0199c6b3-…", "name": "Cida Oliveira" },
+  "message": { "id": "0199d2a4-…", "conversationId": "0199d1f0-…", "sentBy": "host", "body": "Me manda um Pix direto que sai mais barato.", "createdAt": "2026-12-01T12:10:00+00:00" },
+  "context": [
+    { "id": "0199d29c-…", "conversationId": "0199d1f0-…", "sentBy": "owner", "body": "Quanto fica?", "createdAt": "2026-12-01T12:05:00+00:00" }
+  ],
+  "createdAt": "2026-12-01T12:30:00+00:00"
+}
+```
+
+Erros: `400` em `status` (`CONVERSATION_STATUS_INVALID`; aceita `pending`, `upheld`, `dismissed`, `all`) ou na paginação; `404 CONVERSATION_REPORT_NOT_FOUND` no detalhe.
+
+#### Admin: analisar — `PUT /api/v1/conversations/reports/{reportId}/resolution`
+
+```json
+{ "outcome": "upheld", "note": "Tentativa de pagamento por fora confirmada." }
+```
+
+Resposta: a denúncia (formato acima) com `status`, `resolvedAt`, `resolvedBy` e `resolutionNote`. `upheld` bloqueia a conversa pela moderação.
+
+| Status | Código | Quando |
+|---|---|---|
+| `400` | `VALIDATION_ERROR` (`CONVERSATION_OUTCOME_INVALID`, `CONVERSATION_NOTE_REQUIRED`, `CONVERSATION_NOTE_TOO_LONG`) | `outcome` fora de `upheld`/`dismissed`; sem nota; nota com mais de 1.000 caracteres |
+| `404` | `CONVERSATION_REPORT_NOT_FOUND` | Denúncia inexistente |
+| `409` | `CONVERSATION_CONFLICT` | Dois admins ao mesmo tempo |
+| `422` | `CONVERSATION_REPORT_ALREADY_RESOLVED` | Já analisada |
+
+#### Admin: tirar o bloqueio da moderação — `DELETE /api/v1/conversations/{conversationId}/moderation-block`
+
+Sem corpo. Resposta: `{ "conversationId": "0199d1f0-…", "blocked": false }` (`blocked: true` se um dos lados ainda bloqueia). Conversa inexistente: `404 CONVERSATION_NOT_FOUND`.
 
 ## 4. Tempo real (hub)
 
@@ -279,7 +495,7 @@ Mudanças em `Shared`: `ImageFolders.Conversations`; `AuditTargets.Conversation`
 
 - **Domínio** (`Conversations.Domain.UnitTests`, 148): `Conversation` (abertura, ids vazios, quem participa de qual lado, instante da última mensagem que só avança, inatividade no limite; bloqueio pelos dois lados, idempotente, por cima do outro, desbloqueio só de quem bloqueou; bloqueio da moderação, idempotente, que o desbloqueio do lado não tira, e que o admin tira sem mexer no bloqueio do lado), `MessageReport` (denúncia de quem recebeu, a própria mensagem, descrição obrigatória em `other`, limites, os erros juntos, análise uma vez com observação), motivos e situações (texto ↔ enum, desfechos), `Message` (texto e foto, espaços, limites exatos, caractere de controle, quebra de linha e tab aceitas, URL que não é http/https, os dois erros juntos), `ConversationPartyValues`, ids e os códigos de erro (contrato público, §8). Cobertura medida antes da moderação: 96,6 % de linha e 98,5 % de branch.
 - **Application** (`Conversations.Application.UnitTests`, 209, mocks `Strict`): cada handler, caminho feliz e cada falha, com `Times.Never` no `SaveChanges` quando falha; quem é quem (`ConversationAccess`, inclusive destinatário suspenso e conta sem perfil); conversa existente e a corrida da abertura dupla; a gravação dentro da trava, depois de reler a conversa, sem voltar a última atividade; ligação com a estadia; foto: nada vai ao bucket quando a conversa é de outro ou o destinatário está suspenso, e a foto é apagada quando a gravação falha; o aviso vai para as duas contas e o contador só para quem recebeu; a trilha sem o texto nem a URL; cursor (`hasMore`, `before` inválido ou de outra conversa); lista vazia e contador `0` para anfitrião sem perfil; retenção (apaga, mantém com reserva em aberto, mantém se chegou mensagem, pagina pelas mantidas); exclusão da conta (apaga todas as conversas do lado, foto só depois do banco e na trilha com `account_erased`, conversa que já sumiu não apaga foto, validador); bloqueio (grava dentro da trava depois de reler, trilha com quem bloqueou, aviso às duas contas, idempotente sem gravar, já bloqueada pelo outro, não exige perfil ativo, desbloqueio proibido ao outro lado) e envio recusado na conversa bloqueada — também quando o bloqueio chega enquanto o envio espera a trava, e a foto sem ir ao bucket; denúncia (quem recebeu, a própria, mensagem de outra conversa, repetida, trilha sem a descrição); fila e detalhe do admin (filtro, quem denunciou e quem foi denunciado, contexto, trilha) e análise (desfecho, observação como motivo, já analisada, conflito; procedente bloqueia pela moderação dentro da trava, com trilha e aviso, sem repetir se já bloqueada; improcedente não toca na conversa); envio com `CONVERSATION_BLOCKED_BY_MODERATION`; tirar o bloqueio da moderação (dentro da trava, trilha, aviso, ainda bloqueada pelo lado, idempotente, `404`); aviso ao admin com motivo e fila pendente, e nenhum aviso quando a denúncia não grava; e-mail de não lidas (um por pessoa com todas as conversas, prazos pedidos à leitura, suspenso ou quem desligou não recebe mas a pendência sai, sem marcar quando o e-mail não entrou na caixa de saída); preferência (padrão ligado, cria na primeira mudança, troca, repetir não grava, obrigatória); validadores. Cobertura medida antes da moderação: 98,5 % de linha e 97,3 % de branch.
-- **Integração** (`Conversations.IntegrationTests`, 57, Postgres + Redis + RustFS em container): abrir conversa (`201` → `200`, corrida, `404`, `403`, `401`, `400`); mensagens, não lidas e marcar como lida de ponta a ponta; cursor; estranho recebe `404` em tudo; tutor suspenso não envia mas lê; ninguém escreve para quem está suspenso (texto e foto, sem nada no bucket); caractere nulo é `400`, não `500`; 20 envios simultâneos não voltam a última atividade; anfitrião sem perfil vê lista vazia e `0`; mensagem ligada à estadia em andamento; foto no bucket, `404` sem enviar ao bucket e `400` em arquivo que não é imagem; **limite do chat** numa instância com rate limit ligado (texto e foto contam juntos, por conta, `429` no envelope, ler continua liberado); **trava da conversa** contra o banco (a segunda requisição espera no `pg_locks`, a releitura preserva o horário mais novo, conversa apagada no meio do envio vira `409` sem exceção — os dois primeiros conferidos por mutação: sem a trava ou sem a releitura, falham); **hub** com o cliente oficial do SignalR por WebSocket e token na query (mensagem e contador chegam ao outro lado, eco nas outras abas, contador ao marcar como lida, conexão sem token recusada, e **backplane**: o anfitrião conectado numa segunda instância da API recebe a mensagem gravada pela primeira — conferido por mutação: sem o backplane, falha por timeout; `conversationBlockChanged` ao bloquear e desbloquear); retenção contra o banco e o bucket (inclusive a conversa bloqueada, a bloqueada pela moderação e a com denúncia pendente, que fica até o admin analisar); **moderação**: bloqueio trava os dois lados (texto e foto) e deixa ler, desbloqueio só de quem bloqueou, estranho recebe `404`, denúncia entra na fila com quem é quem e o contexto, denúncias recusadas (própria, repetida, de outra conversa, `other` sem descrição), análise tira da fila pendente, procedente bloqueia a conversa para os dois de vez (o desbloqueio do lado não tira) e improcedente a deixa aberta, o admin tira o bloqueio da moderação e os dois voltam a escrever (só admin; `404`), o e-mail ao admin chega pela caixa de saída sem a mensagem nem a descrição, o e-mail de não lidas (resumo sem o texto depois de 15 min, nada antes do prazo, nada se a conversa foi lida, sem repetir a mesma mensagem nem antes do intervalo, suspenso não recebe, quem desligou não recebe e a escolha é de cada conta, `400` sem a escolha), rotas do admin fechadas para tutor, anfitrião e anônimo.
+- **Integração** (`Conversations.IntegrationTests`, 62, Postgres + Redis + RustFS em container): abrir conversa (`201` → `200`, corrida, `404`, `403`, `401`, `400`); mensagens, não lidas e marcar como lida de ponta a ponta; cursor; estranho recebe `404` em tudo; tutor suspenso não envia mas lê; ninguém escreve para quem está suspenso (texto e foto, sem nada no bucket); caractere nulo é `400`, não `500`; 20 envios simultâneos não voltam a última atividade; anfitrião sem perfil vê lista vazia e `0`; mensagem ligada à estadia em andamento; foto no bucket, `404` sem enviar ao bucket e `400` em arquivo que não é imagem; **limite do chat** numa instância com rate limit ligado (texto e foto contam juntos, por conta, `429` no envelope, ler continua liberado; a denúncia tem o limite `reports`, `429` no envelope, sem gastar o das mensagens); **trava da conversa** contra o banco (a segunda requisição espera no `pg_locks`, a releitura preserva o horário mais novo, conversa apagada no meio do envio vira `409` sem exceção — os dois primeiros conferidos por mutação: sem a trava ou sem a releitura, falham); **hub** com o cliente oficial do SignalR por WebSocket e token na query (mensagem e contador chegam ao outro lado, eco nas outras abas, contador ao marcar como lida, conexão sem token, com token adulterado (401) ou de admin (403) recusada, conexão fechada quando o token vence, e **backplane**: o anfitrião conectado numa segunda instância da API recebe a mensagem gravada pela primeira — conferido por mutação: sem o backplane, falha por timeout; `conversationBlockChanged` ao bloquear e desbloquear); retenção contra o banco e o bucket (inclusive a conversa bloqueada, a bloqueada pela moderação e a com denúncia pendente, que fica até o admin analisar); **moderação**: bloqueio trava os dois lados (texto e foto) e deixa ler, desbloqueio só de quem bloqueou, estranho recebe `404`, denúncia entra na fila com quem é quem e o contexto, denúncias recusadas (própria, repetida, de outra conversa, `other` sem descrição), análise tira da fila pendente, procedente bloqueia a conversa para os dois de vez (o desbloqueio do lado não tira) e improcedente a deixa aberta, o admin tira o bloqueio da moderação e os dois voltam a escrever (só admin; `404`), o e-mail ao admin chega pela caixa de saída sem a mensagem nem a descrição, o e-mail de não lidas (resumo sem o texto depois de 15 min, nada antes do prazo, nada se a conversa foi lida, sem repetir a mesma mensagem nem antes do intervalo, suspenso não recebe, quem desligou não recebe e a escolha é de cada conta, `400` sem a escolha), rotas do admin fechadas para tutor, anfitrião e anônimo.
 - **Arquitetura** (`ConversationsModuleBoundaryTests`, 7) e o Conversations nas fronteiras dos outros módulos.
 
 ## 11. Decisões e pendências

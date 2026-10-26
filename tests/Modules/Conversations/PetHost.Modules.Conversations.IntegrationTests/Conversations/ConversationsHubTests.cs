@@ -1,9 +1,16 @@
+using System.Net;
+using System.Text;
 using System.Text.Json;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.JsonWebTokens;
+using Microsoft.IdentityModel.Tokens;
+using PetHost.Modules.Auth.Infrastructure.Security;
 using Xunit;
 
 namespace PetHost.Modules.Conversations.IntegrationTests.Conversations;
@@ -152,6 +159,92 @@ public sealed class ConversationsHubTests(ConversationsApiFixture fixture) : IAs
 
         // Assert
         await connect.Should().ThrowAsync<Exception>();
+    }
+
+    [Fact]
+    public async Task Hub_Should_Return401_When_TheTokenWasTampered()
+    {
+        // Arrange: troca um caractere da assinatura do token válido.
+        var pair = await _scenario.ArrangeAsync();
+        var signature = pair.OwnerToken[^1] == 'A' ? 'B' : 'A';
+        var tampered = pair.OwnerToken[..^1] + signature;
+
+        // Act
+        var response = await NegotiateAsync(tampered);
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Hub_Should_Return403_When_TheTokenIsFromAnAdmin()
+    {
+        // Arrange: o admin não usa o chat; o hub é só de tutor e anfitrião.
+        var admin = await _scenario.AdminTokenAsync();
+
+        // Act
+        var response = await NegotiateAsync(admin);
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task Hub_Should_CloseTheConnection_When_TheAccessTokenExpires()
+    {
+        // Arrange: o mesmo token do tutor, reassinado para vencer em poucos segundos.
+        var pair = await _scenario.ArrangeAsync();
+        var shortLived = Reissue(pair.OwnerToken, TimeSpan.FromSeconds(3));
+        var connection = await ConnectAsync(shortLived);
+        var closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        connection.Closed += _ =>
+        {
+            closed.TrySetResult();
+            return Task.CompletedTask;
+        };
+
+        // Act
+        await closed.Task.WaitAsync(TimeSpan.FromSeconds(30), Ct);
+
+        // Assert
+        connection.State.Should().Be(HubConnectionState.Disconnected);
+    }
+
+    /// <summary>A negociação do hub (primeira chamada do cliente), com o token na query como o navegador.</summary>
+    private Task<HttpResponseMessage> NegotiateAsync(string token) =>
+        _client.PostAsync(
+            $"/hubs/conversations/negotiate?negotiateVersion=1&access_token={Uri.EscapeDataString(token)}",
+            content: null,
+            Ct);
+
+    /// <summary>Reassina o token com as mesmas claims e uma validade nova, com a chave da API.</summary>
+    private string Reissue(string token, TimeSpan lifetime)
+    {
+        var options = fixture.Services.GetRequiredService<IOptions<JwtOptions>>().Value;
+        var original = new JsonWebToken(token);
+        var now = DateTime.UtcNow;
+        var claims = new Dictionary<string, object>
+        {
+            [JwtClaimNames.Subject] = original.Subject,
+            [JwtClaimNames.Role] = original.GetClaim(JwtClaimNames.Role).Value,
+            [JwtClaimNames.Email] = original.GetClaim(JwtClaimNames.Email).Value,
+            [JwtClaimNames.Name] = original.GetClaim(JwtClaimNames.Name).Value,
+            [JwtClaimNames.TokenId] = Guid.NewGuid().ToString(),
+            [JwtClaimNames.IssuedAtMilliseconds] = new DateTimeOffset(now).ToUnixTimeMilliseconds(),
+        };
+
+        return new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
+        {
+            Issuer = options.Issuer,
+            Audience = options.Audience,
+            Claims = claims,
+            IssuedAt = now,
+            NotBefore = now,
+            Expires = now.Add(lifetime),
+            SigningCredentials = new SigningCredentials(
+                new SymmetricSecurityKey(Encoding.UTF8.GetBytes(options.Key)),
+                SecurityAlgorithms.HmacSha256),
+        });
     }
 
     /// <summary>

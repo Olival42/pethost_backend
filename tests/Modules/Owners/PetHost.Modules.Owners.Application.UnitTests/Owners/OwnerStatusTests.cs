@@ -94,6 +94,20 @@ public sealed class DeactivateMyOwnerCommandHandlerTests
         result.FirstError!.Code.Should().Be("OWNER_NOT_FOUND");
         _ownerAccounts.Verify(a => a.DeactivateAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
     }
+
+    [Fact]
+    public async Task HandleAsync_Should_ReactivateTheOwnerAndRethrow_When_TheAccountCallThrows()
+    {
+        _ownerAccounts
+            .Setup(a => a.DeactivateAsync(Id, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new TimeoutException("Postgres fora"));
+
+        var deactivate = () => _sut.HandleAsync(new DeactivateMyOwnerCommand(Id), CancellationToken.None);
+
+        await deactivate.Should().ThrowAsync<TimeoutException>();
+        _owner.IsActive.Should().BeTrue("perfil e conta nunca ficam com status diferentes");
+        _auditTrail.Verify(a => a.RecordAsync(It.IsAny<AuditRecord>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
 }
 
 public sealed class ReactivateOwnerCommandHandlerTests

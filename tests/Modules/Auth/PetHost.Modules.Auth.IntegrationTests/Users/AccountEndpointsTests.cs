@@ -315,6 +315,35 @@ public sealed class AccountEndpointsTests(AuthApiFixture fixture) : IAsyncLifeti
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
+    [Fact]
+    public async Task Switch_Should_Return404_When_TheTargetIsTheSameRole()
+    {
+        var owner = await RegisterAsync("owner", OwnerPassword);
+
+        var response = await SendAsync(HttpMethod.Post, "/api/v1/auth/sessions/switch", owner.AccessToken,
+            new { role = "owner", password = OwnerPassword });
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        Code(await ReadAsync(response)).Should().Be("AUTH_LINKED_ACCOUNT_NOT_FOUND");
+    }
+
+    // ----- logout -----
+
+    [Fact]
+    public async Task Logout_Should_KeepTheAccessTokenValidUntilItExpires_When_TheRefreshTokenIsRevoked()
+    {
+        // O logout só invalida o refresh; o access token não tem estado e vale até vencer (15 min).
+        var owner = await RegisterAsync("owner", OwnerPassword);
+
+        var logout = await _client.PostAsJsonAsync("/api/v1/auth/sessions/logout", new { refreshToken = owner.RefreshToken }, Ct);
+        var me = await SendAsync(HttpMethod.Get, "/api/v1/users/me", owner.AccessToken);
+        var refresh = await RefreshAsync(owner.RefreshToken);
+
+        logout.StatusCode.Should().Be(HttpStatusCode.OK);
+        me.StatusCode.Should().Be(HttpStatusCode.OK);
+        refresh.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
     // ----- helpers -----
 
     private sealed record Session(string AccessToken, string RefreshToken, Guid UserId);

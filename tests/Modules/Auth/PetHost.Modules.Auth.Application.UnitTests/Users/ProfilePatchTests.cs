@@ -81,6 +81,27 @@ public sealed class ProfilePatchTests
     }
 
     [Fact]
+    public void Apply_Should_RequirePhoneAndAddress_When_TheAccountHasNeitherAndThePatchDoesNotSendThem()
+    {
+        // O admin nasce sem telefone e sem endereço: um PATCH que não os traz não fecha o perfil.
+        var admin = new UserBuilder().WithRole(UserRole.Admin).Build();
+
+        var result = ProfilePatch.Apply(admin, Patch(fullName: "Admin PetHost"), Now);
+
+        result.Errors!.Select(e => e.Field).Should().Contain(["phone", "address"]);
+    }
+
+    [Fact]
+    public void Apply_Should_ChangeOnlyTheName_When_OnlyTheNameIsSent()
+    {
+        var result = ProfilePatch.Apply(_user, Patch(fullName: "Camila Souza Lima"), Now);
+
+        result.Value!.FullName.Value.Should().Be("Camila Souza Lima");
+        result.Value.Phone.Should().Be(_user.Phone);
+        result.Value.AvatarUrl.Should().Be(_user.AvatarUrl);
+    }
+
+    [Fact]
     public void Snapshot_Should_UseEmptyTextForMissingOptionals_So_ApplyingItBackClearsThem()
     {
         var snapshot = ProfilePatch.Snapshot(_user);
