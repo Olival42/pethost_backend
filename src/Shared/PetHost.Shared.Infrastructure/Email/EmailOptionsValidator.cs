@@ -21,6 +21,14 @@ internal sealed class EmailOptionsValidator : IValidateOptions<EmailOptions>
         if (string.IsNullOrWhiteSpace(options.FromAddress))
             failures.Add($"{EmailOptions.SectionName}:{nameof(EmailOptions.FromAddress)} is required.");
 
+        if (!string.IsNullOrWhiteSpace(options.AppUrl)
+            && (!Uri.TryCreate(options.AppUrl, UriKind.Absolute, out var appUri)
+                || (appUri.Scheme != Uri.UriSchemeHttps && appUri.Scheme != Uri.UriSchemeHttp)
+                || !string.IsNullOrEmpty(appUri.UserInfo)
+                || !string.IsNullOrEmpty(appUri.Query)
+                || !string.IsNullOrEmpty(appUri.Fragment)))
+            failures.Add("Email:AppUrl must be an absolute HTTP(S) frontend URL without credentials, query or fragment.");
+
         return failures.Count > 0
             ? ValidateOptionsResult.Fail(failures)
             : ValidateOptionsResult.Success;

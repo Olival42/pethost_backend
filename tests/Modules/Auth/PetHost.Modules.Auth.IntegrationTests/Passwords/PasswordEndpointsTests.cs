@@ -57,6 +57,8 @@ public sealed partial class PasswordEndpointsTests(AuthApiFixture fixture) : IAs
         email.Subject.Should().Contain("redefinição de senha");
         email.ToName.Should().Be("Camila Souza");
         email.TextBody.Should().Contain("https://app.pethost.test/redefinir-senha?token=");
+        email.HtmlBody.Should().Contain("<!doctype html>").And.Contain("Criar uma senha nova")
+            .And.Contain("https://app.pethost.test/redefinir-senha?token=");
         TokenIn(email.TextBody).Should().NotBeNullOrWhiteSpace();
     }
 

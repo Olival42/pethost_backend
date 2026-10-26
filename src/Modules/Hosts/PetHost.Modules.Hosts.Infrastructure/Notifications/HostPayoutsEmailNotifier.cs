@@ -125,7 +125,9 @@ internal sealed class HostPayoutsEmailNotifier(IEmailOutbox outbox, IOptions<Hos
         var html = string.Concat(paragraphs.Select(p => $"<p>{WebUtility.HtmlEncode(p)}</p>"));
 
         await outbox
-            .EnqueueAsync(new EmailMessage(email, name, subject, text, html), cancellationToken)
+            .EnqueueAsync(new EmailMessage(email, name, subject, text, html,
+                new EmailAction(subject is AdminRejectedSubject or AdminBlockedSubject ? "Abrir painel de usuários" : "Ver meus recebimentos",
+                    subject is AdminRejectedSubject or AdminBlockedSubject ? "/admin/users" : "/host/payments")), cancellationToken)
             .ConfigureAwait(false);
     }
 }

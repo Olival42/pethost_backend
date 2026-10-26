@@ -81,7 +81,9 @@ internal sealed class PaymentEmailNotifier(IEmailOutbox outbox, IOptions<Payment
             _ => throw new ArgumentOutOfRangeException(nameof(notice), notice.Kind, "Unknown payment notice."),
         };
 
-        return SendAsync(notice.Email, notice.Name, subject, [$"Olá, {notice.Name}.", .. paragraphs], cancellationToken);
+        var side = notice.Kind is PaymentNoticeKind.PayoutTransferred or PaymentNoticeKind.PayoutReversed ? "host" : "owner";
+        return SendAsync(notice.Email, notice.Name, subject, [$"Olá, {notice.Name}.", .. paragraphs],
+            new EmailAction("Ver pagamento da estadia", $"/{side}/bookings/{notice.BookingId}"), cancellationToken);
     }
 
     public Task AlertAdminAsync(PaymentAlert alert, CancellationToken cancellationToken)
@@ -104,6 +106,7 @@ internal sealed class PaymentEmailNotifier(IEmailOutbox outbox, IOptions<Payment
                 .. Hint(alert.Issue),
                 "Veja os detalhes em GET /api/v1/payments/issues e no Dashboard do Stripe.",
             ],
+            new EmailAction("Abrir painel administrativo", "/admin/users"),
             cancellationToken);
     }
 
@@ -123,13 +126,13 @@ internal sealed class PaymentEmailNotifier(IEmailOutbox outbox, IOptions<Payment
 
     private static string Money(long cents) => string.Create(PtBr, $"{cents / 100m:C}");
 
-    private async Task SendAsync(string email, string name, string subject, IReadOnlyList<string> paragraphs, CancellationToken cancellationToken)
+    private async Task SendAsync(string email, string name, string subject, IReadOnlyList<string> paragraphs, EmailAction action, CancellationToken cancellationToken)
     {
         var text = string.Join(Environment.NewLine + Environment.NewLine, paragraphs);
         var html = string.Concat(paragraphs.Select(p => $"<p>{WebUtility.HtmlEncode(p)}</p>"));
 
         await outbox
-            .EnqueueAsync(new EmailMessage(email, name, subject, text, html), cancellationToken)
+            .EnqueueAsync(new EmailMessage(email, name, subject, text, html, action), cancellationToken)
             .ConfigureAwait(false);
     }
 }

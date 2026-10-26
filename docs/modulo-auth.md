@@ -134,7 +134,7 @@ Gera um token de uso único e manda por e-mail para a conta **(e-mail, role)**. 
 | `200` | — | **Sempre**, exista a conta ou não — o endpoint não revela quem tem cadastro. Corpo: `{ "success": true, "data": {}, "timestamp": "..." }`. |
 | `400` | `VALIDATION_ERROR` | `email` ou `role` faltando, ou `role` desconhecido. |
 
-O e-mail traz o token (e um link, se `PasswordReset:ResetUrl` estiver configurado). O token vale `PasswordReset:TokenLifetimeMinutes` (padrão 30 min), serve uma vez só, e **pedir de novo invalida o anterior**.
+O e-mail traz o token e um botão para a URL de `PasswordReset:ResetUrl`, quando configurada. Sem essa URL explícita, usa `Email:AppUrl` com `/reset-password#token=...`; sem ambas, mantém apenas o código manual. Todos os avisos usam o [design Quintal e link alternativo](email-design.md). O token vale `PasswordReset:TokenLifetimeMinutes` (padrão 30 min), serve uma vez só, e **pedir de novo invalida o anterior**.
 
 ### 2.5 Troca de senha — `POST /api/v1/auth/password/reset`
 

@@ -44,7 +44,8 @@ internal sealed class HostApplicationEmailNotifier(IEmailOutbox outbox) : IHostA
             """;
 
         await outbox
-            .EnqueueAsync(new EmailMessage(decision.Email, decision.FullName, ApprovedSubject, text, html), cancellationToken)
+            .EnqueueAsync(new EmailMessage(decision.Email, decision.FullName, ApprovedSubject, text, html,
+                new EmailAction("Configurar meus recebimentos", "/host/payments")), cancellationToken)
             .ConfigureAwait(false);
     }
 
@@ -73,7 +74,8 @@ internal sealed class HostApplicationEmailNotifier(IEmailOutbox outbox) : IHostA
             """;
 
         await outbox
-            .EnqueueAsync(new EmailMessage(decision.Email, decision.FullName, RejectedSubject, text, html), cancellationToken)
+            .EnqueueAsync(new EmailMessage(decision.Email, decision.FullName, RejectedSubject, text, html,
+                new EmailAction("Ver minha verificação", "/host/application")), cancellationToken)
             .ConfigureAwait(false);
     }
 }

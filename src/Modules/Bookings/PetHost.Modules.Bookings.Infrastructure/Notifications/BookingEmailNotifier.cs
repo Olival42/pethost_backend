@@ -321,7 +321,8 @@ internal sealed class BookingEmailNotifier(IEmailOutbox outbox) : IBookingNotifi
         var html = string.Concat(paragraphs.Select(p => $"<p>{WebUtility.HtmlEncode(p)}</p>"));
 
         await outbox
-            .EnqueueAsync(new EmailMessage(notice.Email, notice.Name, subject, text, html), cancellationToken)
+            .EnqueueAsync(new EmailMessage(notice.Email, notice.Name, subject, text, html,
+                new EmailAction("Ver minha estadia", $"/{(notice.Recipient == BookingParty.Owner ? "owner" : "host")}/bookings/{notice.Booking.Id}")), cancellationToken)
             .ConfigureAwait(false);
     }
 }

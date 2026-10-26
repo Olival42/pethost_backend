@@ -101,6 +101,7 @@ public sealed class AuthApiFixture : IAsyncLifetime
             builder.UseSetting("Email:Host", "smtp.invalid");
             builder.UseSetting("Email:Port", "25");
             builder.UseSetting("Email:FromAddress", "no-reply@pethost.test");
+            builder.UseSetting("Email:AppUrl", "https://app.pethost.test");
 
             // Auth não envia imagens: só precisa que a API suba.
             foreach (var (key, value) in TestImageBucket.UnusedSettings)

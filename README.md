@@ -465,3 +465,7 @@ Os anfitriões já vêm verificados e com cantinho na busca. Dá para pedir, ace
 | [`docs/relatorio-de-testes.md`](docs/relatorio-de-testes.md) | Casos de teste executados, resultado, cobertura, falhas, correções e evidências |
 | [`docs/armazenamento-de-imagens.md`](docs/armazenamento-de-imagens.md) | Buckets, RustFS, R2/Supabase e regras de upload |
 | `docs/modulo-*.md` | Endpoints, regras, erros e configuração de cada módulo (Auth, Owners, Hosts, Pets, Listings, Bookings, Payments, Conversations, Reviews, Audit) |
+
+## Design e links dos e-mails
+
+Todos os avisos transacionais usam o template Quintal da outbox. Configure `EMAIL_APP_URL` com a URL pública do frontend para habilitar os botões; mantenha os valores SMTP existentes. Destinos, configuração, compatibilidade e validação: [docs/email-design.md](docs/email-design.md).

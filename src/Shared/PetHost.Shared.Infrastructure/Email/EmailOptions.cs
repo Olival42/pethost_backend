@@ -26,4 +26,7 @@ public sealed class EmailOptions
     public string FromAddress { get; init; } = string.Empty;
 
     public string FromName { get; init; } = "PetHost";
+
+    /// <summary>URL pública do frontend, sem query/fragmento. Vazio não gera links relativos.</summary>
+    public string? AppUrl { get; init; }
 }

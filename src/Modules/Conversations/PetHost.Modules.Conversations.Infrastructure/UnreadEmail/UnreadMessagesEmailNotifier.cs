@@ -40,7 +40,8 @@ internal sealed class UnreadMessagesEmailNotifier(IEmailOutbox outbox, IOptions<
         var html = string.Concat(paragraphs.Select(p => $"<p>{WebUtility.HtmlEncode(p)}</p>"));
 
         await outbox
-            .EnqueueAsync(new EmailMessage(digest.Email, digest.Name, Subject, text, html), cancellationToken)
+            .EnqueueAsync(new EmailMessage(digest.Email, digest.Name, Subject, text, html,
+                new EmailAction("Ler minhas mensagens", string.IsNullOrEmpty(appUrl) ? "/conversations" : appUrl)), cancellationToken)
             .ConfigureAwait(false);
     }
 }

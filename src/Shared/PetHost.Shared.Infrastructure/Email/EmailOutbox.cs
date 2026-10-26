@@ -1,5 +1,6 @@
 using System.Threading.Channels;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using PetHost.Shared.Infrastructure.Email.Persistence;
 
 namespace PetHost.Shared.Infrastructure.Email;
@@ -15,7 +16,8 @@ namespace PetHost.Shared.Infrastructure.Email;
 /// </remarks>
 internal sealed class EmailOutbox(
     IDbContextFactory<EmailDbContext> contextFactory,
-    TimeProvider timeProvider) : IEmailOutbox
+    TimeProvider timeProvider,
+    IOptions<EmailOptions> options) : IEmailOutbox
 {
     /// <summary>
     /// Aviso ao despachante de que chegou e-mail, para não esperar a próxima varredura.
@@ -29,11 +31,12 @@ internal sealed class EmailOutbox(
     public async ValueTask EnqueueAsync(EmailMessage message, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(message);
+        var rendered = EmailTemplate.Render(message, options.Value.AppUrl);
 
         var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
         await using (context.ConfigureAwait(false))
         {
-            context.Outbox.Add(OutboxEmail.From(message, Guid.CreateVersion7(), timeProvider.GetUtcNow()));
+            context.Outbox.Add(OutboxEmail.From(rendered, Guid.CreateVersion7(), timeProvider.GetUtcNow()));
             await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         }
 

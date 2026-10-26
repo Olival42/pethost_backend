@@ -49,7 +49,8 @@ internal sealed partial class ModerationEmailAlerts(
         try
         {
             await outbox
-                .EnqueueAsync(new EmailMessage(adminEmail.Trim(), "Admin PetHost", Subject, text, html), cancellationToken)
+                .EnqueueAsync(new EmailMessage(adminEmail.Trim(), "Admin PetHost", Subject, text, html,
+                    new EmailAction("Abrir painel administrativo", "/admin/users")), cancellationToken)
                 .ConfigureAwait(false);
         }
 #pragma warning disable CA1031 // Aviso best-effort: a denúncia já foi gravada e está na fila do admin.

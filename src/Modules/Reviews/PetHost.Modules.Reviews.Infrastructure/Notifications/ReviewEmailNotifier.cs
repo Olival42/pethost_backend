@@ -117,7 +117,10 @@ internal sealed partial class ReviewEmailNotifier(
 
         try
         {
-            await outbox.EnqueueAsync(new EmailMessage(email, name, subject, text, html), cancellationToken).ConfigureAwait(false);
+            var action = subject == ModerationSubject
+                ? new EmailAction("Abrir painel administrativo", "/admin/users")
+                : new EmailAction("Abrir o PetHost", string.IsNullOrWhiteSpace(options.Value.AppUrl) ? "/" : options.Value.AppUrl.Trim());
+            await outbox.EnqueueAsync(new EmailMessage(email, name, subject, text, html, action), cancellationToken).ConfigureAwait(false);
         }
 #pragma warning disable CA1031 // Aviso best-effort: o que disparou o e-mail já foi gravado.
         catch (Exception exception)

@@ -13,7 +13,8 @@ namespace PetHost.Modules.Auth.Infrastructure.Notifications;
 /// </summary>
 internal sealed class PasswordResetEmailNotifier(
     IEmailOutbox outbox,
-    IOptions<PasswordResetOptions> options) : IPasswordResetNotifier
+    IOptions<PasswordResetOptions> options,
+    IOptions<EmailOptions> emailOptions) : IPasswordResetNotifier
 {
     private const string Subject = "PetHost — redefinição de senha";
 
@@ -44,31 +45,30 @@ internal sealed class PasswordResetEmailNotifier(
 
         var name = WebUtility.HtmlEncode(notification.FullName);
         var token = WebUtility.HtmlEncode(notification.Token);
-        var link = resetUrl is null
-            ? string.Empty
-            : $"""<p><a href="{WebUtility.HtmlEncode(resetUrl)}">Criar uma senha nova</a></p><p>Ou use este código:</p>""";
-
         var html = $"""
             <p>Olá, {name}.</p>
             <p>Recebemos um pedido para redefinir a senha da sua conta no PetHost.</p>
-            {(resetUrl is null ? "<p>Use o código abaixo na tela de nova senha:</p>" : link)}
-            <p style="font-family:monospace;font-size:16px;word-break:break-all"><strong>{token}</strong></p>
+            <p>Você pode copiar este código para a tela de nova senha:</p>
+            <p style="padding:16px;background-color:#FFF6E6;border:1px solid #E3D6C2;border-radius:12px;font-family:monospace;font-size:16px;word-break:break-all"><strong>{token}</strong></p>
             <p>O código vale por {minutes} minutos e só pode ser usado uma vez.</p>
             <p>Se você não pediu a troca, ignore este e-mail: sua senha continua a mesma.</p>
             """;
 
         await outbox
             .EnqueueAsync(
-                new EmailMessage(notification.Email, notification.FullName, Subject, text, html),
+                new EmailMessage(notification.Email, notification.FullName, Subject, text, html,
+                    resetUrl is null ? null : new EmailAction("Criar uma senha nova", resetUrl)),
                 cancellationToken)
             .ConfigureAwait(false);
     }
 
-    private string? BuildResetUrl(string token) =>
-        string.IsNullOrWhiteSpace(_options.ResetUrl)
-            ? null
-            : _options.ResetUrl.Replace(
-                PasswordResetOptions.TokenPlaceholder,
-                Uri.EscapeDataString(token),
-                StringComparison.Ordinal);
+    private string? BuildResetUrl(string token)
+    {
+        if (!string.IsNullOrWhiteSpace(_options.ResetUrl))
+            return _options.ResetUrl.Replace(PasswordResetOptions.TokenPlaceholder, Uri.EscapeDataString(token), StringComparison.Ordinal);
+
+        return Uri.TryCreate(emailOptions.Value.AppUrl, UriKind.Absolute, out var app)
+            ? new Uri(app, $"/reset-password#token={Uri.EscapeDataString(token)}").AbsoluteUri
+            : null;
+    }
 }

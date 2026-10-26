@@ -42,7 +42,8 @@ internal sealed class PasswordChangedEmailNotifier(IEmailOutbox outbox) : IPassw
 
         await outbox
             .EnqueueAsync(
-                new EmailMessage(notification.Email, notification.FullName, Subject, text, html),
+                new EmailMessage(notification.Email, notification.FullName, Subject, text, html,
+                    new EmailAction("Proteger minha conta", "/forgot-password")),
                 cancellationToken)
             .ConfigureAwait(false);
     }

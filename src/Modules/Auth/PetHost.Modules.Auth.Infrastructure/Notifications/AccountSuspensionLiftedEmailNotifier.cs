@@ -50,7 +50,8 @@ internal sealed class AccountSuspensionLiftedEmailNotifier(IEmailOutbox outbox) 
 
         await outbox
             .EnqueueAsync(
-                new EmailMessage(notification.Email, notification.FullName, Subject, text, html),
+                new EmailMessage(notification.Email, notification.FullName, Subject, text, html,
+                    new EmailAction("Entrar no PetHost", "/login")),
                 cancellationToken)
             .ConfigureAwait(false);
     }

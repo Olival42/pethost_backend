@@ -7,4 +7,8 @@ public sealed record EmailMessage(
     string? ToName,
     string Subject,
     string TextBody,
-    string HtmlBody);
+    string HtmlBody,
+    EmailAction? Action = null);
+
+/// <summary>Ação do e-mail: URL HTTP(S) absoluta ou caminho do frontend configurado em Email:AppUrl.</summary>
+public sealed record EmailAction(string Label, string Url);

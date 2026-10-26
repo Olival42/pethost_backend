@@ -136,6 +136,7 @@ services:
       Email__Password: ${EMAIL_SMTP_PASSWORD:-}
       Email__FromAddress: ${EMAIL_FROM_ADDRESS:-no-reply@pethost.local}
       Email__FromName: ${EMAIL_FROM_NAME:-PetHost}
+      Email__AppUrl: ${EMAIL_APP_URL:-}
 
       # --- suporte: e-mail que o app mostra quando a API manda falar com o suporte ---
       Support__Email: ${SUPPORT_EMAIL:-}

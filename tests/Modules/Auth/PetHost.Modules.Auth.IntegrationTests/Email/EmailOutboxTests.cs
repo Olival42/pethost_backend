@@ -28,8 +28,12 @@ public sealed class EmailOutboxTests(AuthApiFixture fixture) : IAsyncLifetime
     {
         await fixture.Services.GetRequiredService<IEmailOutbox>().EnqueueAsync(Message("Olá"), Ct);
 
-        (await fixture.Emails.WaitForAsync(To, 1, Ct)).Should().ContainSingle()
-            .Which.Subject.Should().Be("Olá");
+        var delivered = (await fixture.Emails.WaitForAsync(To, 1, Ct)).Should().ContainSingle().Which;
+        delivered.Subject.Should().Be("Olá");
+        delivered.HtmlBody.Should().Contain("<!doctype html>").And.Contain("html</p>").And.Contain("#F26B3A");
+        delivered.TextBody.Should().Contain("texto").And.Contain("equipe PetHost");
+        delivered.HtmlBody.Should().Contain("href=\"https://app.pethost.test/\"");
+        delivered.TextBody.Should().Contain("https://app.pethost.test/");
 
         await WaitUntilAsync(async () => await CountAsync() == 0);
         (await CountAsync()).Should().Be(0, "o corpo pode ter token: e-mail entregue não fica no banco");

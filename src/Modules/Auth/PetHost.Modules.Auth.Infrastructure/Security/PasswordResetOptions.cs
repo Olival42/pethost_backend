@@ -16,8 +16,8 @@ public sealed class PasswordResetOptions
 
     /// <summary>
     /// Opcional. Endereço da tela de nova senha no front, com <c>{token}</c> onde o
-    /// token entra — ex.: <c>https://app.pethost.com/redefinir-senha?token={token}</c>.
-    /// Preenchido, o e-mail traz um link; vazio, traz só o token para copiar.
+    /// token entra — ex.: <c>https://app.pethost.com/reset-password#token={token}</c>.
+    /// Vazio usa Email:AppUrl com /reset-password#token=; sem ambos, traz só o código para copiar.
     /// </summary>
     public string? ResetUrl { get; init; }
 }
