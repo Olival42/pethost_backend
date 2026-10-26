@@ -21,7 +21,7 @@ internal static class ReportsTestData
         MessageReport.Submit(message ?? HostMessage(conversation), ConversationParty.Owner, ReportReason.Scam, "Pediu Pix por fora.", ReportedAt).Value!;
 
     public static MessageRow Row(Message message) =>
-        new(message.Id, message.ConversationId, message.SentBy, message.Body, message.ImageUrl, message.BookingId, message.CreatedAt);
+        new(message.Id, message.ConversationId, message.SentBy, message.Body, message.ImageUrl, message.ImageKey, message.BookingId, message.CreatedAt);
 
     public static ReportRow Row(Conversation conversation, MessageReport report, Message message) =>
         new(

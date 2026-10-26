@@ -1,4 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
+using PetHost.Modules.Owners.Presentation.Uploads;
+using PetHost.Shared.Infrastructure.Uploads;
 
 namespace PetHost.Modules.Owners.Presentation;
 
@@ -9,6 +11,9 @@ public static class DependencyInjection
     public static IMvcBuilder AddOwnersPresentation(this IMvcBuilder builder)
     {
         ArgumentNullException.ThrowIfNull(builder);
+
+        // Upload direto ao bucket (/api/v1/uploads): o mesmo caso de uso do upload por multipart.
+        builder.Services.AddScoped<IUploadPurpose, OwnerAvatarUploadPurpose>();
 
         return builder.AddApplicationPart(typeof(DependencyInjection).Assembly);
     }

@@ -13,6 +13,7 @@ using PetHost.Modules.Conversations.Application.Conversations.UnblockConversatio
 using PetHost.Modules.Conversations.Application.Messages.ListConversationMessages;
 using PetHost.Modules.Conversations.Application.Messages.Responses;
 using PetHost.Modules.Conversations.Application.Messages.SendMessage;
+using PetHost.Modules.Conversations.Application.Messages.GetMessagePhoto;
 using PetHost.Modules.Conversations.Application.Messages.SendPhotoMessage;
 using PetHost.Modules.Conversations.Application.Preferences;
 using PetHost.Modules.Conversations.Application.Preferences.GetNotificationSettings;
@@ -50,7 +51,8 @@ public sealed class ConversationsController(
     IQueryHandler<ListMyConversationsQuery, PagedResult<ConversationResponse>> listMyConversations,
     IQueryHandler<GetConversationByIdQuery, ConversationResponse> getConversationById,
     IQueryHandler<GetUnreadMessageCountQuery, UnreadCountResponse> getUnreadMessageCount,
-    IQueryHandler<ListConversationMessagesQuery, MessagePageResponse> listConversationMessages) : ControllerBase
+    IQueryHandler<ListConversationMessagesQuery, MessagePageResponse> listConversationMessages,
+    IQueryHandler<GetMessagePhotoQuery, MessagePhotoResponse> getMessagePhoto) : ControllerBase
 {
     private const string Route = "/api/v1/conversations";
 
@@ -208,6 +210,28 @@ public sealed class ConversationsController(
         return result.ToActionResult();
     }
 
+    /// <summary>Um link novo para a foto de uma mensagem.</summary>
+    /// <remarks>
+    /// As fotos do chat ficam no bucket privado: a listagem traz <c>imageUrl</c> assinada, que vence em
+    /// <c>imageUrlExpiresAt</c>. Venceu (o bucket responde 403): peça outra aqui. Só quem é da conversa;
+    /// a resposta vai com <c>Cache-Control: no-store</c>.
+    /// </remarks>
+    [HttpGet("{conversationId:guid}/messages/{messageId:guid}/photo")]
+    [Authorize(Roles = $"{Roles.Owner},{Roles.Host}")]
+    [ProducesResponseType<ApiResponse<MessagePhotoResponse>>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ApiResponse<MessagePhotoResponse>>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ApiResponse<MessagePhotoResponse>>(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType<ApiResponse<MessagePhotoResponse>>(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetMessagePhotoAsync(Guid conversationId, Guid messageId, CancellationToken cancellationToken)
+    {
+        var result = await getMessagePhoto.HandleAsync(
+            new GetMessagePhotoQuery(User.GetUserId(), CurrentRole(), conversationId, messageId),
+            cancellationToken);
+
+        Response.Headers.CacheControl = "no-store";
+        return result.ToActionResult();
+    }
+
     /// <summary>Envia uma mensagem de texto. O outro lado recebe na hora pelo hub.</summary>
     /// <remarks>
     /// Corpo: <c>body</c>, até 2.000 caracteres, sem caractere de controle (quebra de linha e
@@ -245,7 +269,8 @@ public sealed class ConversationsController(
     /// <remarks>
     /// <c>multipart/form-data</c> com a imagem na parte <c>file</c> (JPG/JPEG, PNG ou WebP, até 5 MB;
     /// os metadados, como GPS, são removidos) e a legenda opcional na parte <c>body</c>. A foto vai
-    /// para o bucket público. Conversa de outra pessoa (404) ou outro lado suspenso
+    /// para o bucket privado e só abre por URL assinada. Prefira o upload direto
+    /// (<c>POST /api/v1/uploads</c>, <c>purpose: chat-photo</c>): o arquivo não passa pela API. Conversa de outra pessoa (404) ou outro lado suspenso
     /// (403 <c>CONVERSATION_RECIPIENT_SUSPENDED</c>): nada é enviado ao bucket. Arquivo inválido: 400
     /// no campo <c>file</c>. Conta no mesmo limite das mensagens de texto (<c>chat-messages</c>).
     /// </remarks>

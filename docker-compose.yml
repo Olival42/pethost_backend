@@ -166,6 +166,15 @@ services:
       # Validade de cada link de documento, em minutos (1 a 60).
       Storage__SignedUrlLifetimeMinutes: ${STORAGE_SIGNED_URL_LIFETIME_MINUTES:-5}
 
+      # --- upload direto ao bucket (URL assinada; o arquivo nao passa pela API) ---
+      # Validade da URL de PUT e prazo para confirmar, em minutos.
+      Uploads__UrlLifetimeMinutes: ${UPLOADS_URL_LIFETIME_MINUTES:-10}
+      Uploads__ConfirmWindowMinutes: ${UPLOADS_CONFIRM_WINDOW_MINUTES:-30}
+      Uploads__MaxPendingPerUser: ${UPLOADS_MAX_PENDING_PER_USER:-10}
+      # Grava na subida o CORS do bucket privado com as origens de Cors__AllowedOrigins (PUT do navegador).
+      # RustFS: true. R2/Supabase: a chave de objeto nao pode mudar CORS; configure no painel (falha so vai para o log).
+      Uploads__ConfigureBucketCors: ${UPLOADS_CONFIGURE_BUCKET_CORS:-true}
+
       # --- verificacao do anfitriao ---
       # Dias que as fotos (documento e selfie) ficam depois da decisao. 0 = apaga na hora.
       HostVerification__DocumentRetentionDays: ${HOST_VERIFICATION_DOCUMENT_RETENTION_DAYS:-0}

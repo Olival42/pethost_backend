@@ -50,6 +50,7 @@ using PetHost.Shared.Infrastructure.RateLimiting;
 using PetHost.Shared.Infrastructure.Realtime;
 using PetHost.Shared.Infrastructure.Storage;
 using PetHost.Shared.Infrastructure.Stripe;
+using PetHost.Shared.Infrastructure.Uploads;
 using Serilog;
 using Serilog.Events;
 using Serilog.Formatting.Json;
@@ -92,7 +93,8 @@ builder.Services
     .AddReviewsPresentation()
     .AddPaymentsPresentation()
     .AddAuditPresentation()
-    .AddStripeWebhooks();
+    .AddStripeWebhooks()
+    .AddDirectUploadsEndpoints();
 
 // O mesmo serializador vale para o que não passa pelo MVC — o handler global de
 // exceção e o 401 do JWT escrevem com WriteAsJsonAsync, que usa estas opções.
@@ -122,6 +124,9 @@ builder.Services.AddEmail(builder.Configuration);
 
 // --- Imagens: bucket S3 compatível (R2 em produção, RustFS em desenvolvimento) ---
 builder.Services.AddImageStorage(builder.Configuration);
+
+// --- Upload direto ao bucket (URL assinada): o arquivo não passa pela API; cada módulo registra as finalidades ---
+builder.Services.AddDirectUploads(builder.Configuration);
 
 // --- Stripe (modo de teste): cliente da API e o endpoint único de webhooks.
 //     Cada módulo registra o que trata (o Hosts: account.updated das contas conectadas;
@@ -331,6 +336,10 @@ await app.Services.InitializeReviewsModuleAsync(
     applyMigrations: app.Environment.IsDevelopment());
 
 await app.Services.InitializePaymentsModuleAsync(
+    applyMigrations: app.Environment.IsDevelopment());
+
+// Também grava o CORS do bucket privado (Uploads:ConfigureBucketCors), para o PUT do navegador.
+await app.Services.InitializeDirectUploadsAsync(
     applyMigrations: app.Environment.IsDevelopment());
 
 // Depois de todos os módulos: os dados de teste cruzam Auth, Owners, Hosts, Pets e Listings.

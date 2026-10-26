@@ -114,6 +114,11 @@ namespace PetHost.Modules.Conversations.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamptz")
                         .HasColumnName("created_at");
 
+                    b.Property<string>("ImageKey")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("image_key");
+
                     b.Property<string>("ImageUrl")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)")
@@ -145,7 +150,7 @@ namespace PetHost.Modules.Conversations.Infrastructure.Persistence.Migrations
 
                     b.ToTable("messages", "conversation", t =>
                         {
-                            t.HasCheckConstraint("ck_messages_content", "body IS NOT NULL OR image_url IS NOT NULL");
+                            t.HasCheckConstraint("ck_messages_content", "body IS NOT NULL OR image_url IS NOT NULL OR image_key IS NOT NULL");
 
                             t.HasCheckConstraint("ck_messages_sent_by", "sent_by IN ('owner', 'host')");
                         });

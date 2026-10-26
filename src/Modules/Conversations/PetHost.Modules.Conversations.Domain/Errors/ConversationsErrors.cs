@@ -34,12 +34,12 @@ public static class ConversationsErrors
     public static readonly Error BodyInvalidCharacters =
         Error.Validation("body", "CONVERSATION_BODY_INVALID_CHARACTERS", "Message text must not contain control characters other than line breaks and tabs.");
 
-    // A URL da foto vem do bucket, não do cliente: estes dois só aparecem com o storage mal configurado.
-    public static readonly Error ImageUrlInvalid =
-        Error.Validation("imageUrl", "CONVERSATION_IMAGE_URL_INVALID", "Image URL must be an absolute http or https address.");
+    // A chave da foto vem do bucket, não do cliente: estes dois só aparecem com o storage mal configurado.
+    public static readonly Error ImageKeyInvalid =
+        Error.Validation("imageKey", "CONVERSATION_IMAGE_KEY_INVALID", "Image key must be a key in the conversations folder of the private bucket.");
 
-    public static readonly Error ImageUrlTooLong =
-        Error.Validation("imageUrl", "CONVERSATION_IMAGE_URL_TOO_LONG", $"Image URL must be at most {Message.ImageUrlMaxLength} characters.", ("max", Message.ImageUrlMaxLength));
+    public static readonly Error ImageKeyTooLong =
+        Error.Validation("imageKey", "CONVERSATION_IMAGE_KEY_TOO_LONG", $"Image key must be at most {Message.ImageKeyMaxLength} characters.", ("max", Message.ImageKeyMaxLength));
 
     public static readonly Error PageInvalid =
         Error.Validation("page", "CONVERSATION_PAGE_INVALID", "Page must be 1 or greater.");
@@ -173,6 +173,10 @@ public static class ConversationsErrors
     /// <summary>404: não existe mensagem com esse id nesta conversa.</summary>
     public static Error MessageNotFound(MessageId id) =>
         new("CONVERSATION_MESSAGE_NOT_FOUND", $"Message '{id.Value}' was not found in this conversation.");
+
+    /// <summary>404: a mensagem não tem foto, ou a foto já saiu do bucket.</summary>
+    public static Error MessagePhotoNotFound(MessageId id) =>
+        new("CONVERSATION_MESSAGE_PHOTO_NOT_FOUND", $"Message '{id.Value}' has no photo.");
 
     /// <summary>422: só quem recebeu a mensagem denuncia; a própria mensagem, não.</summary>
     public static readonly Error ReportOwnMessage =

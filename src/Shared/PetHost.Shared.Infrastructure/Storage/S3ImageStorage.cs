@@ -31,6 +31,9 @@ internal sealed partial class S3ImageStorage(
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(folder);
 
+        if (image is { IsPreflight: true })
+            return Result<StoredImage>.Failure(ImageErrors.PreflightPassed);
+
         var read = await ImageUploadReader.ReadAsync(image, cancellationToken).ConfigureAwait(false);
         if (read.IsFailure)
             return Result<StoredImage>.FromFailure(read);

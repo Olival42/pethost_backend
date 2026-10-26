@@ -14,15 +14,23 @@ namespace PetHost.Modules.Conversations.Domain.Messages;
 /// Quem enviou é guardado pelo lado (<see cref="ConversationParty"/>), não pela conta: a conversa
 /// tem exatamente dois lados. A mensagem enviada enquanto a dupla tem uma reserva em andamento
 /// leva o id dela (<see cref="BookingId"/>, FK lógica para <c>booking.bookings.id</c>): é o
-/// histórico da reserva. A URL da foto vem do bucket de imagens, nunca do cliente.
+/// histórico da reserva. A foto fica no bucket <b>privado</b> (<see cref="ImageKey"/>, a chave
+/// gerada pelo storage, nunca do cliente) e só abre por URL assinada, para quem é da conversa.
+/// Fotos antigas, de antes do bucket privado, ainda têm a URL pública em <see cref="ImageUrl"/>.
 /// </remarks>
 public sealed class Message : Entity<MessageId>
 {
     /// <summary>Tamanho máximo do texto.</summary>
     public const int BodyMaxLength = 2000;
 
-    /// <summary>Tamanho máximo da URL da foto.</summary>
+    /// <summary>Tamanho máximo da URL da foto (fotos antigas, públicas).</summary>
     public const int ImageUrlMaxLength = 500;
+
+    /// <summary>Tamanho máximo da chave da foto no bucket privado.</summary>
+    public const int ImageKeyMaxLength = 200;
+
+    /// <summary>Pasta das fotos do chat no bucket privado (<c>PrivateImageFolders.Conversations</c>).</summary>
+    public const string ImageKeyPrefix = "conversations/";
 
     /// <summary>Construtor só para o EF Core materializar a entidade.</summary>
     private Message()
@@ -33,15 +41,16 @@ public sealed class Message : Entity<MessageId>
         ConversationId conversationId,
         ConversationParty sentBy,
         string? body,
-        string? imageUrl,
+        string? imageKey,
         Guid? bookingId,
-        DateTimeOffset now)
-        : base(MessageId.New())
+        DateTimeOffset now,
+        MessageId id)
+        : base(id)
     {
         ConversationId = conversationId;
         SentBy = sentBy;
         Body = body;
-        ImageUrl = imageUrl;
+        ImageKey = imageKey;
         BookingId = bookingId;
         CreatedAt = now;
     }
@@ -54,8 +63,14 @@ public sealed class Message : Entity<MessageId>
     /// <summary>Texto, sem espaços nas pontas. Nulo em foto sem legenda.</summary>
     public string? Body { get; private set; }
 
-    /// <summary>URL pública absoluta da foto no bucket. Nula em mensagem só de texto.</summary>
+    /// <summary>
+    /// URL pública da foto, só nas mensagens de antes do bucket privado. As novas usam
+    /// <see cref="ImageKey"/>.
+    /// </summary>
     public string? ImageUrl { get; private set; }
+
+    /// <summary>Chave da foto no bucket privado. Nula em mensagem só de texto (e nas fotos antigas).</summary>
+    public string? ImageKey { get; private set; }
 
     /// <summary>Reserva em andamento da dupla no momento do envio (<c>booking.bookings.id</c>).</summary>
     public Guid? BookingId { get; private set; }
@@ -66,7 +81,7 @@ public sealed class Message : Entity<MessageId>
     public DateTimeOffset CreatedAt { get; private set; }
 
     /// <summary>A mensagem tem foto.</summary>
-    public bool HasPhoto => ImageUrl is not null;
+    public bool HasPhoto => ImageUrl is not null || ImageKey is not null;
 
     /// <summary>Mensagem de texto. Texto vazio ou só com espaços é recusado.</summary>
     public static Result<Message> Text(
@@ -87,23 +102,29 @@ public sealed class Message : Entity<MessageId>
         if (HasControlCharacters(text))
             return Result<Message>.Failure(ConversationsErrors.BodyInvalidCharacters);
 
-        return Result<Message>.Success(new Message(conversationId, sentBy, text, imageUrl: null, bookingId, now));
+        return Result<Message>.Success(new Message(conversationId, sentBy, text, imageKey: null, bookingId, now, MessageId.New()));
     }
 
     /// <summary>Mensagem com foto e legenda opcional. Os erros dos dois campos voltam juntos.</summary>
+    /// <param name="imageKey">Chave da foto no bucket privado.</param>
+    /// <param name="id">
+    /// Id da mensagem; sem ele, um novo. A foto do upload direto usa o id do upload: confirmar de
+    /// novo acha a mesma mensagem em vez de criar outra.
+    /// </param>
     public static Result<Message> Photo(
         ConversationId conversationId,
         ConversationParty sentBy,
-        string? imageUrl,
+        string? imageKey,
         string? caption,
         Guid? bookingId,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        MessageId? id = null)
     {
         var errors = new List<Error>();
 
-        var url = CheckImageUrl(imageUrl);
-        if (url.IsFailure)
-            errors.AddRange(url.Errors!);
+        var key = CheckImageKey(imageKey);
+        if (key.IsFailure)
+            errors.AddRange(key.Errors!);
 
         var text = Normalize(caption);
         if (text is { Length: > BodyMaxLength })
@@ -115,7 +136,7 @@ public sealed class Message : Entity<MessageId>
         if (errors.Count > 0)
             return Result<Message>.Failure(errors);
 
-        return Result<Message>.Success(new Message(conversationId, sentBy, text, url.Value, bookingId, now));
+        return Result<Message>.Success(new Message(conversationId, sentBy, text, key.Value, bookingId, now, id ?? MessageId.New()));
     }
 
     /// <summary>
@@ -138,22 +159,16 @@ public sealed class Message : Entity<MessageId>
         return string.IsNullOrEmpty(trimmed) ? null : trimmed;
     }
 
-    private static Result<string> CheckImageUrl(string? imageUrl)
+    private static Result<string> CheckImageKey(string? imageKey)
     {
-        var text = imageUrl?.Trim();
+        var text = imageKey?.Trim();
 
-        if (string.IsNullOrEmpty(text))
-            return Result<string>.Failure(ConversationsErrors.ImageUrlInvalid);
+        // A chave vem do storage, não do cliente: estes erros só aparecem com o storage mal configurado.
+        if (string.IsNullOrEmpty(text) || !text.StartsWith(ImageKeyPrefix, StringComparison.Ordinal) || text.Contains("..", StringComparison.Ordinal))
+            return Result<string>.Failure(ConversationsErrors.ImageKeyInvalid);
 
-        if (text.Length > ImageUrlMaxLength)
-            return Result<string>.Failure(ConversationsErrors.ImageUrlTooLong);
-
-        // Recusa javascript:, data: e caminho relativo: o front usa isto como src de imagem.
-        var isWebAddress = Uri.TryCreate(text, UriKind.Absolute, out var uri)
-            && (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp);
-
-        return isWebAddress
-            ? Result<string>.Success(text)
-            : Result<string>.Failure(ConversationsErrors.ImageUrlInvalid);
+        return text.Length > ImageKeyMaxLength
+            ? Result<string>.Failure(ConversationsErrors.ImageKeyTooLong)
+            : Result<string>.Success(text);
     }
 }

@@ -117,6 +117,17 @@ public sealed class TestImageBucket : IAsyncDisposable
     /// <summary>A URL que o arquivo teria se o bucket privado fosse público (para provar que não é).</summary>
     public Uri PrivateObjectUrl(string key) => new($"{ServiceUrl}/{PrivateBucketName}/{key}");
 
+    /// <summary>A chave do arquivo de uma URL assinada do bucket privado (o caminho, sem a query).</summary>
+    public static string PrivateKeyOf(string signedUrl)
+    {
+        ArgumentNullException.ThrowIfNull(signedUrl);
+
+        var path = new Uri(signedUrl).AbsolutePath;
+        var marker = $"/{PrivateBucketName}/";
+
+        return Uri.UnescapeDataString(path[(path.IndexOf(marker, StringComparison.Ordinal) + marker.Length)..]);
+    }
+
     /// <summary>Chaves dos arquivos no bucket privado.</summary>
     public async Task<IReadOnlyList<string>> ListPrivateKeysAsync()
     {

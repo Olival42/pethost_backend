@@ -11,16 +11,18 @@ using PetHost.Shared.Kernel.Results;
 namespace PetHost.Modules.Conversations.Application.Messages.SendPhotoMessage;
 
 /// <summary>
-/// Envia a foto ao bucket público e grava a mensagem. A posse, o perfil ativo e o outro lado sem
-/// suspensão são conferidos <b>antes</b> do envio: conversa de outra pessoa é <c>404</c>,
+/// Envia a foto ao bucket <b>privado</b> e grava a mensagem. A posse, o perfil ativo e o outro lado
+/// sem suspensão são conferidos <b>antes</b> do envio: conversa de outra pessoa é <c>404</c>,
 /// destinatário suspenso é <c>403 CONVERSATION_RECIPIENT_SUSPENDED</c>, conversa bloqueada é
 /// <c>422 CONVERSATION_BLOCKED</c>, e nada vai para o bucket.
-/// Se a gravação falhar, a foto recém-enviada é apagada (<see cref="ImageReplacement"/>).
+/// Se a gravação falhar, a foto recém-enviada é apagada (compensação).
 /// </summary>
 /// <remarks>
-/// A trilha e o aviso pelo hub ficam depois do <see cref="ImageReplacement"/>: uma falha neles não
-/// pode apagar a foto de uma mensagem já gravada. A trava da conversa só envolve a gravação, não o
-/// envio ao bucket: a transação não fica aberta esperando o upload.
+/// A foto só abre por URL assinada (<see cref="MessagePhotoLinks"/>), para quem é da conversa. A
+/// trilha e o aviso pelo hub ficam depois da gravação: uma falha neles não pode apagar a foto de uma
+/// mensagem já gravada. A trava da conversa só envolve a gravação, não o envio ao bucket.
+/// Com <see cref="SendPhotoMessageCommand.MessageId"/> de uma mensagem que já existe, devolve essa
+/// mensagem sem enviar nada: é o que deixa a confirmação do upload direto ser repetida.
 /// </remarks>
 public sealed class SendPhotoMessageCommandHandler(
     IConversationRepository conversationRepository,
@@ -28,7 +30,8 @@ public sealed class SendPhotoMessageCommandHandler(
     IConversationsUnitOfWork unitOfWork,
     IConversationParties conversationParties,
     IConversationBookings conversationBookings,
-    IImageStorage imageStorage,
+    IPrivateImageStorage imageStorage,
+    MessagePhotoLinks photoLinks,
     ConversationNotifications notifications,
     IAuditTrail auditTrail,
     TimeProvider timeProvider) : ICommandHandler<SendPhotoMessageCommand, MessageResponse>
@@ -46,6 +49,14 @@ public sealed class SendPhotoMessageCommandHandler(
 
         var (conversation, participant) = loaded.Value!;
 
+        MessageId? messageId = command.MessageId is { } id ? new MessageId(id) : null;
+        if (messageId is { } existingId)
+        {
+            var existing = await messageRepository.FindInConversationAsync(conversation.Id, existingId, cancellationToken).ConfigureAwait(false);
+            if (existing is not null)
+                return Result<MessageResponse>.Success(await photoLinks.ToResponseAsync(existing, cancellationToken).ConfigureAwait(false));
+        }
+
         var recipient = await ConversationAccess
             .EnsureRecipientNotSuspendedAsync(conversationParties, conversation, participant.Side, cancellationToken)
             .ConfigureAwait(false);
@@ -60,45 +71,51 @@ public sealed class SendPhotoMessageCommandHandler(
             .GetInProgressBookingIdAsync(conversation.OwnerId, conversation.HostId, cancellationToken)
             .ConfigureAwait(false);
 
-        Message? sent = null;
+        var stored = await imageStorage.SaveAsync(command.Image, PrivateImageFolders.Conversations, cancellationToken).ConfigureAwait(false);
+        if (stored.IsFailure)
+            return Result<MessageResponse>.FromFailure(stored);
 
-        var result = await ImageReplacement
-            .ReplaceAsync(
-                imageStorage,
-                command.Image,
-                ImageFolders.Conversations,
-                async (image, ct) =>
-                {
-                    var saved = await SaveAsync(conversation, participant.Side, image, command.Body, bookingId, ct).ConfigureAwait(false);
-                    sent = saved.Value;
+        var key = stored.Value!.Key;
 
-                    return saved.IsFailure
-                        ? Result<ImageChange<MessageResponse>>.FromFailure(saved)
-                        : Result<ImageChange<MessageResponse>>.Success(new ImageChange<MessageResponse>(MessageResponse.From(saved.Value!), PreviousUrl: null));
-                },
-                cancellationToken)
-            .ConfigureAwait(false);
+        Result<Message> saved;
+        try
+        {
+            saved = await SaveAsync(conversation, participant.Side, key, command.Body, bookingId, messageId, cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            // CancellationToken.None: a limpeza roda mesmo se o pedido caiu.
+            await imageStorage.DeleteAsync(key, CancellationToken.None).ConfigureAwait(false);
+            throw;
+        }
 
-        if (result.IsFailure)
-            return result;
+        if (saved.IsFailure)
+        {
+            await imageStorage.DeleteAsync(key, CancellationToken.None).ConfigureAwait(false);
+            return Result<MessageResponse>.FromFailure(saved);
+        }
 
-        await ConversationTrail.RecordMessageSentAsync(auditTrail, sent!, cancellationToken).ConfigureAwait(false);
-        await notifications.MessageSentAsync(conversation, participant.Side, result.Value!, cancellationToken).ConfigureAwait(false);
+        var message = saved.Value!;
+        var response = await photoLinks.ToResponseAsync(message, cancellationToken).ConfigureAwait(false);
 
-        return result;
+        await ConversationTrail.RecordMessageSentAsync(auditTrail, message, cancellationToken).ConfigureAwait(false);
+        await notifications.MessageSentAsync(conversation, participant.Side, response, cancellationToken).ConfigureAwait(false);
+
+        return Result<MessageResponse>.Success(response);
     }
 
-    /// <summary>Cria a mensagem com a URL que o bucket gerou e grava. Recusa ou falha: a foto é apagada.</summary>
+    /// <summary>Cria a mensagem com a chave que o bucket gerou e grava.</summary>
     private async Task<Result<Message>> SaveAsync(
         Conversation conversation,
         ConversationParty sentBy,
-        StoredImage image,
+        string imageKey,
         string? caption,
         Guid? bookingId,
+        MessageId? messageId,
         CancellationToken cancellationToken)
     {
         var now = timeProvider.GetUtcNow();
-        var message = Message.Photo(conversation.Id, sentBy, image.Url, caption, bookingId, now);
+        var message = Message.Photo(conversation.Id, sentBy, imageKey, caption, bookingId, now, messageId);
         if (message.IsFailure)
             return message;
 

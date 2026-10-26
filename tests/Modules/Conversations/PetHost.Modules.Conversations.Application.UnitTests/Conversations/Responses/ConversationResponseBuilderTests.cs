@@ -14,7 +14,7 @@ public sealed class ConversationResponseBuilderTests
     private readonly Conversation _conversation = new ConversationBuilder().Build();
     private readonly ConversationResponseBuilder _sut;
 
-    public ConversationResponseBuilderTests() => _sut = new ConversationResponseBuilder(_parties.Object);
+    public ConversationResponseBuilderTests() => _sut = new ConversationResponseBuilder(_parties.Object, ConversationsTestData.PhotoLinks());
 
     [Fact]
     public async Task BuildAsync_Should_JoinTheNamesTheLastMessageAndTheUnreadCount_When_TheRowHasThem()

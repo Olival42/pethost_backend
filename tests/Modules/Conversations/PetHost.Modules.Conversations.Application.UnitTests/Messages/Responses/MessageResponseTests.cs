@@ -2,6 +2,7 @@ using FluentAssertions;
 using PetHost.Modules.Conversations.Application.Messages.Responses;
 using PetHost.Modules.Conversations.Domain.Conversations;
 using PetHost.Modules.Conversations.Domain.Messages;
+using PetHost.Shared.Contracts.Storage;
 using PetHost.TestKit;
 using Xunit;
 
@@ -9,7 +10,10 @@ namespace PetHost.Modules.Conversations.Application.UnitTests.Messages.Responses
 
 public sealed class MessageResponseTests
 {
-    private const string PhotoUrl = "https://images.pethost.local/conversations/pipoca.webp";
+    private const string PhotoKey = "conversations/0192aa.webp";
+    private const string SignedUrl = "https://signed.pethost.local/conversations/0192aa.webp";
+
+    private static readonly DateTimeOffset SignedUntil = ConversationBuilder.DefaultNow.AddMinutes(5);
 
     private readonly Conversation _conversation = new ConversationBuilder().Build();
 
@@ -17,10 +21,10 @@ public sealed class MessageResponseTests
     public void From_Should_CopyEveryFieldWithTheSideAsText_When_GivenAMessage()
     {
         // Arrange
-        var message = Message.Photo(_conversation.Id, ConversationParty.Host, PhotoUrl, "Dormindo", ConversationBuilder.BookingId, ConversationBuilder.DefaultNow).Value!;
+        var message = Message.Photo(_conversation.Id, ConversationParty.Host, PhotoKey, "Dormindo", ConversationBuilder.BookingId, ConversationBuilder.DefaultNow).Value!;
 
         // Act
-        var response = MessageResponse.From(message);
+        var response = MessageResponse.From(message, new SignedImageUrl(SignedUrl, SignedUntil));
 
         // Assert
         response.Should().Be(new MessageResponse(
@@ -28,7 +32,8 @@ public sealed class MessageResponseTests
             _conversation.Id.Value,
             "host",
             "Dormindo",
-            PhotoUrl,
+            SignedUrl,
+            SignedUntil.ToUnixTimeSeconds(),
             ConversationBuilder.BookingId,
             ConversationBuilder.DefaultNow));
     }
@@ -43,6 +48,6 @@ public sealed class MessageResponseTests
         var response = MessageResponse.From(row);
 
         // Assert
-        response.Should().Be(new MessageResponse(row.Id.Value, _conversation.Id.Value, "owner", "Oi!", null, null, ConversationBuilder.DefaultNow));
+        response.Should().Be(new MessageResponse(row.Id.Value, _conversation.Id.Value, "owner", "Oi!", null, null, null, ConversationBuilder.DefaultNow));
     }
 }

@@ -37,6 +37,7 @@ public sealed class EraseConversationsOfPartyCommandHandler(
     IConversationRepository conversationRepository,
     IMessageRepository messageRepository,
     IImageStorage imageStorage,
+    IPrivateImageStorage privateImageStorage,
     IAuditTrail auditTrail) : ICommandHandler<EraseConversationsOfPartyCommand, int>
 {
     public async Task<Result<int>> HandleAsync(EraseConversationsOfPartyCommand command, CancellationToken cancellationToken)
@@ -52,6 +53,7 @@ public sealed class EraseConversationsOfPartyCommandHandler(
         foreach (var conversation in conversations)
         {
             var photos = await messageRepository.ListImageUrlsAsync(conversation.Id, cancellationToken).ConfigureAwait(false);
+            var privatePhotos = await messageRepository.ListImageKeysAsync(conversation.Id, cancellationToken).ConfigureAwait(false);
 
             if (!await conversationRepository.DeleteAsync(conversation.Id, cancellationToken).ConfigureAwait(false))
                 continue;
@@ -59,7 +61,10 @@ public sealed class EraseConversationsOfPartyCommandHandler(
             foreach (var photo in photos)
                 await imageStorage.DeleteAsync(photo, CancellationToken.None).ConfigureAwait(false);
 
-            await ConversationTrail.RecordErasedAsync(auditTrail, conversation, photos.Count, cancellationToken).ConfigureAwait(false);
+            foreach (var key in privatePhotos)
+                await privateImageStorage.DeleteAsync(key, CancellationToken.None).ConfigureAwait(false);
+
+            await ConversationTrail.RecordErasedAsync(auditTrail, conversation, photos.Count + privatePhotos.Count, cancellationToken).ConfigureAwait(false);
             erased++;
         }
 

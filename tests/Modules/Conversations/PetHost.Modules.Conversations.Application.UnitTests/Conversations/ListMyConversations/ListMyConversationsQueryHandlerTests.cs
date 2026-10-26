@@ -21,7 +21,7 @@ public sealed class ListMyConversationsQueryHandlerTests
 
     public ListMyConversationsQueryHandlerTests()
     {
-        _sut = new ListMyConversationsQueryHandler(_parties.Object, _queries.Object, new ConversationResponseBuilder(_parties.Object));
+        _sut = new ListMyConversationsQueryHandler(_parties.Object, _queries.Object, new ConversationResponseBuilder(_parties.Object, ConversationsTestData.PhotoLinks()));
 
         _parties.Setup(p => p.GetOwnersAsync(It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>())).ReturnsAsync(ConversationsTestData.Owners());
         _parties.Setup(p => p.GetHostsAsync(It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>())).ReturnsAsync(ConversationsTestData.Hosts());

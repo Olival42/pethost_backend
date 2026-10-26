@@ -1,5 +1,6 @@
 using System.Net;
 using FluentAssertions;
+using PetHost.TestKit;
 using Xunit;
 using static PetHost.Modules.Conversations.IntegrationTests.ConversationsScenario;
 
@@ -361,7 +362,7 @@ public sealed class ConversationsControllerTests(ConversationsApiFixture fixture
     }
 
     [Fact]
-    public async Task SendPhoto_Should_StoreThePhotoInThePublicBucket_When_TheImageIsValid()
+    public async Task SendPhoto_Should_StoreThePhotoInThePrivateBucketWithASignedLink_When_TheImageIsValid()
     {
         // Arrange
         var pair = await _scenario.ArrangeAsync();
@@ -375,9 +376,104 @@ public sealed class ConversationsControllerTests(ConversationsApiFixture fixture
         var message = Data(await ReadAsync(response));
         message.GetProperty("body").GetString().Should().Be("Brincando no quintal");
         var url = message.GetProperty("imageUrl").GetString()!;
-        url.Should().Contain("/conversations/");
-        (await fixture.Bucket.ExistsAsync(url)).Should().BeTrue();
+        url.Should().Contain("X-Amz-Signature", "a foto do chat só abre por URL assinada");
+        message.GetProperty("imageUrlExpiresAt").GetInt64().Should().BeGreaterThan(DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        var key = TestImageBucket.PrivateKeyOf(url);
+        key.Should().StartWith("conversations/");
+        (await fixture.Bucket.ListPrivateKeysAsync()).Should().Contain(key);
+
+        using var browser = new HttpClient();
+        (await browser.GetAsync(url, TestContext.Current.CancellationToken)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await browser.GetAsync(fixture.Bucket.PrivateObjectUrl(key), TestContext.Current.CancellationToken)).StatusCode
+            .Should().Be(HttpStatusCode.Forbidden, "sem a assinatura, o bucket privado recusa");
     }
+
+    [Fact]
+    public async Task GetMessagePhoto_Should_ReturnAFreshSignedLink_When_TheRequesterIsInTheConversation()
+    {
+        // Arrange
+        var pair = await _scenario.ArrangeAsync();
+        var conversationId = await _scenario.StartAsync(pair);
+        var message = Data(await ReadAsync(await _scenario.SendPhotoAsync(pair.HostToken, conversationId, caption: null)));
+        var messageId = message.GetProperty("id").GetGuid();
+        var stranger = await _scenario.RegisterOwnerAsync("joao@exemplo.com", "111.444.777-35", "João Lima");
+
+        // Act
+        var response = await _scenario.SendAsync(HttpMethod.Get, $"{ConversationsRoute}/{conversationId}/messages/{messageId}/photo", pair.OwnerToken);
+        var fromStranger = await _scenario.SendAsync(HttpMethod.Get, $"{ConversationsRoute}/{conversationId}/messages/{messageId}/photo", stranger);
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.Headers.CacheControl!.NoStore.Should().BeTrue();
+        var link = Data(await ReadAsync(response));
+        TestImageBucket.PrivateKeyOf(link.GetProperty("url").GetString()!).Should().Be(TestImageBucket.PrivateKeyOf(message.GetProperty("imageUrl").GetString()!));
+        fromStranger.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task DirectUpload_Should_CreateTheMessageOnlyOnConfirmAndOnlyOnce_When_TheHostSendsAChatPhoto()
+    {
+        // Arrange
+        var pair = await _scenario.ArrangeAsync();
+        var conversationId = await _scenario.StartAsync(pair);
+        var image = TestImages.PngVariant(7);
+        var request = await _scenario.SendAsync(HttpMethod.Post, "/api/v1/uploads", pair.HostToken, new
+        {
+            purpose = "chat-photo",
+            contentType = "image/png",
+            sizeBytes = image.Length,
+            resourceId = conversationId,
+        });
+        request.StatusCode.Should().Be(HttpStatusCode.Created);
+        var ticket = Data(await ReadAsync(request));
+        var uploadId = ticket.GetProperty("uploadId").GetGuid();
+
+        using var browser = new HttpClient();
+        var file = new ByteArrayContent(image);
+        file.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("image/png");
+        (await browser.PutAsync(ticket.GetProperty("uploadUrl").GetString(), file, TestContext.Current.CancellationToken)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        (await MessageCountAsync(pair.OwnerToken, conversationId)).Should().Be(0, "o PUT no bucket não cria mensagem");
+
+        // Act
+        var first = await _scenario.SendAsync(HttpMethod.Post, $"/api/v1/uploads/{uploadId}/confirm", pair.HostToken, new { body = "Chegou bem!" });
+        var second = await _scenario.SendAsync(HttpMethod.Post, $"/api/v1/uploads/{uploadId}/confirm", pair.HostToken, new { body = "Chegou bem!" });
+
+        // Assert
+        first.StatusCode.Should().Be(HttpStatusCode.OK);
+        second.StatusCode.Should().Be(HttpStatusCode.OK);
+        var message = Data(await ReadAsync(first)).GetProperty("result");
+        message.GetProperty("id").GetGuid().Should().Be(uploadId, "o id da mensagem é o id do upload");
+        message.GetProperty("body").GetString().Should().Be("Chegou bem!");
+        TestImageBucket.PrivateKeyOf(message.GetProperty("imageUrl").GetString()!).Should().StartWith("conversations/");
+        (await MessageCountAsync(pair.OwnerToken, conversationId)).Should().Be(1, "confirmar de novo não duplica a mensagem");
+    }
+
+    [Fact]
+    public async Task DirectUpload_Should_Return404WithoutSigning_When_TheConversationIsFromSomeoneElse()
+    {
+        // Arrange
+        var pair = await _scenario.ArrangeAsync();
+        var conversationId = await _scenario.StartAsync(pair);
+        var stranger = await _scenario.RegisterOwnerAsync("joao@exemplo.com", "111.444.777-35", "João Lima");
+
+        // Act
+        var response = await _scenario.SendAsync(HttpMethod.Post, "/api/v1/uploads", stranger, new
+        {
+            purpose = "chat-photo",
+            contentType = "image/png",
+            sizeBytes = 100,
+            resourceId = conversationId,
+        });
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await ReadAsync(response)).GetProperty("error").GetProperty("code").GetString().Should().Be("CONVERSATION_NOT_FOUND");
+    }
+
+    private async Task<int> MessageCountAsync(string token, Guid conversationId) =>
+        Data(await ReadAsync(await _scenario.SendAsync(HttpMethod.Get, $"{ConversationsRoute}/{conversationId}/messages", token)))
+            .GetProperty("items").GetArrayLength();
 
     [Fact]
     public async Task SendPhoto_Should_Return404WithoutUploading_When_TheConversationIsFromSomeoneElse()

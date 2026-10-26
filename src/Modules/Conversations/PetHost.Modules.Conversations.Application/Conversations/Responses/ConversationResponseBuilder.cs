@@ -7,7 +7,7 @@ namespace PetHost.Modules.Conversations.Application.Conversations.Responses;
 /// Junta às linhas lidas do banco o nome e a foto dos dois lados, numa consulta por módulo para a
 /// página inteira (nunca uma por conversa).
 /// </summary>
-public sealed class ConversationResponseBuilder(IConversationParties conversationParties)
+public sealed class ConversationResponseBuilder(IConversationParties conversationParties, MessagePhotoLinks photoLinks)
 {
     public async Task<ConversationResponse> BuildAsync(ConversationRow row, CancellationToken cancellationToken)
     {
@@ -35,13 +35,17 @@ public sealed class ConversationResponseBuilder(IConversationParties conversatio
             .GetHostsAsync([.. rows.Select(r => r.HostId).Distinct()], cancellationToken)
             .ConfigureAwait(false);
 
+        var lastMessages = new Dictionary<Guid, MessageResponse>();
+        foreach (var row in rows.Where(r => r.LastMessage is not null))
+            lastMessages[row.Id.Value] = await photoLinks.ToResponseAsync(row.LastMessage!, cancellationToken).ConfigureAwait(false);
+
         return [.. rows.Select(row => new ConversationResponse(
             row.Id.Value,
             row.OwnerId,
             Summary(owners.GetValueOrDefault(row.OwnerId)),
             row.HostId,
             Summary(hosts.GetValueOrDefault(row.HostId)),
-            row.LastMessage is null ? null : MessageResponse.From(row.LastMessage),
+            lastMessages.GetValueOrDefault(row.Id.Value),
             row.UnreadCount,
             row.Blocked,
             row.BlockedByViewer,

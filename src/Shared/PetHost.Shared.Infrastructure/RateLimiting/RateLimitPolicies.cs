@@ -33,6 +33,9 @@ public static class RateLimitPolicies
     /// <summary>Denúncia (cada uma avisa o admin por e-mail). Por usuário.</summary>
     public const string Reports = "reports";
 
+    /// <summary>Pedido de URL de upload direto ao bucket (cada um assina uma URL e abre uma linha). Por usuário.</summary>
+    public const string Uploads = "uploads";
+
     public static readonly IReadOnlyList<string> All =
-        [Credentials, Registration, PasswordReset, Session, AccountSensitive, AccountUpdate, ChatMessages, ReviewWrites, Reports];
+        [Credentials, Registration, PasswordReset, Session, AccountSensitive, AccountUpdate, ChatMessages, ReviewWrites, Reports, Uploads];
 }

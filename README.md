@@ -464,6 +464,7 @@ Os anfitriões já vêm verificados e com cantinho na busca. Dá para pedir, ace
 | [`docs/dados-de-teste.md`](docs/dados-de-teste.md) | Contas, pets e cantinhos criados pelo seed |
 | [`docs/relatorio-de-testes.md`](docs/relatorio-de-testes.md) | Casos de teste executados, resultado, cobertura, falhas, correções e evidências |
 | [`docs/armazenamento-de-imagens.md`](docs/armazenamento-de-imagens.md) | Buckets, RustFS, R2/Supabase e regras de upload |
+| [`docs/upload-direto.md`](docs/upload-direto.md) | Upload direto do front ao bucket (URL assinada): contrato, erros, CORS e limpeza |
 | `docs/modulo-*.md` | Endpoints, regras, erros e configuração de cada módulo (Auth, Owners, Hosts, Pets, Listings, Bookings, Payments, Conversations, Reviews, Audit) |
 
 ## Design e links dos e-mails

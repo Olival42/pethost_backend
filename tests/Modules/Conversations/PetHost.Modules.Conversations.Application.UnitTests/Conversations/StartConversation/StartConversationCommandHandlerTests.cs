@@ -35,7 +35,7 @@ public sealed class StartConversationCommandHandlerTests
             _parties.Object,
             _listings.Object,
             _queries.Object,
-            new ConversationResponseBuilder(_parties.Object),
+            new ConversationResponseBuilder(_parties.Object, ConversationsTestData.PhotoLinks()),
             _auditTrail.Object,
             new FakeTimeProvider(ConversationBuilder.DefaultNow));
 

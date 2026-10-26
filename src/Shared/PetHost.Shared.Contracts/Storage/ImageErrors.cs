@@ -25,4 +25,11 @@ public static class ImageErrors
     /// <summary>O formato bate, mas a estrutura do arquivo está quebrada (cortado, blocos inválidos).</summary>
     public static readonly Error FileCorrupted =
         Error.Validation(Field, "IMAGE_FILE_CORRUPTED", "The image file is corrupted and could not be read.");
+
+    /// <summary>
+    /// Resposta do bucket para <see cref="ImageUpload.Preflight"/>: o caso de uso chegou ao envio,
+    /// então posse e regras passaram. Nunca sai da API (o pedido de upload o troca por sucesso).
+    /// </summary>
+    public static readonly Error PreflightPassed =
+        new("IMAGE_PREFLIGHT_PASSED", "All checks passed; nothing was stored.");
 }

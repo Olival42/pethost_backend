@@ -21,7 +21,7 @@ public sealed class GetConversationByIdQueryHandlerTests
 
     public GetConversationByIdQueryHandlerTests()
     {
-        _sut = new GetConversationByIdQueryHandler(_repository.Object, _parties.Object, _queries.Object, new ConversationResponseBuilder(_parties.Object));
+        _sut = new GetConversationByIdQueryHandler(_repository.Object, _parties.Object, _queries.Object, new ConversationResponseBuilder(_parties.Object, ConversationsTestData.PhotoLinks()));
 
         _parties.Setup(p => p.FindHostByAccountAsync(ConversationBuilder.HostUserId, It.IsAny<CancellationToken>())).ReturnsAsync(ConversationsTestData.AvailableHost);
         _parties.Setup(p => p.GetOwnersAsync(It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>())).ReturnsAsync(ConversationsTestData.Owners());
