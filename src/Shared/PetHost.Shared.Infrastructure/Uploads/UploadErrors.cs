@@ -6,6 +6,8 @@ namespace PetHost.Shared.Infrastructure.Uploads;
 /// <summary>Erros do upload direto ao bucket (<c>/api/v1/uploads</c>).</summary>
 public static class UploadErrors
 {
+    public static readonly Error DocumentBatchInvalid =
+        Error.Validation("uploadIds", "UPLOAD_DOCUMENT_BATCH_INVALID", "Provide one to three uploads of distinct document slots owned by this account.");
     public static readonly Error PurposeRequired =
         Error.Validation("purpose", "UPLOAD_PURPOSE_REQUIRED", "Purpose is required.");
 

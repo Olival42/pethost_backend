@@ -5,6 +5,7 @@ using PetHost.Modules.Conversations.Application.Conversations;
 using PetHost.Modules.Conversations.Application.Messages.Responses;
 using PetHost.Modules.Conversations.Domain.Conversations;
 using PetHost.TestKit;
+using PetHost.Shared.Contracts.Storage;
 using Xunit;
 
 namespace PetHost.Modules.Conversations.Application.UnitTests.Conversations;
@@ -88,6 +89,24 @@ public sealed class ConversationNotificationsTests
         // Assert
         _realtime.Verify(r => r.MessageCreatedAsync(It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<MessageResponse>(), It.IsAny<CancellationToken>()), Times.Never);
         _realtime.Verify(r => r.UnreadCountChangedAsync(It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task MessageSentAsync_Should_WaitForCommit_When_AConfirmationTransactionIsActive()
+    {
+        GivenParties(ConversationsTestData.Owners(), ConversationsTestData.Hosts());
+        var effects = new Mock<ICommitEffects>(MockBehavior.Strict);
+        Func<CancellationToken, Task>? delivery = null;
+        effects.SetupGet(e => e.IsActive).Returns(true);
+        effects.Setup(e => e.AfterCommit(It.IsAny<Func<CancellationToken, Task>>()))
+            .Callback<Func<CancellationToken, Task>>(action => delivery = action);
+        var sut = new ConversationNotifications(_parties.Object, _queries.Object, _realtime.Object, effects.Object);
+        await sut.MessageSentAsync(_conversation, ConversationParty.Owner, _message, CancellationToken.None);
+        _realtime.Verify(r => r.MessageCreatedAsync(It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<MessageResponse>(), It.IsAny<CancellationToken>()), Times.Never);
+        delivery.Should().NotBeNull();
+        effects.SetupGet(e => e.IsActive).Returns(false);
+        await delivery!(CancellationToken.None);
+        _realtime.Verify(r => r.MessageCreatedAsync(It.IsAny<IReadOnlyCollection<Guid>>(), _message, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     private void GivenParties(IReadOnlyDictionary<Guid, PartyInfo> owners, IReadOnlyDictionary<Guid, PartyInfo> hosts)

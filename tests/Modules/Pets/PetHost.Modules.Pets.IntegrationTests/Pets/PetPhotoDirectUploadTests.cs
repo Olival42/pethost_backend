@@ -264,6 +264,119 @@ public sealed class PetPhotoDirectUploadTests(PetsApiFixture fixture) : IAsyncLi
         (await fixture.Bucket.ListPrivateKeysAsync()).Should().NotContain(Staged(ticket));
     }
 
+    [Fact]
+    public async Task Confirm_Should_RollBackTheResourceAndKeepTheStagedFile_When_TheReceiptCannotBeSaved()
+    {
+        var token = await RegisterOwnerAsync("camila@exemplo.com", "529.982.247-25");
+        var petId = await CreatePetAsync(token);
+        var ticket = await RequestAsync(token, PetPhoto(petId, TestImages.Png.Length));
+        await PutAsync(ticket, TestImages.Png);
+        await ReceiptFaultAsync(enabled: true);
+        try
+        {
+            (await ConfirmAsync(token, ticket.UploadId)).StatusCode.Should().Be(HttpStatusCode.InternalServerError);
+            Photos(await GetPetAsync(token, petId)).Should().BeEmpty("the photo and receipt share one transaction");
+            (await StatusAsync(ticket.UploadId)).Should().Be("pending");
+            (await fixture.Bucket.ListPrivateKeysAsync()).Should().Contain(Staged(ticket));
+        }
+        finally
+        {
+            await ReceiptFaultAsync(enabled: false);
+        }
+        (await ConfirmAsync(token, ticket.UploadId)).StatusCode.Should().Be(HttpStatusCode.OK);
+        Photos(await GetPetAsync(token, petId)).Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task Confirm_Should_PreserveTheOldImage_When_ReplacementTransactionRollsBack()
+    {
+        var token = await RegisterOwnerAsync("camila@exemplo.com", "529.982.247-25");
+        var petId = await CreatePetAsync(token);
+        await UploadAndConfirmAsync(token, petId, TestImages.Png);
+        var old = Photos(await GetPetAsync(token, petId)).Single();
+        var bytes = TestImages.PngVariant(12);
+        var ticket = await RequestAsync(token, new { purpose = "pet-photo", contentType = "image/png", sizeBytes = bytes.Length, resourceId = petId, photoId = old.Id });
+        await PutAsync(ticket, bytes);
+        await ReceiptFaultAsync(enabled: true);
+        try
+        {
+            (await ConfirmAsync(token, ticket.UploadId)).StatusCode.Should().Be(HttpStatusCode.InternalServerError);
+            Photos(await GetPetAsync(token, petId)).Single().Url.Should().Be(old.Url);
+            (await fixture.Bucket.ExistsAsync(old.Url)).Should().BeTrue("rollback must not delete the previous image");
+        }
+        finally
+        {
+            await ReceiptFaultAsync(enabled: false);
+        }
+        (await ConfirmAsync(token, ticket.UploadId)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await fixture.Bucket.ExistsAsync(old.Url)).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Confirm_Should_RejectConcurrentConfirmationAndSaveOnce_When_TheFirstTransactionIsStillRunning()
+    {
+        var token = await RegisterOwnerAsync("camila@exemplo.com", "529.982.247-25");
+        var petId = await CreatePetAsync(token);
+        var ticket = await RequestAsync(token, PetPhoto(petId, TestImages.Png.Length));
+        await PutAsync(ticket, TestImages.Png);
+        await using var blocker = new NpgsqlConnection(fixture.ConnectionString);
+        await blocker.OpenAsync(Ct);
+        await using var setup = new NpgsqlCommand("SELECT pg_advisory_lock(60440); CREATE FUNCTION uploads.test_receipt_pause() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_advisory_xact_lock(60440); RETURN NEW; END $$; CREATE TRIGGER test_receipt_pause BEFORE UPDATE ON uploads.upload_sessions FOR EACH ROW WHEN (NEW.status = 'completed') EXECUTE FUNCTION uploads.test_receipt_pause();", blocker);
+        await setup.ExecuteNonQueryAsync(Ct);
+        var first = ConfirmAsync(token, ticket.UploadId);
+        try
+        {
+            var waiting = false;
+            for (var attempt = 0; attempt < 100 && !waiting; attempt++)
+            {
+                await using var query = new NpgsqlCommand("SELECT EXISTS(SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND objid = 60440 AND NOT granted)", blocker);
+                waiting = (bool)(await query.ExecuteScalarAsync(Ct))!;
+                if (!waiting) await Task.Delay(50, Ct);
+            }
+            waiting.Should().BeTrue("the first confirmation reached the receipt write while holding its row lock");
+            (await ConfirmAsync(token, ticket.UploadId)).StatusCode.Should().Be(HttpStatusCode.Conflict);
+        }
+        finally
+        {
+            await using var release = new NpgsqlCommand("SELECT pg_advisory_unlock(60440)", blocker);
+            await release.ExecuteNonQueryAsync(Ct);
+            await first;
+            await using var cleanup = new NpgsqlCommand("DROP TRIGGER IF EXISTS test_receipt_pause ON uploads.upload_sessions; DROP FUNCTION IF EXISTS uploads.test_receipt_pause();", blocker);
+            await cleanup.ExecuteNonQueryAsync(Ct);
+        }
+        (await first).StatusCode.Should().Be(HttpStatusCode.OK);
+        Photos(await GetPetAsync(token, petId)).Should().ContainSingle();
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Cleanup_Should_RetainReceiptsFromTheirCompletionTime_When_TheUploadWasCreatedLongAgo(bool recentlyCompleted)
+    {
+        var token = await RegisterOwnerAsync("camila@exemplo.com", "529.982.247-25");
+        var petId = await CreatePetAsync(token);
+        await UploadAndConfirmAsync(token, petId, TestImages.Png);
+        await using var connection = new NpgsqlConnection(fixture.ConnectionString);
+        await connection.OpenAsync(Ct);
+        await using var command = new NpgsqlCommand("UPDATE uploads.upload_sessions SET created_at = now() - interval '2 days', completed_at = @completed", connection);
+        command.Parameters.AddWithValue("completed", recentlyCompleted ? DateTimeOffset.UtcNow : DateTimeOffset.UtcNow.AddDays(-2));
+        await command.ExecuteNonQueryAsync(Ct);
+        await fixture.Services.GetRequiredService<UploadCleanupService>().RunOnceAsync(Ct);
+        (await CountSessionsAsync()).Should().Be(recentlyCompleted ? 1 : 0);
+        Photos(await GetPetAsync(token, petId)).Should().ContainSingle("receipt retention must not delete the actual photo");
+    }
+
+    private async Task ReceiptFaultAsync(bool enabled)
+    {
+        await using var connection = new NpgsqlConnection(fixture.ConnectionString);
+        await connection.OpenAsync(Ct);
+        var sql = enabled
+            ? "CREATE FUNCTION uploads.test_receipt_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected receipt failure'; END $$; CREATE TRIGGER test_receipt_failure BEFORE UPDATE ON uploads.upload_sessions FOR EACH ROW WHEN (NEW.status = 'completed') EXECUTE FUNCTION uploads.test_receipt_failure();"
+            : "DROP TRIGGER IF EXISTS test_receipt_failure ON uploads.upload_sessions; DROP FUNCTION IF EXISTS uploads.test_receipt_failure();";
+        await using var command = new NpgsqlCommand(sql, connection);
+        await command.ExecuteNonQueryAsync(Ct);
+    }
+
     // ----- apoio -----
 
     private sealed record Ticket(Guid UploadId, string UploadUrl, string Method, Dictionary<string, string> Headers, long SizeBytes, long ExpiresAt, long ConfirmBy);

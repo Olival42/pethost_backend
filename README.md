@@ -81,8 +81,8 @@ pethost_backend/
 │   ├── Host/PetHost.Api/             ← único executável: Program.cs, pipeline, health checks, Swagger, seeds
 │   ├── Shared/
 │   │   ├── PetHost.Shared.Kernel/          ← Result, Error, Entity, ValueObject
-│   │   ├── PetHost.Shared.Contracts/       ← envelope da API, contratos entre módulos
-│   │   └── PetHost.Shared.Infrastructure/  ← e-mail, storage S3, Stripe, Redis, SignalR, CORS, rate limit
+│   │   ├── PetHost.Shared.Contracts/       ← envelope da API, contratos entre módulos, Storage/ICommitEffects
+│   │   └── PetHost.Shared.Infrastructure/  ← e-mail, storage S3, Uploads (confirmação/efeitos/limpeza), Stripe, Redis, SignalR, CORS, rate limit
 │   └── Modules/<Módulo>/
 │       ├── PetHost.Modules.<Módulo>.Domain/          ← agregados, value objects, regras
 │       ├── PetHost.Modules.<Módulo>.Application/     ← casos de uso (commands/queries + handlers)

@@ -19,7 +19,8 @@ namespace PetHost.Shared.Infrastructure.Storage;
 internal sealed partial class S3ImageStorage(
     IAmazonS3 s3,
     IOptions<StorageOptions> options,
-    ILogger<S3ImageStorage> logger) : IImageStorage
+    ILogger<S3ImageStorage> logger,
+    ICommitEffects effects) : IImageStorage
 {
     private const string CacheControl = "public, max-age=31536000, immutable";
 
@@ -59,6 +60,9 @@ internal sealed partial class S3ImageStorage(
 
         await s3.PutObjectAsync(request, cancellationToken).ConfigureAwait(false);
 
+        if (effects.IsActive)
+            effects.AfterRollback(ct => DeleteAsync(PublicPrefix + key, ct));
+
         LogImageStored(logger, key, buffer.Length);
 
         return Result<StoredImage>.Success(new StoredImage(PublicPrefix + key, upload.ContentHash()));
@@ -68,6 +72,12 @@ internal sealed partial class S3ImageStorage(
     {
         if (string.IsNullOrWhiteSpace(url) || !url.StartsWith(PublicPrefix, StringComparison.Ordinal))
             return;
+
+        if (effects.IsActive)
+        {
+            effects.AfterCommit(ct => DeleteAsync(url, ct));
+            return;
+        }
 
         var key = url[PublicPrefix.Length..];
 

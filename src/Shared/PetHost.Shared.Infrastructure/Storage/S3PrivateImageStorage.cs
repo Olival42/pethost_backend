@@ -25,7 +25,8 @@ internal sealed partial class S3PrivateImageStorage(
     [FromKeyedServices(StorageServiceCollectionExtensions.UrlSignerKey)] IAmazonS3 urlSigner,
     IOptions<StorageOptions> options,
     TimeProvider timeProvider,
-    ILogger<S3PrivateImageStorage> logger) : IPrivateImageStorage
+    ILogger<S3PrivateImageStorage> logger,
+    ICommitEffects effects) : IPrivateImageStorage
 {
     private const string CacheControl = "private, no-store";
 
@@ -57,6 +58,9 @@ internal sealed partial class S3PrivateImageStorage(
         request.Headers.CacheControl = CacheControl;
 
         await s3.PutObjectAsync(request, cancellationToken).ConfigureAwait(false);
+
+        if (effects.IsActive)
+            effects.AfterRollback(ct => DeleteAsync(key, ct));
 
         LogStored(logger, key, upload.Length);
 
@@ -109,6 +113,12 @@ internal sealed partial class S3PrivateImageStorage(
     {
         if (string.IsNullOrWhiteSpace(key))
             return;
+
+        if (effects.IsActive)
+        {
+            effects.AfterCommit(ct => DeleteAsync(key, ct));
+            return;
+        }
 
         try
         {

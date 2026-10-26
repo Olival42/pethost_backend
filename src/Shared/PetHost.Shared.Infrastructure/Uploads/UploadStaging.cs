@@ -49,20 +49,6 @@ public sealed partial class UploadStaging(
         return urlSigner.GetPreSignedURLAsync(request);
     }
 
-    /// <summary>Tamanho do arquivo recebido, ou <c>null</c> se o navegador ainda não enviou.</summary>
-    public async Task<long?> GetSizeAsync(string key, CancellationToken cancellationToken)
-    {
-        try
-        {
-            var metadata = await s3.GetObjectMetadataAsync(_options.PrivateBucketName, key, cancellationToken).ConfigureAwait(false);
-            return metadata.ContentLength;
-        }
-        catch (AmazonS3Exception exception) when (exception.StatusCode == HttpStatusCode.NotFound)
-        {
-            return null;
-        }
-    }
-
     /// <summary>
     /// O arquivo inteiro na memória (até <paramref name="maxBytes"/> + 1 byte: o leitor da imagem
     /// recusa o que passar), ou <c>null</c> se sumiu entre a conferência e a leitura.

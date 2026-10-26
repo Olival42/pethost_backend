@@ -1,6 +1,7 @@
 using PetHost.Shared.Contracts.Storage;
 using PetHost.Shared.Kernel.Primitives;
 using PetHost.Shared.Kernel.Results;
+using System.Text.Json;
 
 namespace PetHost.Shared.Infrastructure.Uploads;
 
@@ -37,6 +38,10 @@ public interface IUploadPurpose
     /// uso (o pet, o tutor, a mensagem): use <see cref="UploadResults.FromCompletion{T}"/>.
     /// </summary>
     Task<Result<object>> CompleteAsync(UploadPurposeContext context, ImageUpload image, CancellationToken cancellationToken);
+
+    /// <summary>Restores a completed receipt without applying it again; private links may be renewed.</summary>
+    Task<Result<object>> RestoreAsync(UploadPurposeContext context, JsonElement result, CancellationToken cancellationToken) =>
+        Task.FromResult(Result<object>.Success(result.Clone()));
 }
 
 /// <summary>Campos de alvo de uma finalidade.</summary>

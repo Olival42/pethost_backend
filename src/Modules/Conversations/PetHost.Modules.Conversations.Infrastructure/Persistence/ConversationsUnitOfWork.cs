@@ -54,7 +54,10 @@ internal sealed class ConversationsUnitOfWork(ConversationsDbContext dbContext) 
     {
         ArgumentNullException.ThrowIfNull(work);
 
-        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        // Upload confirmation already owns an ambient transaction across the module and upload receipt.
+        await using var transaction = System.Transactions.Transaction.Current is null
+            ? await dbContext.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false)
+            : null;
 
         var key = $"conversation:{conversationId.Value}";
         await dbContext.Database
@@ -63,7 +66,8 @@ internal sealed class ConversationsUnitOfWork(ConversationsDbContext dbContext) 
 
         var result = await work(cancellationToken).ConfigureAwait(false);
 
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        if (transaction is not null)
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
 
         return result;
     }

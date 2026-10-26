@@ -2,6 +2,8 @@ using System.Data.Common;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
+using PetHost.Shared.Infrastructure.Uploads;
+using PetHost.Shared.Infrastructure.Uploads.Persistence;
 using Npgsql;
 using PetHost.Modules.Audit.Infrastructure;
 using PetHost.Modules.Audit.Infrastructure.Persistence;
@@ -131,6 +133,7 @@ public sealed class HostsApiFixture : IAsyncLifetime
         });
 
         await Services.InitializeEmailAsync(applyMigrations: true);
+        await Services.InitializeDirectUploadsAsync(applyMigrations: true);
         await Services.InitializeAuthModuleAsync(applyMigrations: true);
         await Services.InitializeAuditModuleAsync(applyMigrations: true);
         await Services.InitializeOwnersModuleAsync(applyMigrations: true);
@@ -142,7 +145,7 @@ public sealed class HostsApiFixture : IAsyncLifetime
         _respawner = await Respawner.CreateAsync(_connection, new RespawnerOptions
         {
             DbAdapter = DbAdapter.Postgres,
-            SchemasToInclude = [AuthDbContext.Schema, AuditDbContext.Schema, OwnersDbContext.Schema, HostsDbContext.Schema, EmailDbContext.Schema],
+            SchemasToInclude = [AuthDbContext.Schema, AuditDbContext.Schema, OwnersDbContext.Schema, HostsDbContext.Schema, EmailDbContext.Schema, UploadsDbContext.Schema],
             TablesToIgnore =
             [
                 new Table(AuthDbContext.Schema, AuthDbContext.MigrationsHistoryTable),
@@ -150,6 +153,7 @@ public sealed class HostsApiFixture : IAsyncLifetime
                 new Table(OwnersDbContext.Schema, OwnersDbContext.MigrationsHistoryTable),
                 new Table(HostsDbContext.Schema, HostsDbContext.MigrationsHistoryTable),
                 new Table(EmailDbContext.Schema, EmailDbContext.MigrationsHistoryTable),
+                new Table(UploadsDbContext.Schema, UploadsDbContext.MigrationsHistoryTable),
             ],
         });
     }

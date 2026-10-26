@@ -1,4 +1,8 @@
 using System.Net;
+using System.Text.Json.Nodes;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using PetHost.Shared.Infrastructure.Uploads.Persistence;
 using FluentAssertions;
 using PetHost.TestKit;
 using Xunit;
@@ -416,32 +420,30 @@ public sealed class ConversationsControllerTests(ConversationsApiFixture fixture
         // Arrange
         var pair = await _scenario.ArrangeAsync();
         var conversationId = await _scenario.StartAsync(pair);
-        var image = TestImages.PngVariant(7);
-        var request = await _scenario.SendAsync(HttpMethod.Post, "/api/v1/uploads", pair.HostToken, new
-        {
-            purpose = "chat-photo",
-            contentType = "image/png",
-            sizeBytes = image.Length,
-            resourceId = conversationId,
-        });
-        request.StatusCode.Should().Be(HttpStatusCode.Created);
-        var ticket = Data(await ReadAsync(request));
-        var uploadId = ticket.GetProperty("uploadId").GetGuid();
-
-        using var browser = new HttpClient();
-        var file = new ByteArrayContent(image);
-        file.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("image/png");
-        (await browser.PutAsync(ticket.GetProperty("uploadUrl").GetString(), file, TestContext.Current.CancellationToken)).StatusCode.Should().Be(HttpStatusCode.OK);
+        var uploadId = await StageChatPhotoAsync(pair.HostToken, conversationId, TestImages.PngVariant(7));
 
         (await MessageCountAsync(pair.OwnerToken, conversationId)).Should().Be(0, "o PUT no bucket não cria mensagem");
 
         // Act
         var first = await _scenario.SendAsync(HttpMethod.Post, $"/api/v1/uploads/{uploadId}/confirm", pair.HostToken, new { body = "Chegou bem!" });
+        // A receipt can outlive its signed URL. Replaying it must renew the link rather than replay an expired URL.
+        await using (var db = await fixture.Services.GetRequiredService<IDbContextFactory<UploadsDbContext>>().CreateDbContextAsync(Ct))
+        {
+            var receipt = await db.Sessions.SingleAsync(session => session.Id == uploadId, Ct);
+            var stale = JsonNode.Parse(receipt.ResultJson!)!.AsObject();
+            stale["imageUrl"] = "https://expired.invalid/photo";
+            stale["imageUrlExpiresAt"] = 0;
+            receipt.ResultJson = stale.ToJsonString();
+            await db.SaveChangesAsync(Ct);
+        }
         var second = await _scenario.SendAsync(HttpMethod.Post, $"/api/v1/uploads/{uploadId}/confirm", pair.HostToken, new { body = "Chegou bem!" });
 
         // Assert
         first.StatusCode.Should().Be(HttpStatusCode.OK);
         second.StatusCode.Should().Be(HttpStatusCode.OK);
+        var replayed = Data(await ReadAsync(second)).GetProperty("result");
+        replayed.GetProperty("imageUrl").GetString().Should().NotContain("expired.invalid");
+        replayed.GetProperty("imageUrlExpiresAt").GetInt64().Should().BeGreaterThan(DateTimeOffset.UtcNow.ToUnixTimeSeconds());
         var message = Data(await ReadAsync(first)).GetProperty("result");
         message.GetProperty("id").GetGuid().Should().Be(uploadId, "o id da mensagem é o id do upload");
         message.GetProperty("body").GetString().Should().Be("Chegou bem!");
@@ -469,6 +471,41 @@ public sealed class ConversationsControllerTests(ConversationsApiFixture fixture
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
         (await ReadAsync(response)).GetProperty("error").GetProperty("code").GetString().Should().Be("CONVERSATION_NOT_FOUND");
+    }
+
+    [Fact]
+    public async Task DirectUpload_Should_PersistARejectionWithoutPartialMessage_When_TheModuleTranslatesADatabaseFailure()
+    {
+        var existingKeys = await fixture.Bucket.ListPrivateKeysAsync();
+        var pair = await _scenario.ArrangeAsync();
+        var conversationId = await _scenario.StartAsync(pair);
+        var uploadId = await StageChatPhotoAsync(pair.HostToken, conversationId, TestImages.PngVariant(30));
+        await using var db = await fixture.Services.GetRequiredService<IDbContextFactory<UploadsDbContext>>().CreateDbContextAsync(Ct);
+        await db.Database.ExecuteSqlRawAsync("CREATE FUNCTION conversation.test_photo_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'simulated photo failure' USING ERRCODE = '23503'; END $$; CREATE TRIGGER test_photo_failure BEFORE INSERT ON conversation.messages FOR EACH ROW WHEN (NEW.image_key IS NOT NULL) EXECUTE FUNCTION conversation.test_photo_failure();", Ct);
+        try
+        {
+            var refused = await _scenario.SendAsync(HttpMethod.Post, $"/api/v1/uploads/{uploadId}/confirm", pair.HostToken);
+            refused.StatusCode.Should().Be(HttpStatusCode.Conflict, "the module translated the database failure into a domain conflict");
+            (await MessageCountAsync(pair.OwnerToken, conversationId)).Should().Be(0);
+            (await db.Sessions.AsNoTracking().SingleAsync(session => session.Id == uploadId, Ct)).Status.Should().Be("rejected");
+            (await fixture.Bucket.ListPrivateKeysAsync()).Except(existingKeys).Should().NotContain(key => key.StartsWith("conversations/", StringComparison.Ordinal));
+        }
+        finally
+        {
+            await db.Database.ExecuteSqlRawAsync("DROP TRIGGER IF EXISTS test_photo_failure ON conversation.messages; DROP FUNCTION IF EXISTS conversation.test_photo_failure();", CancellationToken.None);
+        }
+    }
+
+    private async Task<Guid> StageChatPhotoAsync(string token, Guid conversationId, byte[] image)
+    {
+        var requested = await _scenario.SendAsync(HttpMethod.Post, "/api/v1/uploads", token, new { purpose = "chat-photo", contentType = "image/png", sizeBytes = image.Length, resourceId = conversationId });
+        requested.StatusCode.Should().Be(HttpStatusCode.Created);
+        var ticket = Data(await ReadAsync(requested));
+        using var browser = new HttpClient();
+        using var file = new ByteArrayContent(image);
+        file.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("image/png");
+        (await browser.PutAsync(ticket.GetProperty("uploadUrl").GetString(), file, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+        return ticket.GetProperty("uploadId").GetGuid();
     }
 
     private async Task<int> MessageCountAsync(string token, Guid conversationId) =>

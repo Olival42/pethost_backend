@@ -4,6 +4,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using PetHost.Shared.Contracts.Storage;
+using PetHost.Shared.Infrastructure.Uploads;
 
 namespace PetHost.Shared.Infrastructure.Storage;
 
@@ -42,8 +43,10 @@ public static class StorageServiceCollectionExtensions
             return CreateClient(options, options.SigningServiceUrl);
         });
 
-        services.AddSingleton<IImageStorage, S3ImageStorage>();
-        services.AddSingleton<IPrivateImageStorage, S3PrivateImageStorage>();
+        services.AddScoped<UploadEffects>();
+        services.AddScoped<ICommitEffects>(provider => provider.GetRequiredService<UploadEffects>());
+        services.AddScoped<IImageStorage, S3ImageStorage>();
+        services.AddScoped<IPrivateImageStorage, S3PrivateImageStorage>();
 
         return services;
     }

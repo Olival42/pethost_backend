@@ -5,6 +5,9 @@ using PetHost.Shared.Infrastructure.Uploads;
 using PetHost.Shared.Kernel.Messaging;
 using PetHost.Shared.Kernel.Primitives;
 using PetHost.Shared.Kernel.Results;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using PetHost.Modules.Conversations.Application.Messages.GetMessagePhoto;
 
 namespace PetHost.Modules.Conversations.Presentation.Uploads;
 
@@ -14,7 +17,8 @@ namespace PetHost.Modules.Conversations.Presentation.Uploads;
 /// O id da mensagem é o id do upload: confirmar de novo nunca cria uma segunda mensagem.
 /// </summary>
 internal sealed class ChatPhotoUploadPurpose(
-    ICommandHandler<SendPhotoMessageCommand, MessageResponse> sendPhotoMessage) : IUploadPurpose
+    ICommandHandler<SendPhotoMessageCommand, MessageResponse> sendPhotoMessage,
+    IQueryHandler<GetMessagePhotoQuery, MessagePhotoResponse> getPhoto) : IUploadPurpose
 {
     public string Name => "chat-photo";
 
@@ -27,6 +31,18 @@ internal sealed class ChatPhotoUploadPurpose(
 
     public async Task<Result<object>> CompleteAsync(UploadPurposeContext context, ImageUpload image, CancellationToken cancellationToken) =>
         UploadResults.FromCompletion(await HandleAsync(context, image, cancellationToken).ConfigureAwait(false));
+
+    public async Task<Result<object>> RestoreAsync(UploadPurposeContext context, JsonElement result, CancellationToken cancellationToken)
+    {
+        var photo = await getPhoto.HandleAsync(new GetMessagePhotoQuery(
+            context.UserId, context.Role, context.ResourceId!.Value, context.UploadId), cancellationToken).ConfigureAwait(false);
+        if (photo.IsFailure)
+            return Result<object>.FromFailure(photo);
+        var restored = JsonNode.Parse(result.GetRawText())!.AsObject();
+        restored["imageUrl"] = photo.Value!.Url;
+        restored["imageUrlExpiresAt"] = photo.Value.ExpiresAt;
+        return Result<object>.Success(restored);
+    }
 
     private Task<Result<MessageResponse>> HandleAsync(UploadPurposeContext context, ImageUpload image, CancellationToken cancellationToken) =>
         sendPhotoMessage.HandleAsync(

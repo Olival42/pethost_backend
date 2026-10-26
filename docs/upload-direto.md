@@ -1,5 +1,7 @@
 # Upload direto ao bucket (URL assinada)
 
+Revisão de confiabilidade em 29/10/2026: [upload-reliability.md](upload-reliability.md) documenta a transação entre recurso/recibo, trava até commit, efeitos externos, renovação de links e confirmação conjunta de documentos. O frontend PetHost já usa o recurso shared descrito em `pethost_frontend/docs/direct-media-uploads.md`; o exemplo REST abaixo é para integrações independentes, não para expor o JWT HttpOnly do PetHost ao JavaScript.
+
 O front envia o arquivo **direto para o bucket**, sem os bytes passarem pelo Next.js nem pela API. A API confere quem pode enviar, assina uma URL de `PUT` que vale poucos minutos e, depois que o arquivo chegou, **confere o conteúdo real** antes de ligá-lo ao recurso (pet, cantinho, perfil, mensagem, documento).
 
 Substitui os uploads por `multipart/form-data` ([`armazenamento-de-imagens.md`](armazenamento-de-imagens.md) seção 2), que continuam no ar durante a migração do front.
@@ -164,7 +166,7 @@ Content-Type: application/json
 
 `result` é o mesmo objeto que a rota antiga da finalidade devolvia (seção 2).
 
-- **Idempotente.** Confirmar de novo um upload concluído devolve `200` com **a mesma resposta**, sem adicionar outra foto nem criar outra mensagem. Pode repetir à vontade depois de timeout de rede. A mensagem do chat usa o `uploadId` como id.
+- **Idempotente.** Confirmar de novo um upload concluído devolve `200` com **o mesmo recurso sem reaplicacao** (links privados sao renovados), sem adicionar outra foto nem criar outra mensagem. Pode repetir à vontade depois de timeout de rede. A mensagem do chat usa o `uploadId` como id.
 - **Arquivo ainda não chegou** (`422 UPLOAD_FILE_NOT_RECEIVED`): faça o `PUT` e confirme de novo.
 - **Legenda inválida** (`400` no campo `body`): corrija e confirme de novo; o arquivo continua valendo.
 - **Arquivo ou regra recusou** (`400` no campo `file`, `409`, `422`...): o upload acaba ali e o arquivo é apagado. Confirmar de novo dá `422 UPLOAD_ALREADY_REJECTED`; peça outro upload.
@@ -207,7 +209,7 @@ Envelope de sempre (`success: false`, `error.code`, e `error.details[].errors[].
 
 | Status | Código | Quando | Dá para confirmar de novo? |
 |---|---|---|---|
-| `200` | — | Concluído (ou já estava). | sim, mesma resposta |
+| `200` | — | Concluído (ou já estava). | sim, mesmo recurso; URL privada renovada |
 | `400` | `VALIDATION_ERROR` no campo `file` → `IMAGE_FILE_EMPTY`, `IMAGE_FILE_TOO_LARGE`, `IMAGE_UNSUPPORTED_FORMAT`, `IMAGE_FILE_CORRUPTED` | O conteúdo real não é uma imagem aceita (o `Content-Type` declarado não basta). No `host-document`, o campo é a vaga (`front`, `back`, `selfie`). | não (recusado) |
 | `400` | `VALIDATION_ERROR` no campo `body` → `CONVERSATION_BODY_TOO_LONG` / `CONVERSATION_BODY_INVALID_CHARACTERS` | Legenda do chat. | **sim** |
 | `404` | `UPLOAD_NOT_FOUND` | Não existe, é de outra conta ou de outro papel, ou já saiu da guarda de 24 h. | — |
@@ -268,7 +270,7 @@ Converta HEIC (iPhone) para JPEG no front antes de pedir: só JPEG, PNG e WebP s
 | Pendente privado até as verificações | A área de espera é o bucket **privado**; o arquivo só vai para o destino (público ou privado) depois de conferido. |
 | Permissão conferida no pedido **e** na confirmação | No pedido, o caso de uso roda com uma imagem de mentira (`ImageUpload.Preflight`), que passa por todas as checagens e para antes de gravar; na confirmação ele roda de verdade (as regras podem ter mudado no meio). |
 | Upload de outra pessoa | `404 UPLOAD_NOT_FOUND`: conta **e** papel precisam ser os do pedido. |
-| Confirmação idempotente | Estado no banco (`uploads.upload_sessions`) com reserva por `UPDATE` condicional; a resposta concluída é guardada e devolvida igual. Na foto do chat, o id da mensagem é o id do upload (a confirmação repetida acha a mesma mensagem); nas fotos do pet e do cantinho, a mesma imagem não entra duas vezes (hash). |
+| Confirmação idempotente | Recurso e recibo na mesma transação PostgreSQL, com `FOR UPDATE NOWAIT` até commit/rollback; repetição não reaplica o recurso. O chat conserva o ID da mensagem e renova a URL privada ao restaurar o recibo. |
 | Foto anterior apagada só depois de salvar a nova | É o `ImageReplacement` de sempre: grava a nova, salva no banco, só então apaga a anterior (falhou: apaga a nova). |
 | Chat: mensagem e hub só depois da confirmação | O `PUT` não cria nada; a mensagem e `messageCreated`/`unreadCountChanged` saem do caso de uso na confirmação. |
 

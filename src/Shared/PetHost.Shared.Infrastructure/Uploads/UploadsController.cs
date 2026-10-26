@@ -80,7 +80,16 @@ public sealed class UploadsController(UploadService uploads) : ControllerBase
         return result.ToActionResult();
     }
 
-    /// <summary>Papel do token. Cada conta tem um só.</summary>
+    /// <summary>Confirms one to three host document slots atomically.</summary>
+    [HttpPost("documents/confirm")]
+    [Authorize(Roles = Roles.Host)]
+    [ProducesResponseType<ApiResponse<UploadConfirmationResponse>>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> ConfirmDocumentsAsync([FromBody] ConfirmDocumentsRequest request, CancellationToken cancellationToken)
+    {
+        var result = await uploads.ConfirmDocumentsAsync(User.GetUserId(), CurrentRole(), request.UploadIds ?? [], cancellationToken);
+        return result.ToActionResult();
+    }
+
     private string CurrentRole() => User.IsInRole(Roles.Host) ? Roles.Host : Roles.Owner;
 }
 
@@ -102,3 +111,6 @@ public sealed record RequestUploadRequest(
 /// <summary>Corpo (opcional) de <c>POST /api/v1/uploads/{uploadId}/confirm</c>.</summary>
 /// <param name="Body">Legenda da foto do chat, até 2.000 caracteres. Ignorada nas outras finalidades.</param>
 public sealed record ConfirmUploadRequest(string? Body);
+
+/// <summary>One to three direct uploads of distinct host document slots, confirmed atomically.</summary>
+public sealed record ConfirmDocumentsRequest(IReadOnlyList<Guid>? UploadIds);

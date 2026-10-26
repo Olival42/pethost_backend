@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Transactions;
+using Npgsql;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -27,9 +29,6 @@ namespace PetHost.Shared.Infrastructure.Uploads;
 /// </remarks>
 public sealed partial class UploadService
 {
-    /// <summary>Quanto uma confirmação segura o upload. Se a API cair no meio, outra pode pegar depois disso.</summary>
-    private static readonly TimeSpan Lease = TimeSpan.FromMinutes(2);
-
     /// <summary>Campo do texto da confirmação (a legenda da foto do chat).</summary>
     private const string ConfirmBodyField = "body";
 
@@ -42,6 +41,7 @@ public sealed partial class UploadService
     private readonly JsonSerializerOptions _json;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<UploadService> _logger;
+    private readonly UploadEffects _effects;
 
     public UploadService(
         IEnumerable<IUploadPurpose> purposes,
@@ -50,7 +50,8 @@ public sealed partial class UploadService
         IOptions<UploadOptions> options,
         IOptions<JsonOptions> jsonOptions,
         TimeProvider timeProvider,
-        ILogger<UploadService> logger)
+        ILogger<UploadService> logger,
+        UploadEffects effects)
     {
         _purposes = purposes.ToDictionary(purpose => purpose.Name, StringComparer.Ordinal);
         _contextFactory = contextFactory;
@@ -59,10 +60,8 @@ public sealed partial class UploadService
         _json = jsonOptions.Value.JsonSerializerOptions;
         _timeProvider = timeProvider;
         _logger = logger;
+        _effects = effects;
     }
-
-    /// <summary>Os nomes das finalidades registradas, para a documentação e os testes.</summary>
-    public IReadOnlyCollection<string> PurposeNames => _purposes.Keys;
 
     public async Task<Result<UploadTicketResponse>> RequestAsync(RequestUploadCommand command, CancellationToken cancellationToken)
     {
@@ -165,115 +164,150 @@ public sealed partial class UploadService
         }
     }
 
-    public async Task<Result<UploadConfirmationResponse>> ConfirmAsync(ConfirmUploadCommand command, CancellationToken cancellationToken)
+    public Task<Result<UploadConfirmationResponse>> ConfirmAsync(ConfirmUploadCommand command, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(command);
+        return RunTransactionAsync(() => ConfirmLockedAsync(command, cancellationToken), commitFailure: true);
+    }
 
-        var context = await _contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-        await using (context.ConfigureAwait(false))
+    /// <summary>Atomically confirms selected host document slots, preserving all-or-nothing updates.</summary>
+    public Task<Result<UploadConfirmationResponse>> ConfirmDocumentsAsync(Guid userId, string role, IReadOnlyList<Guid> uploadIds, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(uploadIds);
+        return RunTransactionAsync(async () =>
         {
-            var session = await context.Sessions.AsNoTracking()
-                .FirstOrDefaultAsync(s => s.Id == command.UploadId, cancellationToken)
-                .ConfigureAwait(false);
-
-            if (session is null
-                || session.UserId != command.UserId
-                || session.Role != command.Role
-                || !_purposes.TryGetValue(session.Purpose, out var purpose))
+            if (uploadIds.Count is < 1 or > 3 || uploadIds.Distinct().Count() != uploadIds.Count)
+                return Result<UploadConfirmationResponse>.Failure(UploadErrors.DocumentBatchInvalid);
+            await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+            var sessions = await context.Sessions.AsNoTracking().Where(s => uploadIds.Contains(s.Id)
+                && s.UserId == userId && s.Role == role && s.Purpose == "host-document").ToListAsync(cancellationToken).ConfigureAwait(false);
+            if (sessions.Count != uploadIds.Count || sessions.Select(s => s.Kind).Distinct().Count() != sessions.Count)
+                return Result<UploadConfirmationResponse>.Failure(UploadErrors.DocumentBatchInvalid);
+            Result<UploadConfirmationResponse>? last = null;
+            foreach (var id in uploadIds.Order())
             {
-                return Result<UploadConfirmationResponse>.Failure(UploadErrors.NotFound);
+                last = await ConfirmLockedAsync(new ConfirmUploadCommand(userId, role, id, null), cancellationToken).ConfigureAwait(false);
+                if (last.IsFailure)
+                    return last;
             }
+            return last!;
+        }, commitFailure: false);
+    }
 
-            var now = _timeProvider.GetUtcNow();
-
-            var finished = Finished(session);
-            if (finished is not null)
-                return finished;
-
-            if (session.ConfirmExpiresAt <= now && !HoldsLease(session, now))
+    private async Task<Result<UploadConfirmationResponse>> RunTransactionAsync(Func<Task<Result<UploadConfirmationResponse>>> work, bool commitFailure)
+    {
+        _effects.Begin();
+        var committing = false;
+        try
+        {
+            Result<UploadConfirmationResponse> response;
+            using (var transaction = new TransactionScope(
+                TransactionScopeOption.Required,
+                new TransactionOptions { IsolationLevel = IsolationLevel.ReadCommitted, Timeout = TimeSpan.FromMinutes(5) },
+                TransactionScopeAsyncFlowOption.Enabled))
             {
-                await ExpireAsync(context, session, now, cancellationToken).ConfigureAwait(false);
-                return Result<UploadConfirmationResponse>.Failure(UploadErrors.Expired);
-            }
-
-            // A reserva: um UPDATE condicional. Só uma confirmação passa daqui.
-            var claimed = await context.Sessions
-                .Where(s => s.Id == session.Id
-                    && (s.Status == UploadStatus.Pending || (s.Status == UploadStatus.Processing && s.LeaseUntil < now)))
-                .ExecuteUpdateAsync(
-                    setters => setters
-                        .SetProperty(s => s.Status, UploadStatus.Processing)
-                        .SetProperty(s => s.LeaseUntil, now + Lease),
-                    cancellationToken)
-                .ConfigureAwait(false);
-
-            if (claimed == 0)
-            {
-                var current = await context.Sessions.AsNoTracking()
-                    .FirstAsync(s => s.Id == session.Id, cancellationToken)
-                    .ConfigureAwait(false);
-
-                return Finished(current) ?? Result<UploadConfirmationResponse>.Failure(UploadErrors.ConfirmationConflict);
-            }
-
-            Result<object> completed;
-            try
-            {
-                var size = await _staging.GetSizeAsync(session.StagingKey, cancellationToken).ConfigureAwait(false);
-                var content = size is null
-                    ? null
-                    : await _staging.ReadAsync(session.StagingKey, ImageRules.MaxBytes, cancellationToken).ConfigureAwait(false);
-
-                if (content is null)
+                response = await work().ConfigureAwait(false);
+                // Contexts use the same PostgreSQL pool sequentially: never promote to a distributed transaction.
+                if (Transaction.Current!.TransactionInformation.DistributedIdentifier != Guid.Empty)
+                    throw new InvalidOperationException("Upload confirmation cannot use a distributed transaction.");
+                if (response.IsSuccess || commitFailure)
                 {
-                    await ReleaseAsync(context, session.Id).ConfigureAwait(false);
-                    return Result<UploadConfirmationResponse>.Failure(UploadErrors.FileNotReceived);
-                }
-
-                await using (content.ConfigureAwait(false))
-                {
-                    var purposeContext = new UploadPurposeContext(
-                        session.Id, session.UserId, session.Role, session.ResourceId, session.PhotoId, session.Kind, command.Body);
-
-                    // O tipo declarado vai só como informação: o caso de uso descobre o formato pelos bytes.
-                    completed = await purpose
-                        .CompleteAsync(purposeContext, new ImageUpload(content, FileName: null, session.DeclaredContentType), cancellationToken)
-                        .ConfigureAwait(false);
+                    committing = true;
+                    transaction.Complete();
                 }
             }
-            catch
-            {
-                // Falha inesperada (bucket ou banco fora): volta a pendente, o arquivo fica e dá para tentar de novo.
-                await ReleaseAsync(context, session.Id).ConfigureAwait(false);
-                throw;
-            }
-
-            if (completed.IsFailure && IsRetryable(completed))
-            {
-                // Só o texto da confirmação (a legenda) está errado: o arquivo continua valendo.
-                await ReleaseAsync(context, session.Id).ConfigureAwait(false);
-                return Result<UploadConfirmationResponse>.FromFailure(completed);
-            }
-
-            if (completed.IsFailure)
-            {
-                await FinishAsync(context, session.Id, UploadStatus.Rejected, resultJson: null, completed.FirstError!.Reason ?? completed.FirstError.Code).ConfigureAwait(false);
-                await _staging.DeleteAsync(session.StagingKey, CancellationToken.None).ConfigureAwait(false);
-
-                LogRejected(_logger, session.Id, session.Purpose, completed.FirstError.Reason ?? completed.FirstError.Code);
-                return Result<UploadConfirmationResponse>.FromFailure(completed);
-            }
-
-            var json = JsonSerializer.Serialize(completed.Value!, completed.Value!.GetType(), _json);
-
-            // Marca concluído antes de apagar a espera: se a API cair entre os dois, a limpeza apaga o arquivo.
-            await FinishAsync(context, session.Id, UploadStatus.Completed, json, failureCode: null).ConfigureAwait(false);
-            await _staging.DeleteAsync(session.StagingKey, CancellationToken.None).ConfigureAwait(false);
-
-            LogCompleted(_logger, session.Id, session.Purpose);
-            return Result<UploadConfirmationResponse>.Success(Response(session, json));
+            if (response.IsSuccess || commitFailure)
+                await _effects.CommitAsync().ConfigureAwait(false);
+            else
+                await _effects.RollbackAsync().ConfigureAwait(false);
+            return response;
+        }
+        catch (Exception exception) when (IsLockConflict(exception))
+        {
+            await _effects.RollbackAsync().ConfigureAwait(false);
+            return Result<UploadConfirmationResponse>.Failure(UploadErrors.ConfirmationConflict);
+        }
+        catch
+        {
+            // A disconnected COMMIT may already have succeeded. Never delete a potentially committed photo.
+            if (committing)
+                _effects.Discard();
+            else
+                await _effects.RollbackAsync().ConfigureAwait(false);
+            throw;
         }
     }
+
+    private async Task<Result<UploadConfirmationResponse>> ConfirmLockedAsync(ConfirmUploadCommand command, CancellationToken cancellationToken)
+    {
+        await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        // The row lock has no expiring lease: it lasts until commit/rollback and is released on connection loss.
+        var session = await context.Sessions
+            .FromSqlInterpolated($"SELECT * FROM uploads.upload_sessions WHERE id = {command.UploadId} AND user_id = {command.UserId} AND role = {command.Role} FOR UPDATE NOWAIT")
+            .AsNoTracking().SingleOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+
+        if (session is null || !_purposes.TryGetValue(session.Purpose, out var purpose))
+            return Result<UploadConfirmationResponse>.Failure(UploadErrors.NotFound);
+
+        var purposeContext = new UploadPurposeContext(session.Id, session.UserId, session.Role, session.ResourceId, session.PhotoId, session.Kind, command.Body);
+        if (session.Status == UploadStatus.Completed)
+        {
+            using var saved = JsonDocument.Parse(session.ResultJson!);
+            var restored = await purpose.RestoreAsync(purposeContext, saved.RootElement, cancellationToken).ConfigureAwait(false);
+            return restored.IsFailure
+                ? Result<UploadConfirmationResponse>.FromFailure(restored)
+                : Result<UploadConfirmationResponse>.Success(Response(session, JsonSerializer.Serialize(restored.Value!, _json)));
+        }
+        if (session.Status == UploadStatus.Rejected)
+            return Result<UploadConfirmationResponse>.Failure(UploadErrors.AlreadyRejected);
+        if (session.Status == UploadStatus.Expired)
+            return Result<UploadConfirmationResponse>.Failure(UploadErrors.Expired);
+
+        // Old deployments may have left a processing receipt; respect its lease during a rolling migration.
+        if (session.Status == UploadStatus.Processing && session.LeaseUntil > _timeProvider.GetUtcNow())
+            return Result<UploadConfirmationResponse>.Failure(UploadErrors.ConfirmationConflict);
+        if (session.ConfirmExpiresAt <= _timeProvider.GetUtcNow())
+        {
+            await FinishAsync(context, session.Id, UploadStatus.Expired, null, null).ConfigureAwait(false);
+            _effects.AfterCommit(ct => _staging.DeleteAsync(session.StagingKey, ct));
+            return Result<UploadConfirmationResponse>.Failure(UploadErrors.Expired);
+        }
+
+        await using var content = await _staging.ReadAsync(session.StagingKey, ImageRules.MaxBytes, cancellationToken).ConfigureAwait(false);
+        if (content is null)
+            return Result<UploadConfirmationResponse>.Failure(UploadErrors.FileNotReceived);
+
+        // A module can translate a database error into Result.Failure. Roll back its writes before
+        // persisting a rejected receipt; do not accidentally commit partial work or a failed SQL transaction.
+        await context.Database.ExecuteSqlRawAsync("SAVEPOINT upload_resource", cancellationToken).ConfigureAwait(false);
+        var effectCheckpoint = _effects.Checkpoint();
+        var completed = await purpose.CompleteAsync(
+            purposeContext, new ImageUpload(content, FileName: null, session.DeclaredContentType), cancellationToken).ConfigureAwait(false);
+        if (completed.IsFailure)
+        {
+            await context.Database.ExecuteSqlRawAsync("ROLLBACK TO SAVEPOINT upload_resource", cancellationToken).ConfigureAwait(false);
+            await _effects.RollbackResourceAsync(effectCheckpoint).ConfigureAwait(false);
+        }
+        await context.Database.ExecuteSqlRawAsync("RELEASE SAVEPOINT upload_resource", cancellationToken).ConfigureAwait(false);
+        if (completed.IsFailure && IsRetryable(completed))
+            return Result<UploadConfirmationResponse>.FromFailure(completed);
+        if (completed.IsFailure)
+        {
+            await FinishAsync(context, session.Id, UploadStatus.Rejected, null, completed.FirstError!.Reason ?? completed.FirstError.Code).ConfigureAwait(false);
+            _effects.AfterCommit(ct => _staging.DeleteAsync(session.StagingKey, ct));
+            return Result<UploadConfirmationResponse>.FromFailure(completed);
+        }
+
+        var json = JsonSerializer.Serialize(completed.Value!, completed.Value!.GetType(), _json);
+        await FinishAsync(context, session.Id, UploadStatus.Completed, json, null).ConfigureAwait(false);
+        _effects.AfterCommit(ct => _staging.DeleteAsync(session.StagingKey, ct));
+        LogCompleted(_logger, session.Id, session.Purpose);
+        return Result<UploadConfirmationResponse>.Success(Response(session, json));
+    }
+
+    private static bool IsLockConflict(Exception exception) =>
+        exception is PostgresException { SqlState: PostgresErrorCodes.LockNotAvailable }
+        || (exception.InnerException is not null && IsLockConflict(exception.InnerException));
 
     private static IEnumerable<Error> ValidateTarget(UploadTargetRules rules, Guid? resourceId, Guid? photoId, string? kind)
     {
@@ -307,39 +341,11 @@ public sealed partial class UploadService
     private static bool IsRetryable(Result result) =>
         result.Errors!.All(error => error.Code == ErrorCodes.Validation && error.Field == ConfirmBodyField);
 
-    /// <summary>A resposta de um upload que já terminou, ou <c>null</c> se ainda está em aberto.</summary>
-    private static Result<UploadConfirmationResponse>? Finished(UploadSession session) => session.Status switch
-    {
-        UploadStatus.Completed => Result<UploadConfirmationResponse>.Success(Response(session, session.ResultJson!)),
-        UploadStatus.Rejected => Result<UploadConfirmationResponse>.Failure(UploadErrors.AlreadyRejected),
-        UploadStatus.Expired => Result<UploadConfirmationResponse>.Failure(UploadErrors.Expired),
-        _ => null,
-    };
-
-    private static bool HoldsLease(UploadSession session, DateTimeOffset now) =>
-        session.Status == UploadStatus.Processing && session.LeaseUntil > now;
-
     private static UploadConfirmationResponse Response(UploadSession session, string json)
     {
         using var document = JsonDocument.Parse(json);
         return new UploadConfirmationResponse(session.Id, session.Purpose, UploadStatus.Completed, document.RootElement.Clone());
     }
-
-    private async Task ExpireAsync(UploadsDbContext context, UploadSession session, DateTimeOffset now, CancellationToken cancellationToken)
-    {
-        await context.Sessions
-            .Where(s => s.Id == session.Id && (s.Status == UploadStatus.Pending || (s.Status == UploadStatus.Processing && s.LeaseUntil < now)))
-            .ExecuteUpdateAsync(setters => setters.SetProperty(s => s.Status, UploadStatus.Expired).SetProperty(s => s.LeaseUntil, (DateTimeOffset?)null), cancellationToken)
-            .ConfigureAwait(false);
-
-        await _staging.DeleteAsync(session.StagingKey, CancellationToken.None).ConfigureAwait(false);
-    }
-
-    // CancellationToken.None: o estado tem de voltar mesmo se o pedido caiu.
-    private static Task<int> ReleaseAsync(UploadsDbContext context, Guid id) =>
-        context.Sessions
-            .Where(s => s.Id == id && s.Status == UploadStatus.Processing)
-            .ExecuteUpdateAsync(setters => setters.SetProperty(s => s.Status, UploadStatus.Pending).SetProperty(s => s.LeaseUntil, (DateTimeOffset?)null), CancellationToken.None);
 
     private Task<int> FinishAsync(UploadsDbContext context, Guid id, string status, string? resultJson, string? failureCode)
     {
@@ -364,8 +370,6 @@ public sealed partial class UploadService
     [LoggerMessage(EventId = 6031, Level = LogLevel.Information, Message = "Upload {UploadId} ({Purpose}) confirmed.")]
     private static partial void LogCompleted(ILogger logger, Guid uploadId, string purpose);
 
-    [LoggerMessage(EventId = 6032, Level = LogLevel.Information, Message = "Upload {UploadId} ({Purpose}) rejected: {Reason}.")]
-    private static partial void LogRejected(ILogger logger, Guid uploadId, string purpose, string reason);
 }
 
 /// <summary>Pedido de URL de upload.</summary>

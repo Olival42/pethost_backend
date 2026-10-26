@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using System.Transactions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -71,24 +72,21 @@ public sealed partial class UploadCleanupService(
             int expired;
             do
             {
-                var due = await context.Sessions.AsNoTracking()
-                    .Where(s => s.ConfirmExpiresAt <= now
-                        && (s.Status == UploadStatus.Pending || (s.Status == UploadStatus.Processing && s.LeaseUntil < now)))
-                    .OrderBy(s => s.ConfirmExpiresAt)
-                    .Take(BatchSize)
-                    .Select(s => new { s.Id, s.StagingKey })
-                    .ToListAsync(cancellationToken)
-                    .ConfigureAwait(false);
-
-                foreach (var session in due)
+                List<UploadSession> due;
+                using (var transaction = new TransactionScope(TransactionScopeAsyncFlowOption.Enabled))
                 {
-                    await staging.DeleteAsync(session.StagingKey, cancellationToken).ConfigureAwait(false);
-
-                    await context.Sessions
-                        .Where(s => s.Id == session.Id && (s.Status == UploadStatus.Pending || s.Status == UploadStatus.Processing))
-                        .ExecuteUpdateAsync(setters => setters.SetProperty(s => s.Status, UploadStatus.Expired).SetProperty(s => s.LeaseUntil, (DateTimeOffset?)null), cancellationToken)
-                        .ConfigureAwait(false);
+                    due = await context.Sessions.FromSqlInterpolated($"SELECT * FROM uploads.upload_sessions WHERE confirm_expires_at <= {now} AND (status = 'pending' OR (status = 'processing' AND lease_until < {now})) ORDER BY confirm_expires_at LIMIT {BatchSize} FOR UPDATE SKIP LOCKED")
+                        .AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
+                    var ids = due.Select(session => session.Id).ToArray();
+                    await context.Sessions.Where(session => ids.Contains(session.Id))
+                        .ExecuteUpdateAsync(setters => setters.SetProperty(session => session.Status, UploadStatus.Expired)
+                            .SetProperty(session => session.CompletedAt, now)
+                            .SetProperty(session => session.LeaseUntil, (DateTimeOffset?)null), cancellationToken).ConfigureAwait(false);
+                    transaction.Complete();
                 }
+                // Delete only after the expiration transaction committed; active confirmations were skipped.
+                foreach (var session in due)
+                    await staging.DeleteAsync(session.StagingKey, cancellationToken).ConfigureAwait(false);
 
                 expired = due.Count;
                 if (expired > 0)
@@ -109,7 +107,7 @@ public sealed partial class UploadCleanupService(
             var finishedBefore = now - TimeSpan.FromHours(options.Value.FinishedRetentionHours);
             await context.Sessions
                 .Where(s => (s.Status == UploadStatus.Completed || s.Status == UploadStatus.Rejected || s.Status == UploadStatus.Expired)
-                    && s.CreatedAt < finishedBefore)
+                    && (s.CompletedAt ?? s.CreatedAt) < finishedBefore)
                 .ExecuteDeleteAsync(cancellationToken)
                 .ConfigureAwait(false);
         }

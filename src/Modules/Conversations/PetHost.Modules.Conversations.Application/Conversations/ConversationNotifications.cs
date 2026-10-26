@@ -2,6 +2,7 @@ using PetHost.Modules.Conversations.Application.Abstractions;
 using PetHost.Modules.Conversations.Application.Conversations.Responses;
 using PetHost.Modules.Conversations.Application.Messages.Responses;
 using PetHost.Modules.Conversations.Domain.Conversations;
+using PetHost.Shared.Contracts.Storage;
 
 namespace PetHost.Modules.Conversations.Application.Conversations;
 
@@ -13,7 +14,8 @@ namespace PetHost.Modules.Conversations.Application.Conversations;
 public sealed class ConversationNotifications(
     IConversationParties conversationParties,
     IConversationQueries conversationQueries,
-    IConversationRealtime conversationRealtime)
+    IConversationRealtime conversationRealtime,
+    ICommitEffects? effects = null)
 {
     /// <param name="sentBy">O lado que enviou: o contador muda para o outro.</param>
     public async Task MessageSentAsync(
@@ -24,6 +26,12 @@ public sealed class ConversationNotifications(
     {
         ArgumentNullException.ThrowIfNull(conversation);
         ArgumentNullException.ThrowIfNull(message);
+
+        if (effects is { IsActive: true })
+        {
+            effects.AfterCommit(ct => MessageSentAsync(conversation, sentBy, message, ct));
+            return;
+        }
 
         var owners = await conversationParties.GetOwnersAsync([conversation.OwnerId], cancellationToken).ConfigureAwait(false);
         var hosts = await conversationParties.GetHostsAsync([conversation.HostId], cancellationToken).ConfigureAwait(false);
