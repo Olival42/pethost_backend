@@ -36,9 +36,9 @@ public sealed class AdminReportQueriesTests
         _auditTrail.Setup(a => a.RecordAsync(It.IsAny<AuditRecord>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
     }
 
-    private ListMessageReportsQueryHandler List => new(_queries.Object, new MessageReportResponseBuilder(_parties.Object), _auditTrail.Object);
+    private ListMessageReportsQueryHandler List => new(_queries.Object, new MessageReportResponseBuilder(_parties.Object, ConversationsTestData.PhotoLinks()), _auditTrail.Object);
 
-    private GetMessageReportByIdQueryHandler Get => new(_queries.Object, new MessageReportResponseBuilder(_parties.Object), _auditTrail.Object);
+    private GetMessageReportByIdQueryHandler Get => new(_queries.Object, new MessageReportResponseBuilder(_parties.Object, ConversationsTestData.PhotoLinks()), _auditTrail.Object);
 
     [Fact]
     public async Task List_Should_ReturnThePageWithReporterAndReported_When_FilteredByPending()

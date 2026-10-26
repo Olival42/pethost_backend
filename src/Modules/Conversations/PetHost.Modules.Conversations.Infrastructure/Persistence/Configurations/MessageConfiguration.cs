@@ -23,7 +23,7 @@ internal sealed class MessageConfiguration : IEntityTypeConfiguration<Message>
     {
         builder.ToTable("messages", table =>
         {
-            table.HasCheckConstraint("ck_messages_content", "body IS NOT NULL OR image_url IS NOT NULL");
+            table.HasCheckConstraint("ck_messages_content", "body IS NOT NULL OR image_url IS NOT NULL OR image_key IS NOT NULL");
             table.HasCheckConstraint(
                 "ck_messages_sent_by",
                 $"sent_by IN ({string.Join(", ", ConversationPartyValues.All.Select(v => $"'{v}'"))})");
@@ -55,6 +55,7 @@ internal sealed class MessageConfiguration : IEntityTypeConfiguration<Message>
 
         builder.Property(m => m.Body).HasColumnName("body").HasMaxLength(Message.BodyMaxLength);
         builder.Property(m => m.ImageUrl).HasColumnName("image_url").HasMaxLength(Message.ImageUrlMaxLength);
+        builder.Property(m => m.ImageKey).HasColumnName("image_key").HasMaxLength(Message.ImageKeyMaxLength);
         builder.Property(m => m.BookingId).HasColumnName("booking_id");
 
         builder.Property(m => m.ReadAt).HasColumnName("read_at").HasColumnType("timestamptz");

@@ -33,5 +33,13 @@ internal sealed class MessageRepository(ConversationsDbContext dbContext) : IMes
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
+    public async Task<IReadOnlyList<string>> ListImageKeysAsync(ConversationId conversationId, CancellationToken cancellationToken) =>
+        await dbContext.Messages
+            .AsNoTracking()
+            .Where(m => m.ConversationId == conversationId && m.ImageKey != null)
+            .Select(m => m.ImageKey!)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
     public void Add(Message message) => dbContext.Messages.Add(message);
 }

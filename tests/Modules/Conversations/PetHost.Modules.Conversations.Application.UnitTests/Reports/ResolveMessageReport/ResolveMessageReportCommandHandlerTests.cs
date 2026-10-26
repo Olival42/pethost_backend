@@ -46,7 +46,7 @@ public sealed class ResolveMessageReportCommandHandlerTests
             _conversations.Object,
             _unitOfWork.Object,
             _queries.Object,
-            new MessageReportResponseBuilder(_parties.Object),
+            new MessageReportResponseBuilder(_parties.Object, ConversationsTestData.PhotoLinks()),
             new ConversationNotifications(_parties.Object, _queries.Object, _realtime.Object),
             _auditTrail.Object,
             new FakeTimeProvider(Now));

@@ -1,5 +1,8 @@
+using Moq;
 using PetHost.Modules.Conversations.Application.Abstractions;
+using PetHost.Modules.Conversations.Application.Messages.Responses;
 using PetHost.Modules.Conversations.Domain.Conversations;
+using PetHost.Shared.Contracts.Storage;
 using PetHost.TestKit;
 
 namespace PetHost.Modules.Conversations.Application.UnitTests;
@@ -24,6 +27,26 @@ internal static class ConversationsTestData
 
     public static IReadOnlyDictionary<Guid, PartyInfo> Nobody() => new Dictionary<Guid, PartyInfo>();
 
+    /// <summary>Começo da URL assinada falsa das fotos privadas: <c>SignedPhotoPrefix + chave</c>.</summary>
+    public const string SignedPhotoPrefix = "https://signed.pethost.local/";
+
+    /// <summary>Quando a URL assinada falsa vence.</summary>
+    public static readonly DateTimeOffset SignedPhotoExpiresAt = ConversationBuilder.DefaultNow.AddMinutes(5);
+
+    /// <summary>Links das fotos com um bucket privado falso: assina qualquer chave, sem rede.</summary>
+    public static MessagePhotoLinks PhotoLinks() => new(SigningStorage().Object);
+
+    /// <summary>Bucket privado falso que só assina.</summary>
+    public static Mock<IPrivateImageStorage> SigningStorage()
+    {
+        var storage = new Mock<IPrivateImageStorage>();
+        storage
+            .Setup(s => s.SignUrlAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string key, CancellationToken _) => new SignedImageUrl(SignedPhotoPrefix + key, SignedPhotoExpiresAt));
+
+        return storage;
+    }
+
     /// <summary>A linha que a leitura projeta para <paramref name="conversation"/>.</summary>
     public static ConversationRow Row(Conversation conversation, int unread = 0, MessageRow? lastMessage = null) =>
         new(conversation.Id, conversation.OwnerId, conversation.HostId, conversation.LastMessageAt, conversation.CreatedAt, lastMessage, unread);
@@ -33,6 +56,6 @@ internal static class ConversationsTestData
     {
         var message = ConversationBuilder.Text(conversation, sentBy, body, sentAt: sentAt);
 
-        return new MessageRow(message.Id, message.ConversationId, message.SentBy, message.Body, message.ImageUrl, message.BookingId, message.CreatedAt);
+        return new MessageRow(message.Id, message.ConversationId, message.SentBy, message.Body, message.ImageUrl, message.ImageKey, message.BookingId, message.CreatedAt);
     }
 }

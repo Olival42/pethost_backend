@@ -17,6 +17,7 @@ public sealed class EraseConversationsOfPartyCommandHandlerTests
     private readonly Mock<IConversationRepository> _repository = new(MockBehavior.Strict);
     private readonly Mock<IMessageRepository> _messages = new(MockBehavior.Strict);
     private readonly Mock<IImageStorage> _storage = new(MockBehavior.Strict);
+    private readonly Mock<IPrivateImageStorage> _privateStorage = new(MockBehavior.Strict);
     private readonly Mock<IAuditTrail> _auditTrail = new(MockBehavior.Strict);
     private readonly Conversation _withPhoto = new ConversationBuilder().Build();
     private readonly Conversation _withoutPhoto = new ConversationBuilder().WithHost(TestIds.Of(71)).Build();
@@ -25,7 +26,7 @@ public sealed class EraseConversationsOfPartyCommandHandlerTests
 
     public EraseConversationsOfPartyCommandHandlerTests()
     {
-        _sut = new EraseConversationsOfPartyCommandHandler(_repository.Object, _messages.Object, _storage.Object, _auditTrail.Object);
+        _sut = new EraseConversationsOfPartyCommandHandler(_repository.Object, _messages.Object, _storage.Object, _privateStorage.Object, _auditTrail.Object);
 
         _repository
             .Setup(r => r.ListByPartyAsync(ConversationParty.Owner, ConversationBuilder.OwnerId, It.IsAny<CancellationToken>()))
@@ -36,6 +37,7 @@ public sealed class EraseConversationsOfPartyCommandHandlerTests
             .ReturnsAsync(true);
         _messages.Setup(m => m.ListImageUrlsAsync(_withPhoto.Id, It.IsAny<CancellationToken>())).ReturnsAsync([PhotoUrl]);
         _messages.Setup(m => m.ListImageUrlsAsync(_withoutPhoto.Id, It.IsAny<CancellationToken>())).ReturnsAsync([]);
+        _messages.Setup(m => m.ListImageKeysAsync(It.IsAny<ConversationId>(), It.IsAny<CancellationToken>())).ReturnsAsync([]);
         _storage
             .Setup(s => s.DeleteAsync(PhotoUrl, It.IsAny<CancellationToken>()))
             .Callback(() => _calls.Add("photo"))

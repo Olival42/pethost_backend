@@ -30,6 +30,7 @@ public sealed class PurgeInactiveConversationsCommandHandler(
     IMessageRepository messageRepository,
     IConversationBookings conversationBookings,
     IImageStorage imageStorage,
+    IPrivateImageStorage privateImageStorage,
     IAuditTrail auditTrail,
     TimeProvider timeProvider) : ICommandHandler<PurgeInactiveConversationsCommand, PurgeInactiveConversationsResponse>
 {
@@ -72,6 +73,7 @@ public sealed class PurgeInactiveConversationsCommandHandler(
     private async Task<bool> PurgeAsync(Conversation conversation, DateTimeOffset cutoff, CancellationToken cancellationToken)
     {
         var photos = await messageRepository.ListImageUrlsAsync(conversation.Id, cancellationToken).ConfigureAwait(false);
+        var privatePhotos = await messageRepository.ListImageKeysAsync(conversation.Id, cancellationToken).ConfigureAwait(false);
 
         var deleted = await conversationRepository
             .DeleteIfInactiveAsync(conversation.Id, cutoff, cancellationToken)
@@ -83,7 +85,10 @@ public sealed class PurgeInactiveConversationsCommandHandler(
         foreach (var photo in photos)
             await imageStorage.DeleteAsync(photo, CancellationToken.None).ConfigureAwait(false);
 
-        await ConversationTrail.RecordPurgedAsync(auditTrail, conversation, photos.Count, cancellationToken).ConfigureAwait(false);
+        foreach (var key in privatePhotos)
+            await privateImageStorage.DeleteAsync(key, CancellationToken.None).ConfigureAwait(false);
+
+        await ConversationTrail.RecordPurgedAsync(auditTrail, conversation, photos.Count + privatePhotos.Count, cancellationToken).ConfigureAwait(false);
 
         return true;
     }

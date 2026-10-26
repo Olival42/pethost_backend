@@ -9,7 +9,7 @@ namespace PetHost.Modules.Conversations.Domain.UnitTests.Messages;
 
 public sealed class MessageTests
 {
-    private const string PhotoUrl = "https://images.pethost.local/conversations/0199c000.webp";
+    private const string PhotoKey = "conversations/0199c000.webp";
 
     private static readonly DateTimeOffset Now = ConversationBuilder.DefaultNow;
     private static readonly ConversationId ConversationId = new ConversationBuilder().Build().Id;
@@ -128,7 +128,7 @@ public sealed class MessageTests
     public void Photo_Should_ReturnBodyInvalidCharacters_When_CaptionHasAControlCharacter()
     {
         // Act
-        var result = Message.Photo(ConversationId, ConversationParty.Host, PhotoUrl, "legenda\0", bookingId: null, Now);
+        var result = Message.Photo(ConversationId, ConversationParty.Host, PhotoKey, "legenda\0", bookingId: null, Now);
 
         // Assert
         result.IsFailure.Should().BeTrue();
@@ -139,12 +139,13 @@ public sealed class MessageTests
     public void Photo_Should_CreateTheMessageWithUrlAndCaption_When_BothAreValid()
     {
         // Act
-        var result = Message.Photo(ConversationId, ConversationParty.Host, PhotoUrl, " Brincando no quintal ", ConversationBuilder.BookingId, Now);
+        var result = Message.Photo(ConversationId, ConversationParty.Host, PhotoKey, " Brincando no quintal ", ConversationBuilder.BookingId, Now);
 
         // Assert
         result.IsSuccess.Should().BeTrue();
         var message = result.Value!;
-        message.ImageUrl.Should().Be(PhotoUrl);
+        message.ImageKey.Should().Be(PhotoKey);
+        message.ImageUrl.Should().BeNull("fotos novas não têm URL pública");
         message.HasPhoto.Should().BeTrue();
         message.Body.Should().Be("Brincando no quintal");
         message.SentBy.Should().Be(ConversationParty.Host);
@@ -158,7 +159,7 @@ public sealed class MessageTests
     public void Photo_Should_LeaveTheBodyEmpty_When_CaptionIsBlank(string? caption)
     {
         // Act
-        var result = Message.Photo(ConversationId, ConversationParty.Host, PhotoUrl, caption, bookingId: null, Now);
+        var result = Message.Photo(ConversationId, ConversationParty.Host, PhotoKey, caption, bookingId: null, Now);
 
         // Assert
         result.IsSuccess.Should().BeTrue();
@@ -168,34 +169,47 @@ public sealed class MessageTests
     [Theory]
     [InlineData(null)]
     [InlineData("")]
-    [InlineData("javascript:alert(1)")]
-    [InlineData("/conversations/foto.webp")]
-    [InlineData("ftp://images.pethost.local/foto.webp")]
-    public void Photo_Should_ReturnImageUrlInvalid_When_UrlIsNotAnAbsoluteWebAddress(string? url)
+    [InlineData("https://images.pethost.local/conversations/foto.webp")]
+    [InlineData("avatars/foto.webp")]
+    [InlineData("conversations/../host-applications/doc.webp")]
+    public void Photo_Should_ReturnImageKeyInvalid_When_TheKeyIsNotInTheConversationsFolder(string? key)
     {
         // Act
-        var result = Message.Photo(ConversationId, ConversationParty.Host, url, caption: null, bookingId: null, Now);
+        var result = Message.Photo(ConversationId, ConversationParty.Host, key, caption: null, bookingId: null, Now);
 
         // Assert
         result.IsFailure.Should().BeTrue();
-        result.FirstError.Should().Be(ConversationsErrors.ImageUrlInvalid);
+        result.FirstError.Should().Be(ConversationsErrors.ImageKeyInvalid);
     }
 
     [Fact]
-    public void Photo_Should_ReturnImageUrlTooLong_When_UrlIsLongerThanTheLimit()
+    public void Photo_Should_ReturnImageKeyTooLong_When_TheKeyIsLongerThanTheLimit()
     {
         // Arrange
-        var url = $"https://images.pethost.local/{new string('a', Message.ImageUrlMaxLength)}.webp";
+        var key = $"conversations/{new string('a', Message.ImageKeyMaxLength)}.webp";
 
         // Act
-        var result = Message.Photo(ConversationId, ConversationParty.Host, url, caption: null, bookingId: null, Now);
+        var result = Message.Photo(ConversationId, ConversationParty.Host, key, caption: null, bookingId: null, Now);
 
         // Assert
-        result.FirstError.Should().Be(ConversationsErrors.ImageUrlTooLong);
+        result.FirstError.Should().Be(ConversationsErrors.ImageKeyTooLong);
     }
 
     [Fact]
-    public void Photo_Should_ReturnBothErrors_When_UrlAndCaptionAreInvalid()
+    public void Photo_Should_UseTheGivenId_When_OneIsPassed()
+    {
+        // Arrange
+        var id = new MessageId(Guid.CreateVersion7());
+
+        // Act
+        var result = Message.Photo(ConversationId, ConversationParty.Host, PhotoKey, caption: null, bookingId: null, Now, id);
+
+        // Assert
+        result.Value!.Id.Should().Be(id);
+    }
+
+    [Fact]
+    public void Photo_Should_ReturnBothErrors_When_KeyAndCaptionAreInvalid()
     {
         // Arrange
         var caption = new string('a', Message.BodyMaxLength + 1);
@@ -204,6 +218,6 @@ public sealed class MessageTests
         var result = Message.Photo(ConversationId, ConversationParty.Host, "javascript:alert(1)", caption, bookingId: null, Now);
 
         // Assert
-        result.Errors.Should().BeEquivalentTo([ConversationsErrors.ImageUrlInvalid, ConversationsErrors.BodyTooLong]);
+        result.Errors.Should().BeEquivalentTo([ConversationsErrors.ImageKeyInvalid, ConversationsErrors.BodyTooLong]);
     }
 }

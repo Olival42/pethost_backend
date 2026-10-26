@@ -784,7 +784,7 @@ O front é **Next.js** e chama a API (e o hub) pelo navegador, de outra origem. 
 
 - **Lista explícita, nunca `*`:** a política manda credenciais (`AllowCredentials`), porque o cliente do SignalR negocia com `withCredentials`, e o navegador recusa credencial com origem `*`. Origem malformada (caminho, query, `*`, sem esquema) derruba a API no startup.
 - Qualquer método e header (o `Authorization` do JWT e o `Content-Type` do JSON e do upload). O JavaScript do front lê `Location` (recurso criado) e `Retry-After` (`429`), expostos.
-- A API não usa cookie: o token vai no header `Authorization` (e na query `access_token` só no hub). O bucket de imagens não precisa de CORS ([armazenamento-de-imagens.md](armazenamento-de-imagens.md)).
+- A API não usa cookie: o token vai no header `Authorization` (e na query `access_token` só no hub). O bucket público de imagens não precisa de CORS; o **privado** precisa, para o `PUT` do upload direto, com as mesmas origens de `Cors:AllowedOrigins` ([upload-direto.md](upload-direto.md) seção 12).
 
 ---
 
@@ -798,7 +798,8 @@ Todo e-mail sai pela **caixa de saída persistente** (`IEmailOutbox`, tabela `em
 
 Toda foto (avatar, pet, anfitrião, cantinho) vai para o **bucket S3 compatível** — Cloudflare R2 em produção, RustFS no compose e nos testes — pelas peças genéricas do `Shared` (`IImageStorage`, `ImageReplacement`, `[ImageUploadEndpoint]`). Detalhes e configuração em [armazenamento-de-imagens.md](armazenamento-de-imagens.md).
 
-- **Rota própria de upload** por entidade, com `multipart/form-data` e a imagem na parte `file`; a resposta é a entidade, no formato de sempre.
+- **Upload direto ao bucket** ([upload-direto.md](upload-direto.md)): `POST /api/v1/uploads` (finalidade + metadados) → `PUT` na URL assinada → `POST /api/v1/uploads/{id}/confirm`. Foto nova de entidade ganha uma **finalidade** (`IUploadPurpose`, registrada na Presentation do módulo) que chama o **mesmo caso de uso** do multipart: no pedido com `ImageUpload.Preflight` (só as checagens), na confirmação com o arquivo. Nenhuma regra é reescrita na finalidade.
+- **Rota própria de upload** por entidade, com `multipart/form-data` e a imagem na parte `file`; a resposta é a entidade, no formato de sempre. Continua no ar durante a migração do front para o upload direto.
   - **Uma foto** (avatar): `PUT /<recurso>/me/avatar` troca, `DELETE` na mesma rota tira.
   - **Várias fotos** (pet, cantinho): tabela própria (`<recurso>_photos`) com vaga única por dono. `POST /<recurso>/{id}/photos` adiciona, `PATCH /<recurso>/{id}/photos/{photoId}` só substitui (mesmo id e posição) e `DELETE` na mesma rota tira.
   - **Fotos em ordem escolhida** (cantinho): posição 1..n sempre sem buraco (nova entra no fim; tirar sobe as de trás) e `PUT /<recurso>/{id}/photos/order` com **todas** as fotos na ordem nova. A unicidade da posição é constraint `DEFERRABLE INITIALLY DEFERRED`, para trocar posições numa transação.

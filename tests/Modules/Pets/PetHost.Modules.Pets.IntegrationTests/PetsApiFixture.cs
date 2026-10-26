@@ -19,6 +19,8 @@ using PetHost.Modules.Pets.Infrastructure;
 using PetHost.Modules.Pets.Infrastructure.Persistence;
 using PetHost.Shared.Infrastructure.Email;
 using PetHost.Shared.Infrastructure.Email.Persistence;
+using PetHost.Shared.Infrastructure.Uploads;
+using PetHost.Shared.Infrastructure.Uploads.Persistence;
 using Respawn;
 using Respawn.Graph;
 using PetHost.TestKit;
@@ -113,6 +115,7 @@ public sealed class PetsApiFixture : IAsyncLifetime
         await Services.InitializePetsModuleAsync(applyMigrations: true);
         await Services.InitializeBookingsModuleAsync(applyMigrations: true);
         await Services.InitializePaymentsModuleAsync(applyMigrations: true);
+        await Services.InitializeDirectUploadsAsync(applyMigrations: true);
 
         _connection = new NpgsqlConnection(_postgres.GetConnectionString());
         await _connection.OpenAsync();
@@ -120,7 +123,7 @@ public sealed class PetsApiFixture : IAsyncLifetime
         _respawner = await Respawner.CreateAsync(_connection, new RespawnerOptions
         {
             DbAdapter = DbAdapter.Postgres,
-            SchemasToInclude = [AuthDbContext.Schema, OwnersDbContext.Schema, AuditDbContext.Schema, HostsDbContext.Schema, PetsDbContext.Schema, BookingsDbContext.Schema, PaymentsDbContext.Schema, EmailDbContext.Schema],
+            SchemasToInclude = [AuthDbContext.Schema, OwnersDbContext.Schema, AuditDbContext.Schema, HostsDbContext.Schema, PetsDbContext.Schema, BookingsDbContext.Schema, PaymentsDbContext.Schema, EmailDbContext.Schema, UploadsDbContext.Schema],
             TablesToIgnore =
             [
                 new Table(AuthDbContext.Schema, AuthDbContext.MigrationsHistoryTable),
@@ -131,9 +134,13 @@ public sealed class PetsApiFixture : IAsyncLifetime
                 new Table(BookingsDbContext.Schema, BookingsDbContext.MigrationsHistoryTable),
                 new Table(PaymentsDbContext.Schema, PaymentsDbContext.MigrationsHistoryTable),
                 new Table(EmailDbContext.Schema, EmailDbContext.MigrationsHistoryTable),
+                new Table(UploadsDbContext.Schema, UploadsDbContext.MigrationsHistoryTable),
             ],
         });
     }
+
+    /// <summary>Connection string do Postgres, para os testes que mexem direto no banco.</summary>
+    public string ConnectionString => _postgres.GetConnectionString();
 
     /// <summary>Limpa os schemas e recria o admin do seed.</summary>
     public async Task ResetAsync()

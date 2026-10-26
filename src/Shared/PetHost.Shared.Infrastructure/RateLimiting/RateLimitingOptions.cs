@@ -44,6 +44,9 @@ public sealed class RateLimitingOptions
 
         // Denúncia: cada uma manda e-mail ao admin. 10 por hora é muito para uso honesto.
         [RateLimitPolicies.Reports] = new() { PermitLimit = 10, WindowSeconds = 3600 },
+
+        // Upload direto: cabe uma sequência de fotos do pet no chat (o envio da mensagem conta à parte).
+        [RateLimitPolicies.Uploads] = new() { PermitLimit = 60, WindowSeconds = 600 },
     };
 }
 

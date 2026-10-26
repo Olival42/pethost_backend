@@ -35,6 +35,7 @@ public static class RateLimitingServiceCollectionExtensions
             RateLimitPolicies.ChatMessages,
             RateLimitPolicies.ReviewWrites,
             RateLimitPolicies.Reports,
+            RateLimitPolicies.Uploads,
         ];
 
     public static IServiceCollection AddPetHostRateLimiting(this IServiceCollection services, IConfiguration configuration)

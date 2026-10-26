@@ -34,7 +34,19 @@ public interface IImageStorage
 /// <param name="Content">Bytes da imagem. O formato real é conferido pelo conteúdo, não pelo nome.</param>
 /// <param name="FileName">Nome original. Só informativo: não vai para o bucket.</param>
 /// <param name="ContentType">O que o cliente declarou. Só informativo, pelo mesmo motivo.</param>
-public sealed record ImageUpload(Stream Content, string? FileName, string? ContentType);
+public sealed record ImageUpload(Stream Content, string? FileName, string? ContentType)
+{
+    /// <summary>
+    /// Imagem de mentira para <b>conferir a permissão sem enviar nada</b> (o pedido de upload
+    /// direto ao bucket, antes de assinar a URL). Todo caso de uso de foto confere posse e regras
+    /// antes de chamar o bucket; com esta imagem, o bucket não grava e responde
+    /// <see cref="ImageErrors.PreflightPassed"/> — sinal de que todas as checagens passaram.
+    /// </summary>
+    public static ImageUpload Preflight { get; } = new(Stream.Null, FileName: null, ContentType: null);
+
+    /// <summary>É a imagem de <see cref="Preflight"/>: o bucket não grava nada.</summary>
+    public bool IsPreflight => ReferenceEquals(this, Preflight);
+}
 
 /// <summary>Imagem gravada.</summary>
 /// <param name="Url">URL pública absoluta: é o que vai para o banco.</param>
@@ -58,7 +70,10 @@ public static class ImageFolders
     /// <summary>Reservada: fotos do cantinho (anúncio).</summary>
     public const string Listings = "listings";
 
-    /// <summary>Fotos enviadas no chat (módulo Conversations). Apagadas pela retenção da conversa.</summary>
+    /// <summary>
+    /// Fotos antigas do chat, de antes do bucket privado: só para apagar as que restam. As novas
+    /// vão para <see cref="PrivateImageFolders.Conversations"/>.
+    /// </summary>
     public const string Conversations = "conversations";
 }
 

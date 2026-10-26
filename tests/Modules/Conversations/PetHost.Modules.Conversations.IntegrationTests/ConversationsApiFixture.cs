@@ -25,6 +25,8 @@ using PetHost.Modules.Pets.Infrastructure;
 using PetHost.Modules.Pets.Infrastructure.Persistence;
 using PetHost.Shared.Infrastructure.Email;
 using PetHost.Shared.Infrastructure.Email.Persistence;
+using PetHost.Shared.Infrastructure.Uploads;
+using PetHost.Shared.Infrastructure.Uploads.Persistence;
 using PetHost.TestKit;
 using Respawn;
 using Respawn.Graph;
@@ -154,6 +156,7 @@ public sealed class ConversationsApiFixture : IAsyncLifetime
         await Services.InitializeBookingsModuleAsync(applyMigrations: true);
         await Services.InitializeConversationsModuleAsync(applyMigrations: true);
         await Services.InitializePaymentsModuleAsync(applyMigrations: true);
+        await Services.InitializeDirectUploadsAsync(applyMigrations: true);
 
         _connection = new NpgsqlConnection(_postgres.GetConnectionString());
         await _connection.OpenAsync();
@@ -162,6 +165,7 @@ public sealed class ConversationsApiFixture : IAsyncLifetime
         [
             AuthDbContext.Schema, OwnersDbContext.Schema, AuditDbContext.Schema, HostsDbContext.Schema, PetsDbContext.Schema,
             ListingsDbContext.Schema, BookingsDbContext.Schema, ConversationsDbContext.Schema, PaymentsDbContext.Schema, EmailDbContext.Schema,
+            UploadsDbContext.Schema,
         ];
 
         _respawner = await Respawner.CreateAsync(_connection, new RespawnerOptions

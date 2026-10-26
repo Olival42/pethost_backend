@@ -35,6 +35,9 @@ internal sealed partial class S3PrivateImageStorage(
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(folder);
 
+        if (image is { IsPreflight: true })
+            return Result<StoredPrivateImage>.Failure(ImageErrors.PreflightPassed);
+
         var read = await ImageUploadReader.ReadAsync(image, cancellationToken).ConfigureAwait(false);
         if (read.IsFailure)
             return Result<StoredPrivateImage>.FromFailure(read);
@@ -74,6 +77,13 @@ internal sealed partial class S3PrivateImageStorage(
         {
             return null;
         }
+
+        return await SignUrlAsync(key, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<SignedImageUrl> SignUrlAsync(string key, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(key);
 
         var expiresAt = timeProvider.GetUtcNow().AddMinutes(_options.SignedUrlLifetimeMinutes);
 

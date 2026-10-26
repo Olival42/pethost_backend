@@ -15,6 +15,7 @@ namespace PetHost.Modules.Conversations.Application.UnitTests.Conversations.Purg
 public sealed class PurgeInactiveConversationsCommandHandlerTests
 {
     private const string PhotoUrl = "https://images.pethost.local/conversations/foto.webp";
+    private const string PrivatePhotoKey = "conversations/0192aa.webp";
 
     private static readonly DateTimeOffset Now = ConversationBuilder.DefaultNow.AddDays(200);
     private static readonly DateTimeOffset Cutoff = Now.AddDays(-90);
@@ -23,6 +24,7 @@ public sealed class PurgeInactiveConversationsCommandHandlerTests
     private readonly Mock<IMessageRepository> _messages = new(MockBehavior.Strict);
     private readonly Mock<IConversationBookings> _bookings = new(MockBehavior.Strict);
     private readonly Mock<IImageStorage> _storage = new(MockBehavior.Strict);
+    private readonly Mock<IPrivateImageStorage> _privateStorage = new(MockBehavior.Strict);
     private readonly Mock<IAuditTrail> _auditTrail = new(MockBehavior.Strict);
     private readonly Conversation _inactive = new ConversationBuilder().Build();
     private readonly Conversation _withStay = new ConversationBuilder().WithOwner(TestIds.Of(70)).Build();
@@ -35,6 +37,7 @@ public sealed class PurgeInactiveConversationsCommandHandlerTests
             _messages.Object,
             _bookings.Object,
             _storage.Object,
+            _privateStorage.Object,
             _auditTrail.Object,
             new FakeTimeProvider(Now));
 
@@ -42,6 +45,9 @@ public sealed class PurgeInactiveConversationsCommandHandlerTests
         _bookings.Setup(b => b.HasOpenBookingAsync(_withStay.OwnerId, _withStay.HostId, It.IsAny<CancellationToken>())).ReturnsAsync(true);
         _messages.Setup(m => m.ListImageUrlsAsync(_inactive.Id, It.IsAny<CancellationToken>())).ReturnsAsync([PhotoUrl]);
         _storage.Setup(s => s.DeleteAsync(PhotoUrl, It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        _messages.Setup(m => m.ListImageKeysAsync(It.IsAny<ConversationId>(), It.IsAny<CancellationToken>())).ReturnsAsync([]);
+        _messages.Setup(m => m.ListImageKeysAsync(_inactive.Id, It.IsAny<CancellationToken>())).ReturnsAsync([PrivatePhotoKey]);
+        _privateStorage.Setup(s => s.DeleteAsync(PrivatePhotoKey, It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
         _auditTrail.Setup(a => a.RecordAsync(It.IsAny<AuditRecord>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
     }
 
@@ -59,7 +65,8 @@ public sealed class PurgeInactiveConversationsCommandHandlerTests
         result.Value!.Purged.Should().Be(1);
         _repository.Verify(r => r.DeleteIfInactiveAsync(_inactive.Id, Cutoff, It.IsAny<CancellationToken>()), Times.Once);
         _storage.Verify(s => s.DeleteAsync(PhotoUrl, It.IsAny<CancellationToken>()), Times.Once);
-        _auditTrail.Verify(a => a.RecordAsync(It.Is<AuditRecord>(r => r.Action == AuditActions.ConversationPurged && r.TargetId == _inactive.Id.Value && r.Details!["photos"] == "1"), It.IsAny<CancellationToken>()), Times.Once);
+        _privateStorage.Verify(s => s.DeleteAsync(PrivatePhotoKey, It.IsAny<CancellationToken>()), Times.Once);
+        _auditTrail.Verify(a => a.RecordAsync(It.Is<AuditRecord>(r => r.Action == AuditActions.ConversationPurged && r.TargetId == _inactive.Id.Value && r.Details!["photos"] == "2"), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]

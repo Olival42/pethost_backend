@@ -10,7 +10,7 @@ namespace PetHost.Modules.Conversations.Application.Reports.Responses;
 /// Junta às denúncias lidas do banco o nome e a foto de quem denunciou e de quem foi denunciado,
 /// numa consulta por módulo para a página inteira (nunca uma por denúncia).
 /// </summary>
-public sealed class MessageReportResponseBuilder(IConversationParties conversationParties)
+public sealed class MessageReportResponseBuilder(IConversationParties conversationParties, MessagePhotoLinks photoLinks)
 {
     /// <param name="context">As mensagens anteriores (só no detalhe).</param>
     public async Task<MessageReportResponse> BuildAsync(
@@ -24,7 +24,7 @@ public sealed class MessageReportResponseBuilder(IConversationParties conversati
 
         return context is null
             ? responses[0]
-            : responses[0] with { Context = [.. context.Select(MessageResponse.From)] };
+            : responses[0] with { Context = await photoLinks.ToResponsesAsync(context, cancellationToken).ConfigureAwait(false) };
     }
 
     public async Task<IReadOnlyList<MessageReportResponse>> BuildAsync(
@@ -44,6 +44,10 @@ public sealed class MessageReportResponseBuilder(IConversationParties conversati
             .GetHostsAsync([.. rows.Select(r => r.HostId).Distinct()], cancellationToken)
             .ConfigureAwait(false);
 
+        var messages = new Dictionary<Guid, MessageResponse>();
+        foreach (var row in rows)
+            messages[row.Id.Value] = await photoLinks.ToResponseAsync(row.Message, cancellationToken).ConfigureAwait(false);
+
         return [.. rows.Select(row =>
         {
             var owner = Summary(owners.GetValueOrDefault(row.OwnerId));
@@ -59,7 +63,7 @@ public sealed class MessageReportResponseBuilder(IConversationParties conversati
                 ConversationPartyValues.ToWire(row.ReportedBy),
                 reporterIsOwner ? owner : host,
                 reporterIsOwner ? host : owner,
-                MessageResponse.From(row.Message),
+                messages[row.Id.Value],
                 Context: null,
                 row.CreatedAt,
                 row.ResolvedAt,

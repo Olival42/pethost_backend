@@ -19,7 +19,8 @@ namespace PetHost.Modules.Conversations.Application.UnitTests.Messages.SendPhoto
 
 public sealed class SendPhotoMessageCommandHandlerTests
 {
-    private const string PhotoUrl = "https://images.pethost.local/conversations/pipoca.webp";
+    private const string PhotoKey = "conversations/0192aa.webp";
+    private const string SignedUrl = ConversationsTestData.SignedPhotoPrefix + PhotoKey;
 
     private static readonly DateTimeOffset Now = ConversationBuilder.DefaultNow.AddDays(9);
     private static readonly ImageUpload Image = new(Stream.Null, "pipoca.webp", "image/webp");
@@ -29,7 +30,7 @@ public sealed class SendPhotoMessageCommandHandlerTests
     private readonly Mock<IConversationsUnitOfWork> _unitOfWork = new(MockBehavior.Strict);
     private readonly Mock<IConversationParties> _parties = new(MockBehavior.Strict);
     private readonly Mock<IConversationBookings> _bookings = new(MockBehavior.Strict);
-    private readonly Mock<IImageStorage> _storage = new(MockBehavior.Strict);
+    private readonly Mock<IPrivateImageStorage> _storage = ConversationsTestData.SigningStorage();
     private readonly Mock<IConversationQueries> _queries = new(MockBehavior.Strict);
     private readonly Mock<IConversationRealtime> _realtime = new(MockBehavior.Strict);
     private readonly Mock<IAuditTrail> _auditTrail = new(MockBehavior.Strict);
@@ -45,6 +46,7 @@ public sealed class SendPhotoMessageCommandHandlerTests
             _parties.Object,
             _bookings.Object,
             _storage.Object,
+            new MessagePhotoLinks(_storage.Object),
             new ConversationNotifications(_parties.Object, _queries.Object, _realtime.Object),
             _auditTrail.Object,
             new FakeTimeProvider(Now));
@@ -59,7 +61,7 @@ public sealed class SendPhotoMessageCommandHandlerTests
             .Setup(u => u.RunLockedOnConversationAsync(It.IsAny<ConversationId>(), It.IsAny<Func<CancellationToken, Task<Result>>>(), It.IsAny<CancellationToken>()))
             .Returns<ConversationId, Func<CancellationToken, Task<Result>>, CancellationToken>((_, work, ct) => work(ct));
         _bookings.Setup(b => b.GetInProgressBookingIdAsync(ConversationBuilder.OwnerId, ConversationBuilder.HostId, It.IsAny<CancellationToken>())).ReturnsAsync(ConversationBuilder.BookingId);
-        _storage.Setup(s => s.SaveAsync(Image, ImageFolders.Conversations, It.IsAny<CancellationToken>())).ReturnsAsync(Result<StoredImage>.Success(new StoredImage(PhotoUrl, "hash")));
+        _storage.Setup(s => s.SaveAsync(Image, PrivateImageFolders.Conversations, It.IsAny<CancellationToken>())).ReturnsAsync(Result<StoredPrivateImage>.Success(new StoredPrivateImage(PhotoKey, "hash", 1234)));
         _storage.Setup(s => s.DeleteAsync(It.IsAny<string?>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
         _messages.Setup(m => m.Add(It.IsAny<Message>()));
         _unitOfWork.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(Result.Success());
@@ -77,16 +79,50 @@ public sealed class SendPhotoMessageCommandHandlerTests
 
         // Assert
         var response = result.Value!;
-        response.ImageUrl.Should().Be(PhotoUrl);
+        response.ImageUrl.Should().Be(SignedUrl, "a foto do chat fica no bucket privado e sai com URL assinada");
+        response.ImageUrlExpiresAt.Should().Be(ConversationsTestData.SignedPhotoExpiresAt.ToUnixTimeSeconds());
         response.Body.Should().Be("Brincando no quintal");
         response.SentBy.Should().Be("host");
         response.BookingId.Should().Be(ConversationBuilder.BookingId);
         _conversation.LastMessageAt.Should().Be(Now);
         _auditTrail.Verify(a => a.RecordAsync(
-            It.Is<AuditRecord>(r => r.Action == AuditActions.ConversationMessageSent && r.Details!["hasPhoto"] == "true" && !r.Details.Values.Contains(PhotoUrl)),
+            It.Is<AuditRecord>(r => r.Action == AuditActions.ConversationMessageSent && r.Details!["hasPhoto"] == "true" && !r.Details.Values.Contains(PhotoKey)),
             It.IsAny<CancellationToken>()), Times.Once);
         _realtime.Verify(r => r.UnreadCountChangedAsync(ConversationBuilder.OwnerUserId, 1, It.IsAny<CancellationToken>()), Times.Once);
-        _storage.Verify(s => s.DeleteAsync(PhotoUrl, It.IsAny<CancellationToken>()), Times.Never);
+        _storage.Verify(s => s.DeleteAsync(PhotoKey, It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task HandleAsync_Should_ReturnTheExistingMessageWithoutUploadingOrPushing_When_TheMessageIdAlreadyExists()
+    {
+        // Arrange
+        var existing = Message.Photo(_conversation.Id, ConversationParty.Host, PhotoKey, "Primeira", bookingId: null, Now, new MessageId(TestIds.Of(501))).Value!;
+        _messages.Setup(m => m.FindInConversationAsync(_conversation.Id, existing.Id, It.IsAny<CancellationToken>())).ReturnsAsync(existing);
+
+        // Act
+        var result = await _sut.HandleAsync(HostSends("De novo") with { MessageId = existing.Id.Value }, CancellationToken.None);
+
+        // Assert
+        result.Value!.Id.Should().Be(existing.Id.Value);
+        result.Value.Body.Should().Be("Primeira");
+        _storage.Verify(s => s.SaveAsync(It.IsAny<ImageUpload?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        _messages.Verify(m => m.Add(It.IsAny<Message>()), Times.Never);
+        _realtime.Verify(r => r.MessageCreatedAsync(It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<MessageResponse>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task HandleAsync_Should_CreateTheMessageWithTheGivenId_When_TheMessageIdIsNew()
+    {
+        // Arrange
+        var id = new MessageId(TestIds.Of(502));
+        _messages.Setup(m => m.FindInConversationAsync(_conversation.Id, id, It.IsAny<CancellationToken>())).ReturnsAsync((Message?)null);
+
+        // Act
+        var result = await _sut.HandleAsync(HostSends(null) with { MessageId = id.Value }, CancellationToken.None);
+
+        // Assert
+        result.Value!.Id.Should().Be(id.Value);
+        _messages.Verify(m => m.Add(It.Is<Message>(message => message.Id == id)), Times.Once);
     }
 
     [Fact]
@@ -148,7 +184,7 @@ public sealed class SendPhotoMessageCommandHandlerTests
     public async Task HandleAsync_Should_ReturnTheFileErrorWithoutSaving_When_TheBucketRefusesTheImage()
     {
         // Arrange
-        _storage.Setup(s => s.SaveAsync(Image, ImageFolders.Conversations, It.IsAny<CancellationToken>())).ReturnsAsync(Result<StoredImage>.Failure(ImageErrors.FileRequired));
+        _storage.Setup(s => s.SaveAsync(Image, PrivateImageFolders.Conversations, It.IsAny<CancellationToken>())).ReturnsAsync(Result<StoredPrivateImage>.Failure(ImageErrors.FileRequired));
 
         // Act
         var result = await _sut.HandleAsync(HostSends(null), CancellationToken.None);
@@ -169,7 +205,7 @@ public sealed class SendPhotoMessageCommandHandlerTests
 
         // Assert
         result.FirstError.Should().Be(ConversationsErrors.Conflict);
-        _storage.Verify(s => s.DeleteAsync(PhotoUrl, It.IsAny<CancellationToken>()), Times.Once);
+        _storage.Verify(s => s.DeleteAsync(PhotoKey, It.IsAny<CancellationToken>()), Times.Once);
         _auditTrail.Verify(a => a.RecordAsync(It.IsAny<AuditRecord>(), It.IsAny<CancellationToken>()), Times.Never);
         _realtime.Verify(r => r.MessageCreatedAsync(It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<MessageResponse>(), It.IsAny<CancellationToken>()), Times.Never);
     }
@@ -182,7 +218,7 @@ public sealed class SendPhotoMessageCommandHandlerTests
 
         // Assert
         result.FirstError.Should().Be(ConversationsErrors.BodyTooLong);
-        _storage.Verify(s => s.DeleteAsync(PhotoUrl, It.IsAny<CancellationToken>()), Times.Once);
+        _storage.Verify(s => s.DeleteAsync(PhotoKey, It.IsAny<CancellationToken>()), Times.Once);
         _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 

@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using PetHost.Modules.Conversations.Application.Abstractions;
 using PetHost.Modules.Conversations.Presentation.Realtime;
+using PetHost.Modules.Conversations.Presentation.Uploads;
+using PetHost.Shared.Infrastructure.Uploads;
 
 namespace PetHost.Modules.Conversations.Presentation;
 
@@ -19,6 +21,9 @@ public static class DependencyInjection
         ArgumentNullException.ThrowIfNull(builder);
 
         builder.Services.AddScoped<IConversationRealtime, SignalRConversationRealtime>();
+
+        // Upload direto ao bucket (/api/v1/uploads): o mesmo caso de uso do upload por multipart.
+        builder.Services.AddScoped<IUploadPurpose, ChatPhotoUploadPurpose>();
 
         return builder.AddApplicationPart(typeof(DependencyInjection).Assembly);
     }

@@ -3,6 +3,7 @@ using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
 using PetHost.Modules.Conversations.Application.Conversations.PurgeInactiveConversations;
 using PetHost.Shared.Kernel.Messaging;
+using PetHost.TestKit;
 using Xunit;
 using static PetHost.Modules.Conversations.IntegrationTests.ConversationsScenario;
 
@@ -48,7 +49,7 @@ public sealed class ConversationRetentionTests(ConversationsApiFixture fixture) 
         // Assert
         result.Purged.Should().Be(1);
         (await _scenario.SendAsync(HttpMethod.Get, $"{ConversationsRoute}/{conversationId}", pair.OwnerToken)).StatusCode.Should().Be(HttpStatusCode.NotFound);
-        (await fixture.Bucket.ExistsAsync(photo)).Should().BeFalse();
+        (await fixture.Bucket.ListPrivateKeysAsync()).Should().NotContain(TestImageBucket.PrivateKeyOf(photo), "a foto sai do bucket privado com a conversa");
     }
 
     [Fact]

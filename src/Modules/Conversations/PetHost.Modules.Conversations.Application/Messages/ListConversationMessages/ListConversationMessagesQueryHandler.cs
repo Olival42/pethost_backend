@@ -18,7 +18,8 @@ namespace PetHost.Modules.Conversations.Application.Messages.ListConversationMes
 public sealed class ListConversationMessagesQueryHandler(
     IConversationRepository conversationRepository,
     IConversationParties conversationParties,
-    IConversationQueries conversationQueries) : IQueryHandler<ListConversationMessagesQuery, MessagePageResponse>
+    IConversationQueries conversationQueries,
+    MessagePhotoLinks photoLinks) : IQueryHandler<ListConversationMessagesQuery, MessagePageResponse>
 {
     public async Task<Result<MessagePageResponse>> HandleAsync(ListConversationMessagesQuery query, CancellationToken cancellationToken)
     {
@@ -56,7 +57,7 @@ public sealed class ListConversationMessagesQueryHandler(
         if (rows is null)
             return Result<MessagePageResponse>.Failure(ConversationsErrors.BeforeInvalid);
 
-        var items = rows.Take(query.PageSize).Select(MessageResponse.From).ToList();
+        var items = await photoLinks.ToResponsesAsync(rows.Take(query.PageSize), cancellationToken).ConfigureAwait(false);
 
         return Result<MessagePageResponse>.Success(new MessagePageResponse(items, query.PageSize, rows.Count > query.PageSize));
     }

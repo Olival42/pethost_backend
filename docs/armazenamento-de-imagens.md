@@ -10,7 +10,9 @@ Fotos de perfil, de pet, do cantinho e, no futuro, do anfitrião ficam num **buc
 
 O código é o mesmo nos três: muda só a configuração. O RustFS substitui o MinIO, cujas imagens oficiais não são mais publicadas no Docker Hub.
 
-São **dois buckets**: o de imagens, **público para leitura** (fotos de perfil, pet, cantinho), e o de **documentos, privado** (documento de identidade e selfie da verificação do anfitrião). Seção 8.
+São **dois buckets**: o de imagens, **público para leitura** (fotos de perfil, pet, cantinho), e o **privado** (documento de identidade e selfie da verificação do anfitrião, fotos do chat e a área de espera do upload direto). Seção 8.
+
+> **Upload direto (recomendado):** o front pede uma URL assinada, faz o `PUT` direto no bucket e confirma — os bytes não passam pela API. Contrato para o front em [`upload-direto.md`](upload-direto.md). As rotas por `multipart` desta página continuam no ar durante a migração do front.
 
 ## Sumário
 
@@ -54,7 +56,9 @@ As peças genéricas, que servem a qualquer módulo:
 | `IImageStorage` | `Shared.Contracts/Storage` | Enviar (`SaveAsync`) e apagar (`DeleteAsync`) uma imagem. |
 | `IPrivateImageStorage` | `Shared.Contracts/Storage` | O mesmo no bucket **privado**, mais ler (`OpenAsync`). Guarda e devolve a **chave**, nunca URL (seção 8). |
 | `ImageReplacement` | `Shared.Contracts/Storage` | O fluxo inteiro de trocar/remover: enviar → gravar → apagar a anterior, ou desfazer. |
-| `ImageFolders` | `Shared.Contracts/Storage` | Pastas: `avatars`, `pets`, `listings` (fotos do cantinho), `conversations` (fotos do chat, apagadas pela retenção da conversa — [`modulo-conversations.md`](modulo-conversations.md)) e `hosts` (reservada). |
+| `ImageFolders` | `Shared.Contracts/Storage` | Pastas do bucket público: `avatars`, `pets`, `listings` (fotos do cantinho), `conversations` (só as fotos antigas do chat; as novas vão para `PrivateImageFolders.Conversations`, no bucket privado — [`modulo-conversations.md`](modulo-conversations.md)) e `hosts` (reservada). |
+| `ImageUpload.Preflight` | `Shared.Contracts/Storage` | Imagem de mentira: o caso de uso roda as checagens e o bucket responde `ImageErrors.PreflightPassed` sem gravar. É como o upload direto confere a permissão antes de assinar a URL. |
+| `IUploadPurpose`, `UploadService` | `Shared.Infrastructure/Uploads` | Upload direto ao bucket ([`upload-direto.md`](upload-direto.md)): cada módulo registra as finalidades, que chamam o caso de uso de sempre. |
 | `ImageRules` / `ImageErrors` | `Shared.Contracts/Storage` | Limites e erros do arquivo, iguais em todo endpoint. |
 | `S3ImageStorage` | `Shared.Infrastructure/Storage` | Implementação S3 (AWS SDK), com a checagem do formato pelo conteúdo. |
 | `ImageMetadataStripper` | `Shared.Infrastructure/Storage` | Tira EXIF/XMP/IPTC e afins antes de gravar (seção 3.1). Usado pelos dois buckets. |
@@ -165,7 +169,7 @@ Sim, dentro da cota gratuita mensal do R2 (valores da página de preços da Clou
 
 6. **Subir.** `docker compose up -d`. A API passa a gravar no R2; o RustFS continua subindo, mas fica sem uso. Teste com o `curl` da seção 2: a URL devolvida deve começar com `STORAGE_PUBLIC_BASE_URL` e abrir no navegador.
 
-> Não precisa configurar CORS no bucket: o upload passa pela API, e o navegador só faz `GET` simples (tag `<img>`) nas imagens.
+> O bucket **público** não precisa de CORS: o navegador só faz `GET` simples (tag `<img>`). O bucket **privado** precisa, para o `PUT` do upload direto: regra em [`upload-direto.md`](upload-direto.md) seção 12.
 
 Se a configuração estiver incompleta (endpoint, chave, bucket ou URL pública faltando ou inválida), **a API não sobe** e o log diz qual `Storage:*` falta. É de propósito: melhor falhar na subida do que em cada upload.
 
@@ -212,7 +216,7 @@ Não pede cartão e aceita bucket público. O plano grátis tem pouco espaço (c
 O `docker compose up` sobe dois serviços:
 
 - **`rustfs`**: o armazenamento, na porta `9000` (API S3), com o console web em [http://localhost:9001](http://localhost:9001). O login do console é `RUSTFS_ACCESS_KEY` / `RUSTFS_SECRET_KEY`, por padrão `pethost` / `pethost_local_dev`. Os dados ficam no volume `rustfs-data`.
-- **`rustfs-init`**: roda uma vez, cria o bucket `pethost-images` com leitura pública e o bucket `pethost-documents` **sem** política (privado), e termina. A API só sobe depois dele.
+- **`rustfs-init`**: roda uma vez, cria o bucket `pethost-images` com leitura pública e o bucket `pethost-documents` **sem** política (privado), e termina. A API só sobe depois dele, e na subida grava o CORS do bucket privado (`UPLOADS_CONFIGURE_BUCKET_CORS=true`), para o `PUT` do navegador.
 
 A API fala com o RustFS por `http://rustfs:9000` (rede do Docker) e grava URLs `http://localhost:9000/pethost-images/...`, que o navegador da máquina abre.
 
@@ -245,7 +249,7 @@ Um fixture que suba a API sem mexer com imagem usa `TestImageBucket.UnusedSettin
 
 ## 8. Bucket privado (documentos)
 
-Documento de identidade e selfie da verificação do anfitrião ([`modulo-hosts.md`](modulo-hosts.md)) são dado pessoal sensível: **nunca** vão para o bucket público.
+Documento de identidade e selfie da verificação do anfitrião ([`modulo-hosts.md`](modulo-hosts.md)) são dado pessoal sensível: **nunca** vão para o bucket público. As **fotos do chat** também ficam aqui (pasta `conversations`), com link assinado para quem é da conversa ([`modulo-conversations.md`](modulo-conversations.md) seção 3.4), e a **área de espera** do upload direto (`uploads/pending/`, [`upload-direto.md`](upload-direto.md)).
 
 | | Bucket de imagens | Bucket de documentos |
 |---|---|---|

@@ -31,6 +31,13 @@ public interface IPrivateImageStorage
     Task<SignedImageUrl?> GetSignedUrlAsync(string key, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Como <see cref="GetSignedUrlAsync"/>, mas <b>sem conferir</b> que o arquivo existe: assinar
+    /// é conta local, sem ida ao bucket. Para listas (as fotos de uma página do chat), onde uma
+    /// consulta por imagem pesaria. Arquivo já apagado dá 404 quando aberto.
+    /// </summary>
+    Task<SignedImageUrl> SignUrlAsync(string key, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Apaga a imagem dessa chave. Ignora <c>null</c>. Nunca lança: falha vai para o log — um
     /// arquivo órfão não pode derrubar o pedido.
     /// </summary>
@@ -53,4 +60,7 @@ public static class PrivateImageFolders
 {
     /// <summary>Documentos (frente e verso) e selfies das solicitações de anfitrião.</summary>
     public const string HostApplications = "host-applications";
+
+    /// <summary>Fotos enviadas no chat (módulo Conversations). Apagadas pela retenção da conversa.</summary>
+    public const string Conversations = "conversations";
 }

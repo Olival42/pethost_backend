@@ -99,7 +99,7 @@ internal sealed class ConversationQueries(ConversationsDbContext dbContext) : IC
             .OrderByDescending(m => m.CreatedAt)
             .ThenByDescending(m => m.Id)
             .Take(take)
-            .Select(m => new MessageRow(m.Id, m.ConversationId, m.SentBy, m.Body, m.ImageUrl, m.BookingId, m.CreatedAt))
+            .Select(m => new MessageRow(m.Id, m.ConversationId, m.SentBy, m.Body, m.ImageUrl, m.ImageKey, m.BookingId, m.CreatedAt))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
     }
@@ -201,7 +201,7 @@ internal sealed class ConversationQueries(ConversationsDbContext dbContext) : IC
                 r.ConversationId,
                 c.OwnerId,
                 c.HostId,
-                new MessageRow(m.Id, m.ConversationId, m.SentBy, m.Body, m.ImageUrl, m.BookingId, m.CreatedAt),
+                new MessageRow(m.Id, m.ConversationId, m.SentBy, m.Body, m.ImageUrl, m.ImageKey, m.BookingId, m.CreatedAt),
                 r.ReportedBy,
                 r.Reason,
                 r.Description,
@@ -258,7 +258,7 @@ internal sealed class ConversationQueries(ConversationsDbContext dbContext) : IC
             .Select(g => g
                 .OrderByDescending(m => m.CreatedAt)
                 .ThenByDescending(m => m.Id)
-                .Select(m => new MessageRow(m.Id, m.ConversationId, m.SentBy, m.Body, m.ImageUrl, m.BookingId, m.CreatedAt))
+                .Select(m => new MessageRow(m.Id, m.ConversationId, m.SentBy, m.Body, m.ImageUrl, m.ImageKey, m.BookingId, m.CreatedAt))
                 .First())
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);

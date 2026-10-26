@@ -18,6 +18,7 @@ using PetHost.Modules.Conversations.Application.Messages.ListConversationMessage
 using PetHost.Modules.Conversations.Application.Messages.NotifyUnreadMessages;
 using PetHost.Modules.Conversations.Application.Messages.Responses;
 using PetHost.Modules.Conversations.Application.Messages.SendMessage;
+using PetHost.Modules.Conversations.Application.Messages.GetMessagePhoto;
 using PetHost.Modules.Conversations.Application.Messages.SendPhotoMessage;
 using PetHost.Modules.Conversations.Application.Preferences;
 using PetHost.Modules.Conversations.Application.Preferences.GetNotificationSettings;
@@ -87,6 +88,7 @@ public static class DependencyInjection
 
         // Exclusão da conta (LGPD): a parte do Conversations (§5).
         services.AddScoped<IPersonalDataEraser, ConversationPersonalDataEraser>();
+        services.AddScoped<MessagePhotoLinks>();
         services.AddScoped<ConversationResponseBuilder>();
         services.AddScoped<ConversationNotifications>();
         services.AddScoped<MessageReportResponseBuilder>();
@@ -113,6 +115,7 @@ public static class DependencyInjection
         services.AddScoped<IQueryHandler<GetConversationByIdQuery, ConversationResponse>, GetConversationByIdQueryHandler>();
         services.AddScoped<IQueryHandler<GetUnreadMessageCountQuery, UnreadCountResponse>, GetUnreadMessageCountQueryHandler>();
         services.AddScoped<IQueryHandler<ListConversationMessagesQuery, MessagePageResponse>, ListConversationMessagesQueryHandler>();
+        services.AddScoped<IQueryHandler<GetMessagePhotoQuery, MessagePhotoResponse>, GetMessagePhotoQueryHandler>();
         services.AddScoped<IQueryHandler<GetNotificationSettingsQuery, NotificationSettingsResponse>, GetNotificationSettingsQueryHandler>();
         services.AddScoped<IQueryHandler<ListMessageReportsQuery, PagedResult<MessageReportResponse>>, ListMessageReportsQueryHandler>();
         services.AddScoped<IQueryHandler<GetMessageReportByIdQuery, MessageReportResponse>, GetMessageReportByIdQueryHandler>();

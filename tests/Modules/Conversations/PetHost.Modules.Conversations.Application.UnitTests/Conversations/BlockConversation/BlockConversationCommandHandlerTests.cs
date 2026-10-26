@@ -39,7 +39,7 @@ public sealed class BlockConversationCommandHandlerTests
             _unitOfWork.Object,
             _parties.Object,
             _queries.Object,
-            new ConversationResponseBuilder(_parties.Object),
+            new ConversationResponseBuilder(_parties.Object, ConversationsTestData.PhotoLinks()),
             new ConversationNotifications(_parties.Object, _queries.Object, _realtime.Object),
             _auditTrail.Object,
             new FakeTimeProvider(Now));
