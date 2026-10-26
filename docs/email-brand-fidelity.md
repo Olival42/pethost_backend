@@ -1,5 +1,7 @@
 # E-mails e fidelidade ao modal Quintal — 29/10/2026
 
+Comportamento vigente: [tema claro fixo](email-fixed-theme.md), com logo/títulos e cartão no mesmo papel Quintal, sem adaptação escura ou placas brancas adicionais. A solução adaptativa abaixo foi substituída por instrução do usuário em 30/10/2026.
+
 Correção de modo escuro em 30/10/2026: fundos claros agora fazem parte dos pixels de logo/títulos; estilos nativos e Outlook adaptam conteúdo textual, e URLs de imagem têm versão de contraste. Fonte atual: [email-dark-mode.md](email-dark-mode.md). Essa alteração substitui a transparência original descrita pela geração anterior, preservando fontes/dimensões e links.
 
 ## Recursos e comportamento

@@ -1,5 +1,7 @@
 # Contraste dos emails em modo escuro
 
+**Substituído em 30/10/2026:** o usuário optou pelo tema claro Quintal fixo em todos os dispositivos. Comportamento atual em [email-fixed-theme.md](email-fixed-theme.md). Esta nota registra a solução adaptativa anterior, que não é mais a implementação ativa.
+
 Implementado em 30/10/2026, no template central da outbox. Publicação e recebimento real ainda não executados.
 
 ## Diagnóstico e solução
