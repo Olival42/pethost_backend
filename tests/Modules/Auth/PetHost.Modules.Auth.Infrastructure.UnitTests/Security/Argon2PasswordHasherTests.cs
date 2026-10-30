@@ -148,7 +148,7 @@ public sealed class Argon2PasswordHasherTests
     [InlineData("")]
     public void Hash_Should_Throw_When_PasswordIsEmpty(string? password)
     {
-        // Senha vazia viola a PasswordPolicy. Falhar alto aqui evita gravar no
+        // Senha vazia viola a regra de Password. Falhar alto aqui evita gravar no
         // banco o hash de uma senha vazia por causa de um bug em outra camada.
         var act = () => _sut.Hash(password!);
 

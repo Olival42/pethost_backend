@@ -1,9 +1,15 @@
 using System.Data.Common;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
+using PetHost.Modules.Audit.Infrastructure;
+using PetHost.Modules.Audit.Infrastructure.Persistence;
 using PetHost.Modules.Auth.Infrastructure;
 using PetHost.Modules.Auth.Infrastructure.Persistence;
+using PetHost.Shared.Infrastructure.Email;
+using PetHost.Shared.Infrastructure.Email.Persistence;
+using PetHost.TestKit;
 using Respawn;
 using Testcontainers.PostgreSql;
 using Testcontainers.Redis;
@@ -34,7 +40,25 @@ public sealed class AuthApiFixture : IAsyncLifetime
     private Respawner? _respawner;
     private DbConnection? _connection;
 
+    /// <summary>E-mails que a API "mandou". Limpo a cada <see cref="ResetAsync"/>.</summary>
+    public CapturingEmailSender Emails { get; } = new();
+
     public HttpClient CreateClient() => Factory.CreateClient();
+
+    /// <summary>
+    /// Outra instância da API sobre os mesmos containers, com configuração extra — por
+    /// exemplo, o rate limit ligado com limites baixos. Quem chama descarta.
+    /// </summary>
+    public WebApplicationFactory<Program> WithSettings(IReadOnlyDictionary<string, string> settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+
+        return Factory.WithWebHostBuilder(builder =>
+        {
+            foreach (var (key, value) in settings)
+                builder.UseSetting(key, value);
+        });
+    }
 
     public IServiceProvider Services => Factory.Services;
 
@@ -54,6 +78,7 @@ public sealed class AuthApiFixture : IAsyncLifetime
             builder.UseSetting("Jwt:Issuer", "https://api.pethost.test");
             builder.UseSetting("Jwt:Audience", "pethost-app");
             builder.UseSetting("Jwt:Key", "chave-de-teste-com-mais-de-32-bytes-para-hmac-sha256");
+            builder.UseSetting("HostVerification:CpfFingerprintKey", "chave-de-teste-da-impressao-do-cpf-hmac-sha256");
             builder.UseSetting("Jwt:AccessTokenLifetimeMinutes", "15");
             builder.UseSetting("Jwt:RefreshTokenLifetimeDays", "30");
 
@@ -63,15 +88,36 @@ public sealed class AuthApiFixture : IAsyncLifetime
             builder.UseSetting("Argon2:Iterations", "1");
             builder.UseSetting("Argon2:DegreeOfParallelism", "1");
 
+            // Os testes fazem dezenas de logins do mesmo "IP": o rate limit tem testes próprios.
+            builder.UseSetting("RateLimiting:Enabled", "false");
+
             builder.UseSetting("Seed:Admin:Enabled", "true");
             builder.UseSetting("Seed:Admin:Email", SeededAdminEmail);
             builder.UseSetting("Seed:Admin:Password", SeededAdminPassword);
             builder.UseSetting("Seed:Admin:FullName", "PetHost Admin");
+
+            // O host SMTP só precisa passar na validação de subida: o envio é
+            // trocado pelo coletor abaixo e nunca abre conexão.
+            builder.UseSetting("Email:Host", "smtp.invalid");
+            builder.UseSetting("Email:Port", "25");
+            builder.UseSetting("Email:FromAddress", "no-reply@pethost.test");
+            builder.UseSetting("Email:AppUrl", "https://app.pethost.test");
+
+            // Auth não envia imagens: só precisa que a API suba.
+            foreach (var (key, value) in TestImageBucket.UnusedSettings)
+                builder.UseSetting(key, value);
+            builder.UseSetting("PasswordReset:TokenLifetimeMinutes", "30");
+            builder.UseSetting("PasswordReset:ResetUrl", "https://app.pethost.test/reset-password#token={token}");
+
+            builder.ConfigureTestServices(services =>
+                services.AddSingleton<IEmailSender>(Emails));
         });
 
         // A WebApplicationFactory para o host no `builder.Build()`, então o
         // trecho final do Program.cs (migrations + seed) não roda sozinho aqui.
+        await Services.InitializeEmailAsync(applyMigrations: true);
         await Services.InitializeAuthModuleAsync(applyMigrations: true);
+        await Services.InitializeAuditModuleAsync(applyMigrations: true);
 
         _connection = new NpgsqlConnection(_postgres.GetConnectionString());
         await _connection.OpenAsync();
@@ -79,8 +125,13 @@ public sealed class AuthApiFixture : IAsyncLifetime
         _respawner = await Respawner.CreateAsync(_connection, new RespawnerOptions
         {
             DbAdapter = DbAdapter.Postgres,
-            SchemasToInclude = [AuthDbContext.Schema],
-            TablesToIgnore = [new Respawn.Graph.Table(AuthDbContext.Schema, AuthDbContext.MigrationsHistoryTable)],
+            SchemasToInclude = [AuthDbContext.Schema, AuditDbContext.Schema, EmailDbContext.Schema],
+            TablesToIgnore =
+            [
+                new Respawn.Graph.Table(AuthDbContext.Schema, AuthDbContext.MigrationsHistoryTable),
+                new Respawn.Graph.Table(AuditDbContext.Schema, AuditDbContext.MigrationsHistoryTable),
+                new Respawn.Graph.Table(EmailDbContext.Schema, EmailDbContext.MigrationsHistoryTable),
+            ],
         });
     }
 
@@ -94,6 +145,8 @@ public sealed class AuthApiFixture : IAsyncLifetime
             await _respawner.ResetAsync(_connection);
 
         await Services.InitializeAuthModuleAsync(applyMigrations: false);
+
+        Emails.Clear();
     }
 
     public async ValueTask DisposeAsync()

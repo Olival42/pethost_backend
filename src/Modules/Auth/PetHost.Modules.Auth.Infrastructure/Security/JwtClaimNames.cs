@@ -20,4 +20,11 @@ public static class JwtClaimNames
 
     /// <summary>Id único do token.</summary>
     public const string TokenId = "jti";
+
+    /// <summary>
+    /// Instante da emissão em milissegundos (Unix). O <c>iat</c> padrão é em segundos, e a
+    /// revogação precisa separar o token antigo do novo emitido no mesmo segundo — por
+    /// exemplo, a sessão nova que a troca de senha devolve.
+    /// </summary>
+    public const string IssuedAtMilliseconds = "iat_ms";
 }

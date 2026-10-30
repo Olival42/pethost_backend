@@ -1,0 +1,176 @@
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using PetHost.Modules.Hosts.Application.HostApplications.ApproveHostApplication;
+using PetHost.Modules.Hosts.Application.HostApplications.GetHostApplicationById;
+using PetHost.Modules.Hosts.Application.HostApplications.GetHostApplicationDocument;
+using PetHost.Modules.Hosts.Application.HostApplications.ListHostApplications;
+using PetHost.Modules.Hosts.Application.HostApplications.RejectHostApplication;
+using PetHost.Modules.Hosts.Application.HostApplications.ReleaseIdentityBlock;
+using PetHost.Modules.Hosts.Application.HostApplications.Responses;
+using PetHost.Shared.Contracts.Authorization;
+using PetHost.Shared.Contracts.Responses;
+using PetHost.Shared.Infrastructure.Http;
+using PetHost.Shared.Kernel.Messaging;
+using PetHost.Shared.Kernel.Primitives;
+
+namespace PetHost.Modules.Hosts.Presentation.HostApplications;
+
+/// <summary>
+/// A análise do admin: a fila de solicitações de anfitrião, os dados e as fotos de cada uma, e
+/// a decisão. Tudo só admin; toda leitura e decisão vai para a trilha de auditoria.
+/// </summary>
+[ApiController]
+[Route("api/v1/host-applications")]
+[Authorize(Roles = Roles.Admin)]
+public sealed class HostApplicationsController(
+    IQueryHandler<ListHostApplicationsQuery, IReadOnlyList<HostApplicationReviewResponse>> listApplications,
+    IQueryHandler<GetHostApplicationByIdQuery, HostApplicationReviewResponse> getApplication,
+    IQueryHandler<GetHostApplicationDocumentQuery, HostApplicationDocumentLinkResponse> getDocument,
+    ICommandHandler<ApproveHostApplicationCommand, HostApplicationReviewResponse> approveApplication,
+    ICommandHandler<RejectHostApplicationCommand, HostApplicationReviewResponse> rejectApplication,
+    ICommandHandler<ReleaseIdentityBlockCommand, Unit> releaseIdentityBlock) : ControllerBase
+{
+    /// <summary>A fila do admin: solicitações num status (padrão: <c>submitted</c>, as mais antigas primeiro).</summary>
+    /// <remarks>Sem paginação (lista administrativa). Status desconhecido: 400 no campo <c>status</c>.</remarks>
+    [HttpGet]
+    [ProducesResponseType<ApiResponse<IReadOnlyList<HostApplicationReviewResponse>>>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ApiResponse<IReadOnlyList<HostApplicationReviewResponse>>>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ApiResponse<IReadOnlyList<HostApplicationReviewResponse>>>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ApiResponse<IReadOnlyList<HostApplicationReviewResponse>>>(StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> ListAsync([FromQuery] string? status, CancellationToken cancellationToken)
+    {
+        var result = await listApplications.HandleAsync(new ListHostApplicationsQuery(status), cancellationToken);
+
+        return result.ToActionResult();
+    }
+
+    /// <summary>Uma solicitação, com os dados da conta para comparar e a rota de cada foto.</summary>
+    [HttpGet("{applicationId:guid}")]
+    [ProducesResponseType<ApiResponse<HostApplicationReviewResponse>>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ApiResponse<HostApplicationReviewResponse>>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ApiResponse<HostApplicationReviewResponse>>(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType<ApiResponse<HostApplicationReviewResponse>>(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetByIdAsync(Guid applicationId, CancellationToken cancellationToken)
+    {
+        var result = await getApplication.HandleAsync(new GetHostApplicationByIdQuery(applicationId), cancellationToken);
+
+        return result.ToActionResult();
+    }
+
+    /// <summary>Link temporário de uma foto da solicitação: <c>front</c>, <c>back</c> ou <c>selfie</c>.</summary>
+    /// <remarks>
+    /// Devolve uma URL assinada direto no bucket privado (<c>url</c>) e quando ela vence
+    /// (<c>expiresAt</c>, em Unix time em segundos; padrão 5 minutos). O front põe a URL no <c>src</c> da imagem, sem token;
+    /// vencida, o bucket responde 403 e é só pedir outro link. Cada link emitido vai para a
+    /// trilha. Foto já apagada pelo prazo de guarda: 404 <c>HOST_APPLICATION_DOCUMENT_NOT_FOUND</c>.
+    /// </remarks>
+    [HttpGet("{applicationId:guid}/documents/{kind}")]
+    [ProducesResponseType<ApiResponse<HostApplicationDocumentLinkResponse>>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ApiResponse<HostApplicationDocumentLinkResponse>>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ApiResponse<HostApplicationDocumentLinkResponse>>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ApiResponse<HostApplicationDocumentLinkResponse>>(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType<ApiResponse<HostApplicationDocumentLinkResponse>>(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetDocumentAsync(Guid applicationId, string kind, CancellationToken cancellationToken)
+    {
+        var result = await getDocument.HandleAsync(new GetHostApplicationDocumentQuery(applicationId, kind), cancellationToken);
+
+        // A URL assinada é uma credencial temporária: nenhum cache (navegador, proxy) guarda a resposta.
+        Response.Headers.CacheControl = "no-store";
+
+        return result.ToActionResult();
+    }
+
+    /// <summary>Aprova a solicitação: o perfil de anfitrião é criado. Com motivo.</summary>
+    /// <remarks>
+    /// Só de solicitação em análise (422 <c>HOST_APPLICATION_NOT_UNDER_REVIEW</c>). Dois admins
+    /// ao mesmo tempo: o segundo recebe 409 <c>HOST_APPLICATION_CONFLICT</c>. As fotos são
+    /// apagadas conforme o prazo de guarda, e a pessoa recebe um e-mail.
+    /// </remarks>
+    [HttpPost("{applicationId:guid}/approval")]
+    [ProducesResponseType<ApiResponse<HostApplicationReviewResponse>>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ApiResponse<HostApplicationReviewResponse>>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ApiResponse<HostApplicationReviewResponse>>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ApiResponse<HostApplicationReviewResponse>>(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType<ApiResponse<HostApplicationReviewResponse>>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ApiResponse<HostApplicationReviewResponse>>(StatusCodes.Status409Conflict)]
+    [ProducesResponseType<ApiResponse<HostApplicationReviewResponse>>(StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> ApproveAsync(
+        Guid applicationId,
+        [FromBody] ApproveHostApplicationRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var result = await approveApplication.HandleAsync(
+            new ApproveHostApplicationCommand(User.GetUserId(), applicationId, request.Reason),
+            cancellationToken);
+
+        return result.ToActionResult();
+    }
+
+    /// <summary>Recusa a solicitação, com o motivo que a pessoa vê e a nota interna.</summary>
+    /// <remarks>
+    /// <c>rejectionReason</c>: <c>document_illegible</c>, <c>document_expired</c>,
+    /// <c>selfie_mismatch</c>, <c>data_mismatch</c>, <c>missing_document</c>, <c>other</c> —
+    /// a pessoa pode tentar de novo (até 3 vezes) — ou <c>suspected_fraud</c>, que é definitiva.
+    /// </remarks>
+    [HttpPost("{applicationId:guid}/rejection")]
+    [ProducesResponseType<ApiResponse<HostApplicationReviewResponse>>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ApiResponse<HostApplicationReviewResponse>>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ApiResponse<HostApplicationReviewResponse>>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ApiResponse<HostApplicationReviewResponse>>(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType<ApiResponse<HostApplicationReviewResponse>>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ApiResponse<HostApplicationReviewResponse>>(StatusCodes.Status409Conflict)]
+    [ProducesResponseType<ApiResponse<HostApplicationReviewResponse>>(StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> RejectAsync(
+        Guid applicationId,
+        [FromBody] RejectHostApplicationRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var result = await rejectApplication.HandleAsync(
+            new RejectHostApplicationCommand(User.GetUserId(), applicationId, request.RejectionReason, request.Reason),
+            cancellationToken);
+
+        return result.ToActionResult();
+    }
+
+    /// <summary>Libera um CPF bloqueado para solicitação de anfitrião. Só admin, com motivo.</summary>
+    /// <remarks>
+    /// Recusa por suspeita de fraude ou a terceira recusa bloqueiam o CPF para qualquer conta, mesmo
+    /// depois de a conta ser excluída (<c>422 HOST_IDENTITY_BLOCKED</c> ao abrir). Isto libera, para
+    /// quando o bloqueio pegou o dono de verdade do CPF. A conta recusada continua bloqueada. CPF que
+    /// não está bloqueado: 404 <c>HOST_IDENTITY_BLOCK_NOT_FOUND</c>. A trilha guarda o CPF mascarado.
+    /// </remarks>
+    [HttpPost("identity-blocks/release")]
+    [ProducesResponseType<ApiResponse<Unit>>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ApiResponse<Unit>>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ApiResponse<Unit>>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ApiResponse<Unit>>(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType<ApiResponse<Unit>>(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> ReleaseIdentityBlockAsync(
+        [FromBody] ReleaseIdentityBlockRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var result = await releaseIdentityBlock.HandleAsync(
+            new ReleaseIdentityBlockCommand(User.GetUserId(), request.Cpf, request.Reason),
+            cancellationToken);
+
+        return result.ToActionResult();
+    }
+}
+
+/// <summary>Corpo da liberação de CPF bloqueado: o CPF (com ou sem máscara) e o motivo.</summary>
+public sealed record ReleaseIdentityBlockRequest(string? Cpf, string? Reason);
+
+/// <summary>Corpo da aprovação: o que o admin conferiu. Vai para a nota e para a trilha.</summary>
+public sealed record ApproveHostApplicationRequest(string? Reason);
+
+/// <summary>Corpo da recusa.</summary>
+/// <param name="RejectionReason">O motivo que a pessoa vê.</param>
+/// <param name="Reason">Nota interna do admin. Vai para a trilha.</param>
+public sealed record RejectHostApplicationRequest(string? RejectionReason, string? Reason);

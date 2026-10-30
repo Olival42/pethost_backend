@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Moq;
 using PetHost.Shared.Contracts.Responses;
+using PetHost.Shared.Contracts.Validation;
 using PetHost.Shared.Infrastructure.Http;
 using PetHost.Shared.Infrastructure.Validation;
 using PetHost.Shared.Kernel.Errors;
@@ -15,12 +16,41 @@ namespace PetHost.Shared.Infrastructure.UnitTests;
 
 public sealed record SampleCommand(string? Email, string? Nested) : ICommand<string>;
 
+public static class SampleErrors
+{
+    public static readonly Error EmailRequired = Error.Validation("email", "SAMPLE_EMAIL_REQUIRED", "Email is required.");
+
+    public static readonly Error EmailTooLong = Error.Validation("email", "SAMPLE_EMAIL_TOO_LONG", "Email must be at most 5 characters.", ("max", 5));
+
+    public static readonly Error NestedRequired = Error.Validation("nested", "SAMPLE_NESTED_REQUIRED", "Nested is required.");
+}
+
 public sealed class SampleCommandValidator : AbstractValidator<SampleCommand>
 {
     public SampleCommandValidator()
     {
-        RuleFor(x => x.Email).NotEmpty().WithMessage("Email is required.");
-        RuleFor(x => x.Nested).NotEmpty().WithMessage("Nested is required.");
+        RuleFor(x => x.Email).NotEmpty().WithError(SampleErrors.EmailRequired);
+        RuleFor(x => x.Nested).NotEmpty().WithError(SampleErrors.NestedRequired);
+    }
+}
+
+/// <summary>Validador com uma regra sem código estável (bug de quem escreveu): o decorator não deixa passar.</summary>
+public sealed class UncodedCommandValidator : AbstractValidator<SampleCommand>
+{
+    public UncodedCommandValidator() => RuleFor(x => x.Email).NotEmpty();
+}
+
+/// <summary>Validador com duas regras no mesmo campo e uma de código livre (<c>CustomErrors</c>).</summary>
+public sealed class ParametrizedCommandValidator : AbstractValidator<SampleCommand>
+{
+    public ParametrizedCommandValidator()
+    {
+        RuleFor(x => x.Email).MaximumLength(5).WithError(SampleErrors.EmailTooLong);
+        RuleFor(x => x.Nested).CustomErrors((nested, context) =>
+        {
+            if (nested is null)
+                context.AddFailure(SampleErrors.NestedRequired);
+        });
     }
 }
 
@@ -84,6 +114,52 @@ public sealed class ValidationCommandHandlerDecoratorTests
     }
 
     [Fact]
+    public async Task HandleAsync_Should_CarryTheStableReasonOfEachRule_When_CommandIsInvalid()
+    {
+        var sut = Build(new SampleCommandValidator());
+
+        var result = await sut.HandleAsync(new SampleCommand(null, null), CancellationToken.None);
+
+        result.Errors!.Select(e => e.Reason).Should().BeEquivalentTo(["SAMPLE_EMAIL_REQUIRED", "SAMPLE_NESTED_REQUIRED"]);
+        result.Errors!.Should().OnlyContain(e => e.Code == ErrorCodes.Validation && e.Params == null);
+    }
+
+    [Fact]
+    public async Task HandleAsync_Should_CarryTheParamsAndTheMessage_When_RuleDeclaresThem()
+    {
+        var sut = Build(new ParametrizedCommandValidator());
+
+        var result = await sut.HandleAsync(new SampleCommand("too long email", null), CancellationToken.None);
+
+        var tooLong = result.Errors!.Single(e => e.Reason == "SAMPLE_EMAIL_TOO_LONG");
+        tooLong.Field.Should().Be("email");
+        tooLong.Message.Should().Be("Email must be at most 5 characters.");
+        tooLong.Params!.Values.Should().BeEquivalentTo(new Dictionary<string, object> { ["max"] = 5 });
+    }
+
+    [Fact]
+    public async Task HandleAsync_Should_KeepTheCodeOfFailuresAddedByCustomErrors()
+    {
+        var sut = Build(new ParametrizedCommandValidator());
+
+        var result = await sut.HandleAsync(new SampleCommand("ok", null), CancellationToken.None);
+
+        var error = result.Errors.Should().ContainSingle().Subject;
+        error.Reason.Should().Be("SAMPLE_NESTED_REQUIRED");
+        error.Field.Should().Be("nested");
+    }
+
+    [Fact]
+    public async Task HandleAsync_Should_Throw_When_ARuleHasNoStableCode()
+    {
+        var sut = Build(new UncodedCommandValidator());
+
+        var act = () => sut.HandleAsync(new SampleCommand(null, null), CancellationToken.None);
+
+        (await act.Should().ThrowAsync<InvalidOperationException>()).WithMessage("*no stable error code*");
+    }
+
+    [Fact]
     public async Task HandleAsync_Should_CallInnerHandler_When_NoValidatorIsRegistered()
     {
         var sut = Build();
@@ -122,6 +198,7 @@ public sealed class ErrorCodeStatusMapperTests
     [InlineData("AUTH_REFRESH_TOKEN_INVALID", StatusCodes.Status401Unauthorized)]
     [InlineData("AUTH_ADMIN_REGISTRATION_FORBIDDEN", StatusCodes.Status403Forbidden)]
     [InlineData("PET_NOT_OWNED_BY_REQUESTER", StatusCodes.Status403Forbidden)]
+    [InlineData("LISTING_GEOCODER_UNAVAILABLE", StatusCodes.Status503ServiceUnavailable)]
     public void ToHttpStatusCode_Should_InferFromSuffix_When_CodeIsFromAModule(string code, int expected)
     {
         code.ToHttpStatusCode().Should().Be(expected);
@@ -165,7 +242,7 @@ public sealed class ResultActionResultExtensionsTests
     [Fact]
     public void ToActionResult_Should_Return400_When_ResultHasValidationErrors()
     {
-        var result = Result<string>.Failure(Error.Validation("email", "Email is required."));
+        var result = Result<string>.Failure(Error.Validation("email", "AUTH_EMAIL_REQUIRED", "Email is required."));
 
         result.ToActionResult().Should().BeOfType<ObjectResult>()
             .Which.StatusCode.Should().Be(StatusCodes.Status400BadRequest);

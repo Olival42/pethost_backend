@@ -19,7 +19,7 @@ public static class ApiResponseMapper
         var grouped = errors
             .Where(e => e.Code == ErrorCodes.Validation)
             .GroupBy(e => e.Field ?? "general")
-            .Select(g => new DataErrors(g.Key, [.. g.Select(e => e.Message)]))
+            .Select(g => new DataErrors(g.Key, [.. g.Select(e => e.Message)], [.. g.Select(FieldErrorItem.From)]))
             .ToList();
 
         if (grouped.Count > 0)
@@ -28,6 +28,7 @@ public static class ApiResponseMapper
         var first = errors.FirstOrDefault();
         return ApiResponse<T>.Fail(new ErrorResponse(
             first?.Code ?? ErrorCodes.Unexpected,
-            first?.Message ?? "Unknown error"));
+            first?.Message ?? "Unknown error",
+            Params: first?.Params?.Values));
     }
 }

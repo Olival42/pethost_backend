@@ -3,18 +3,30 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using PetHost.Modules.Auth.Application.Abstractions;
+using PetHost.Modules.Auth.Application.Passwords.ForgotPassword;
+using PetHost.Modules.Auth.Application.Passwords.ResetPassword;
 using PetHost.Modules.Auth.Application.Sessions.CreateSession;
 using PetHost.Modules.Auth.Application.Sessions.RefreshSession;
 using PetHost.Modules.Auth.Application.Sessions.Responses;
 using PetHost.Modules.Auth.Application.Sessions.RevokeSession;
+using PetHost.Modules.Auth.Application.Sessions.SwitchSession;
+using PetHost.Modules.Auth.Application.Users.ChangePassword;
+using PetHost.Modules.Auth.Application.Users.GetCurrentUser;
+using PetHost.Modules.Auth.Application.Users.GetLinkedAccounts;
+using PetHost.Modules.Auth.Application.Users.RegisterAccount;
+using PetHost.Modules.Auth.Application.Users.SuspendAccount;
 using PetHost.Modules.Auth.Domain.Users;
+using PetHost.Modules.Auth.Infrastructure.Accounts;
+using PetHost.Modules.Auth.Infrastructure.Notifications;
 using PetHost.Modules.Auth.Infrastructure.Persistence;
 using PetHost.Modules.Auth.Infrastructure.Persistence.Repositories;
 using PetHost.Modules.Auth.Infrastructure.Persistence.Seed;
 using PetHost.Modules.Auth.Infrastructure.Security;
+using PetHost.Shared.Contracts.Accounts;
+using PetHost.Shared.Infrastructure.Redis;
 using PetHost.Shared.Infrastructure.Validation;
+using PetHost.Shared.Kernel.Messaging;
 using PetHost.Shared.Kernel.Primitives;
-using StackExchange.Redis;
 
 namespace PetHost.Modules.Auth.Infrastructure;
 
@@ -24,8 +36,8 @@ public static class DependencyInjection
     /// <summary>Nome da connection string do Postgres.</summary>
     public const string PostgresConnectionName = "Postgres";
 
-    /// <summary>Nome da connection string do Redis.</summary>
-    public const string RedisConnectionName = "Redis";
+    /// <summary>Nome da connection string do Redis (a conexão é registrada pelo <c>Shared</c>).</summary>
+    public const string RedisConnectionName = RedisServiceCollectionExtensions.ConnectionName;
 
     public static IServiceCollection AddAuthInfrastructure(
         this IServiceCollection services,
@@ -38,6 +50,18 @@ public static class DependencyInjection
         services.AddAuthPersistence(configuration);
         services.AddAuthSecurity(configuration);
         services.AddAuthCommandHandlers();
+
+        // Contrato público de leitura: outros módulos leem conta só por aqui (§5).
+        services.AddScoped<IUserDirectory, UserDirectory>();
+
+        // Contrato público de escrita: o cadastro de um papel num pedido só cria a conta por aqui.
+        services.AddScoped<IAccountRegistrar, AccountRegistrar>();
+
+        // Contratos públicos de edição: o módulo de um papel altera perfil e status da conta por aqui.
+        services.AddScoped<IAccountProfileEditor, AccountProfileEditor>();
+        services.AddScoped<IAccountStatusManager, AccountStatusManager>();
+
+        services.AddAuthQueryHandlers();
 
         return services;
     }
@@ -52,6 +76,14 @@ public static class DependencyInjection
         services.AddSingleton<IValidateOptions<JwtOptions>, JwtOptionsValidator>();
 
         services.Configure<Argon2Options>(configuration.GetSection(Argon2Options.SectionName));
+        services.AddOptions<PasswordResetOptions>()
+            .Bind(configuration.GetSection(PasswordResetOptions.SectionName))
+            .Validate(o => o.TokenLifetimeMinutes > 0,
+                $"{PasswordResetOptions.SectionName}:{nameof(PasswordResetOptions.TokenLifetimeMinutes)} must be greater than zero.")
+            .Validate(o => string.IsNullOrWhiteSpace(o.ResetUrl) || o.ResetUrl.Contains(PasswordResetOptions.TokenPlaceholder, StringComparison.Ordinal),
+                $"{PasswordResetOptions.SectionName}:{nameof(PasswordResetOptions.ResetUrl)} must contain '{PasswordResetOptions.TokenPlaceholder}'.")
+            .ValidateOnStart();
+
         services.Configure<AdminSeedOptions>(configuration.GetSection(AdminSeedOptions.SectionName));
     }
 
@@ -74,17 +106,17 @@ public static class DependencyInjection
 
     private static void AddAuthSecurity(this IServiceCollection services, IConfiguration configuration)
     {
-        var redisConnectionString = configuration.GetConnectionString(RedisConnectionName)
-            ?? throw new InvalidOperationException(
-                $"Connection string '{RedisConnectionName}' is not configured.");
-
-        // Um multiplexer por processo: a própria biblioteca recomenda reusar a conexão.
-        services.AddSingleton<IConnectionMultiplexer>(
-            _ => ConnectionMultiplexer.Connect(redisConnectionString));
+        // Um multiplexer por processo, compartilhado com os outros módulos.
+        services.AddRedis(configuration);
 
         services.AddSingleton<IPasswordHasher, Argon2PasswordHasher>();
         services.AddSingleton<IAccessTokenGenerator, JwtAccessTokenGenerator>();
         services.AddSingleton<IRefreshTokenStore, RedisRefreshTokenStore>();
+        services.AddSingleton<IAccessTokenRevocationStore, RedisAccessTokenRevocationStore>();
+        services.AddSingleton<IPasswordResetTokenStore, RedisPasswordResetTokenStore>();
+        services.AddSingleton<IPasswordResetNotifier, PasswordResetEmailNotifier>();
+        services.AddSingleton<IPasswordChangedNotifier, PasswordChangedEmailNotifier>();
+        services.AddSingleton<IAccountSuspensionLiftedNotifier, AccountSuspensionLiftedEmailNotifier>();
     }
 
     /// <summary>
@@ -102,5 +134,35 @@ public static class DependencyInjection
 
         services.AddValidatedCommandHandler<
             RevokeSessionCommandHandler, RevokeSessionCommand, Unit>();
+
+        services.AddValidatedCommandHandler<
+            RegisterAccountCommandHandler, RegisterAccountCommand, SessionResponse>();
+
+        services.AddValidatedCommandHandler<
+            ChangePasswordCommandHandler, ChangePasswordCommand, SessionResponse>();
+
+        services.AddValidatedCommandHandler<
+            SwitchSessionCommandHandler, SwitchSessionCommand, SessionResponse>();
+
+        services.AddValidatedCommandHandler<
+            SuspendAccountCommandHandler, SuspendAccountCommand, Unit>();
+
+        services.AddValidatedCommandHandler<
+            LiftAccountSuspensionCommandHandler, LiftAccountSuspensionCommand, Unit>();
+
+        services.AddValidatedCommandHandler<
+            ForgotPasswordCommandHandler, ForgotPasswordCommand, Unit>();
+
+        services.AddValidatedCommandHandler<
+            ResetPasswordCommandHandler, ResetPasswordCommand, Unit>();
+    }
+
+    /// <summary>Consultas não passam pelo decorator de validação: o id vem do token.</summary>
+    private static void AddAuthQueryHandlers(this IServiceCollection services)
+    {
+        services.AddScoped<IQueryHandler<GetCurrentUserQuery, AuthenticatedUserResponse>, GetCurrentUserQueryHandler>();
+        services.AddScoped<
+            IQueryHandler<GetLinkedAccountsQuery, IReadOnlyList<LinkedAccountResponse>>,
+            GetLinkedAccountsQueryHandler>();
     }
 }

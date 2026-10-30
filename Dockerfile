@@ -3,6 +3,19 @@
 ARG DOTNET_VERSION=10.0
 
 # ----------------------------------------------------------------------------
+# projects: so os .csproj, na mesma arvore de pastas do repositorio
+# ----------------------------------------------------------------------------
+# Copia o src/ inteiro e apaga tudo que nao e .csproj. Modulo novo entra sozinho,
+# sem editar este arquivo. O estagio build copia so o resultado daqui; como o
+# Docker compara o conteudo copiado, mudar um .cs nao invalida o restore — so
+# mudar um .csproj.
+FROM mcr.microsoft.com/dotnet/sdk:${DOTNET_VERSION} AS projects
+WORKDIR /src
+COPY src/ src/
+RUN find src -type f ! -name '*.csproj' -delete \
+ && find src -type d -empty -delete
+
+# ----------------------------------------------------------------------------
 # build
 # ----------------------------------------------------------------------------
 FROM mcr.microsoft.com/dotnet/sdk:${DOTNET_VERSION} AS build
@@ -12,18 +25,9 @@ WORKDIR /src
 # Configuracao da solution: versoes centralizadas, regras de build e estilo.
 COPY Directory.Build.props Directory.Packages.props global.json .editorconfig ./
 
-# Restore em camada propria: so e invalidada quando algum .csproj muda.
-# Cada .csproj vai para o mesmo caminho do repositorio, porque as
-# ProjectReference sao relativas.
-COPY src/Shared/PetHost.Shared.Kernel/PetHost.Shared.Kernel.csproj                         src/Shared/PetHost.Shared.Kernel/
-COPY src/Shared/PetHost.Shared.Contracts/PetHost.Shared.Contracts.csproj                   src/Shared/PetHost.Shared.Contracts/
-COPY src/Shared/PetHost.Shared.Infrastructure/PetHost.Shared.Infrastructure.csproj         src/Shared/PetHost.Shared.Infrastructure/
-COPY src/Modules/Auth/PetHost.Modules.Auth.Domain/PetHost.Modules.Auth.Domain.csproj                 src/Modules/Auth/PetHost.Modules.Auth.Domain/
-COPY src/Modules/Auth/PetHost.Modules.Auth.Application/PetHost.Modules.Auth.Application.csproj       src/Modules/Auth/PetHost.Modules.Auth.Application/
-COPY src/Modules/Auth/PetHost.Modules.Auth.Infrastructure/PetHost.Modules.Auth.Infrastructure.csproj src/Modules/Auth/PetHost.Modules.Auth.Infrastructure/
-COPY src/Modules/Auth/PetHost.Modules.Auth.Presentation/PetHost.Modules.Auth.Presentation.csproj     src/Modules/Auth/PetHost.Modules.Auth.Presentation/
-COPY src/Host/PetHost.Api/PetHost.Api.csproj                                               src/Host/PetHost.Api/
-
+# Restore em camada propria. Cada .csproj fica no mesmo caminho do repositorio,
+# porque as ProjectReference sao relativas.
+COPY --from=projects /src/src src/
 RUN dotnet restore src/Host/PetHost.Api/PetHost.Api.csproj
 
 # Testes ficam fora da imagem: so o codigo da API.

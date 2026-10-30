@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\PetHost.Modules.Audit.Application\PetHost.Modules.Audit.Application.csproj" />
+    <ProjectReference Include="..\PetHost.Modules.Audit.Domain\PetHost.Modules.Audit.Domain.csproj" />
+    <ProjectReference Include="..\..\..\Shared\PetHost.Shared.Kernel\PetHost.Shared.Kernel.csproj" />
+    <ProjectReference Include="..\..\..\Shared\PetHost.Shared.Contracts\PetHost.Shared.Contracts.csproj" />
+    <ProjectReference Include="..\..\..\Shared\PetHost.Shared.Infrastructure\PetHost.Shared.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+    <PackageReference Include="EFCore.NamingConventions" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+</Project>

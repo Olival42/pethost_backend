@@ -19,6 +19,42 @@
     <ProjectReference Include="..\..\src\Modules\Auth\PetHost.Modules.Auth.Application\PetHost.Modules.Auth.Application.csproj" />
     <ProjectReference Include="..\..\src\Modules\Auth\PetHost.Modules.Auth.Infrastructure\PetHost.Modules.Auth.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Modules\Auth\PetHost.Modules.Auth.Presentation\PetHost.Modules.Auth.Presentation.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Owners\PetHost.Modules.Owners.Domain\PetHost.Modules.Owners.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Owners\PetHost.Modules.Owners.Application\PetHost.Modules.Owners.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Owners\PetHost.Modules.Owners.Infrastructure\PetHost.Modules.Owners.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Owners\PetHost.Modules.Owners.Presentation\PetHost.Modules.Owners.Presentation.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Audit\PetHost.Modules.Audit.Domain\PetHost.Modules.Audit.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Audit\PetHost.Modules.Audit.Application\PetHost.Modules.Audit.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Audit\PetHost.Modules.Audit.Infrastructure\PetHost.Modules.Audit.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Audit\PetHost.Modules.Audit.Presentation\PetHost.Modules.Audit.Presentation.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Pets\PetHost.Modules.Pets.Domain\PetHost.Modules.Pets.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Pets\PetHost.Modules.Pets.Application\PetHost.Modules.Pets.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Pets\PetHost.Modules.Pets.Infrastructure\PetHost.Modules.Pets.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Pets\PetHost.Modules.Pets.Presentation\PetHost.Modules.Pets.Presentation.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Hosts\PetHost.Modules.Hosts.Domain\PetHost.Modules.Hosts.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Hosts\PetHost.Modules.Hosts.Application\PetHost.Modules.Hosts.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Hosts\PetHost.Modules.Hosts.Infrastructure\PetHost.Modules.Hosts.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Hosts\PetHost.Modules.Hosts.Presentation\PetHost.Modules.Hosts.Presentation.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Listings\PetHost.Modules.Listings.Domain\PetHost.Modules.Listings.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Listings\PetHost.Modules.Listings.Application\PetHost.Modules.Listings.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Listings\PetHost.Modules.Listings.Infrastructure\PetHost.Modules.Listings.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Listings\PetHost.Modules.Listings.Presentation\PetHost.Modules.Listings.Presentation.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Bookings\PetHost.Modules.Bookings.Domain\PetHost.Modules.Bookings.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Bookings\PetHost.Modules.Bookings.Application\PetHost.Modules.Bookings.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Bookings\PetHost.Modules.Bookings.Infrastructure\PetHost.Modules.Bookings.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Bookings\PetHost.Modules.Bookings.Presentation\PetHost.Modules.Bookings.Presentation.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Conversations\PetHost.Modules.Conversations.Domain\PetHost.Modules.Conversations.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Conversations\PetHost.Modules.Conversations.Application\PetHost.Modules.Conversations.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Conversations\PetHost.Modules.Conversations.Infrastructure\PetHost.Modules.Conversations.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Conversations\PetHost.Modules.Conversations.Presentation\PetHost.Modules.Conversations.Presentation.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Reviews\PetHost.Modules.Reviews.Domain\PetHost.Modules.Reviews.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Reviews\PetHost.Modules.Reviews.Application\PetHost.Modules.Reviews.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Reviews\PetHost.Modules.Reviews.Infrastructure\PetHost.Modules.Reviews.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Reviews\PetHost.Modules.Reviews.Presentation\PetHost.Modules.Reviews.Presentation.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Payments\PetHost.Modules.Payments.Domain\PetHost.Modules.Payments.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Payments\PetHost.Modules.Payments.Application\PetHost.Modules.Payments.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Payments\PetHost.Modules.Payments.Infrastructure\PetHost.Modules.Payments.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Payments\PetHost.Modules.Payments.Presentation\PetHost.Modules.Payments.Presentation.csproj" />
   </ItemGroup>
 
 </Project>

@@ -2,9 +2,11 @@
 
 _Documento do que foi implementado · outubro de 2026 · complementa o [`PROJECT_STANDARDS.md`](PROJECT_STANDARDS.md)_
 
-Login, renovação e logout com JWT (access token) + refresh token no Redis, senha com Argon2id e admin criado por seed.
+Cadastro da conta base, login, renovação e logout com JWT (access token) + refresh token no Redis, perfil da conta (PATCH), troca de senha logada, inativar e reativar, suspensão pelo admin, exclusão da conta a pedido do titular (LGPD) — os três pelo contrato que o módulo do papel usa —, troca entre a conta de tutor e a de anfitrião, "esqueci a senha" com token por e-mail, senha com Argon2id e admin criado por seed.
 
-> **Cadastro desligado por enquanto.** O endpoint `POST /api/v1/auth/registrations` e o caso de uso `RegisterUser` foram removidos. O domínio continua sabendo criar tutor e anfitrião (`User.Register`), mas nada da API chama esse método hoje: contas de owner/host só existem se forem inseridas no banco.
+> **Conta de tutor é do módulo Owners.** O tutor se cadastra, edita, inativa e reativa em `/api/v1/owners` ([`modulo-owners.md`](modulo-owners.md)), que mexe na conta daqui pelos contratos `IAccountRegistrar`, `IAccountProfileEditor` e `IAccountStatusManager` — assim conta e perfil de tutor nunca ficam fora de sincronia. `POST /api/v1/users/register` cria só conta de **anfitrião**. Não há rota de inativar/reativar em `/users`: só o tutor tem isso, em `/owners`.
+
+> **Trilha de auditoria.** Cadastro, login (sucesso e falha), troca de conta, senha (troca e "esqueci"), perfil, inativar/reativar e suspensão ficam registrados pelo contrato `IAuditTrail` (módulo Audit, [`modulo-audit.md`](modulo-audit.md)). Sem senha, token nem e-mail digitado; perfil vai pelo nome dos campos alterados.
 
 ## Sumário
 
@@ -18,7 +20,6 @@ Login, renovação e logout com JWT (access token) + refresh token no Redis, sen
 8. [Configuração](#8-configuração)
 9. [Testes](#9-testes)
 10. [Decisões e desvios do padrão](#10-decisões-e-desvios-do-padrão)
-11. [Pendências](#11-pendências)
 
 ---
 
@@ -32,38 +33,49 @@ src/
 ├── Host/PetHost.Api/                       Program.cs, health checks, 401/403 no envelope
 ├── Shared/
 │   ├── PetHost.Shared.Kernel/              Result, Error, ICommand/handlers, Entity, ValueObject, Unit
-│   ├── PetHost.Shared.Contracts/           ApiResponse, ErrorResponse, ApiResponseMapper, Roles
-│   └── PetHost.Shared.Infrastructure/      ToActionResult, status HTTP, decorator de validação, handler global de exceção
+│   ├── PetHost.Shared.Contracts/           ApiResponse, ErrorResponse, ApiResponseMapper, Roles, IUserDirectory (contrato de leitura do Auth)
+│   └── PetHost.Shared.Infrastructure/      ToActionResult, status HTTP, decorator de validação, handler global de exceção, e-mail (caixa de saída no Postgres + SMTP), GetUserId()
 └── Modules/Auth/
-    ├── Domain/                             User, Email, PasswordHash, UserId, UserRole, AuthErrors, IUserRepository
-    ├── Application/                        CreateSession, RefreshSession, RevokeSession + portas
-    ├── Infrastructure/                     AuthDbContext, migration, Argon2, JWT, Redis, seeder
-    └── Presentation/                       SessionsController
-tests/                                      8 projetos de teste (seção 9)
+    ├── Domain/                             User, UserId, UserRole, AuthErrors, IUserRepository + value objects (seção 5.1)
+    ├── Application/                        RegisterAccount, GetCurrentUser, ChangePassword, SuspendAccount, ProfilePatch,
+    │                                       GetLinkedAccounts, CreateSession, RefreshSession, RevokeSession, SwitchSession,
+    │                                       ForgotPassword, ResetPassword + portas
+    ├── Infrastructure/                     AuthDbContext, migrations, Argon2, JWT, Redis, e-mail de troca de senha, seeder, UserDirectory
+    └── Presentation/                       UsersController, SessionsController, PasswordController
+tests/                                      11 projetos de teste (seção 9)
 ```
 
 | Camada | Responsabilidade |
 |---|---|
 | Domain | Regras do usuário. Sem EF, sem ASP.NET. |
-| Application | Orquestra os casos de uso. Fala com portas (`IPasswordHasher`, `IAccessTokenGenerator`, `IRefreshTokenStore`), não com implementações. |
-| Infrastructure | EF Core + Postgres, Argon2id, JWT, Redis, seed. |
+| Application | Orquestra os casos de uso. Fala com portas (`IPasswordHasher`, `IAccessTokenGenerator`, `IRefreshTokenStore`, `IPasswordResetTokenStore`, `IPasswordResetNotifier`, `IPasswordChangedNotifier`, `IAccountSuspensionLiftedNotifier`), não com implementações. |
+| Infrastructure | EF Core + Postgres, Argon2id, JWT, Redis (conexão registrada pelo `Shared`, `AddRedis`, compartilhada com o Listings), e-mail, seed. |
 | Presentation | Rota → handler → `ToActionResult()`. Não conhece o Domain. |
 
-**Padrões usados:** Result pattern (sem exceção para regra de negócio), Repository + Unit of Work, Decorator (validação antes do handler), Ports & Adapters (portas na Application, adaptadores na Infrastructure), Value Object (`Email`, `PasswordHash`), Factory (`User.Register`, `SessionResponseFactory`), Options pattern com validação na subida.
+**Padrões usados:** Result pattern (sem exceção para regra de negócio), Repository + Unit of Work, Decorator (validação antes do handler), Ports & Adapters (portas na Application, adaptadores na Infrastructure), Value Object (`Email`, `Password`, `PasswordHash`, `FullName`, `PhoneNumber`, `AvatarUrl`, `StateCode`, `ZipCode`, `Address`), Factory (`User.Register`, `SessionResponseFactory`), Options pattern com validação na subida.
 
 ---
 
 ## 2. Endpoints
 
-Todos são `[AllowAnonymous]`, recebem e devolvem JSON em camelCase.
+Recebem e devolvem JSON em camelCase. "Token" = precisa de `Authorization: Bearer <accessToken>`; as rotas `me` agem sempre sobre a conta do token, nunca sobre um id vindo da request.
 
-| Método | Rota | O que faz | Sucesso |
-|---|---|---|---|
-| `POST` | `/api/v1/auth/sessions/login` | Login | `200` |
-| `POST` | `/api/v1/auth/sessions/refresh` | Troca o refresh token por um par novo | `200` |
-| `POST` | `/api/v1/auth/sessions/logout` | Logout: invalida o refresh token | `200` |
-| `GET` | `/health/live` | O processo responde | `200` |
-| `GET` | `/health/ready` | Postgres e Redis respondem | `200` / `503` |
+> **Swagger (só em Development):** `http://localhost:8080/swagger` — todas as rotas de todos os módulos, com o formato de cada uma. Faça login em `POST /api/v1/auth/sessions/login`, copie o `accessToken`, clique em **Authorize** e cole (sem "Bearer"); o token fica salvo no navegador. O documento cru está em `/openapi/v1.json`. Cada status tem descrição e exemplo próprios: o de sucesso vem com `success: true` e o `data`; os de erro, com `success: false` e um `error` de exemplo (o código transversal do status — o endpoint pode devolver um código do módulo, listado na seção 4). Em produção nenhum dos dois é publicado.
+
+| Método | Rota | Acesso | O que faz | Sucesso |
+|---|---|---|---|---|
+| `POST` | `/api/v1/users/register` | anônimo | Cadastro da conta de anfitrião, já com sessão | `201` |
+| `GET` | `/api/v1/users/me` | token | Dados da conta do token | `200` |
+| `POST` | `/api/v1/users/me/password` | token | Troca a senha (pede a atual); encerra as sessões e devolve uma nova | `200` |
+| `GET` | `/api/v1/users/me/accounts` | token | Contas da mesma pessoa (tutor/anfitrião) | `200` |
+| `POST` | `/api/v1/auth/sessions/switch` | token | Troca para a outra conta da mesma pessoa | `200` |
+| `POST` | `/api/v1/auth/sessions/login` | anônimo | Login | `200` |
+| `POST` | `/api/v1/auth/sessions/refresh` | anônimo | Troca o refresh token por um par novo | `200` |
+| `POST` | `/api/v1/auth/sessions/logout` | anônimo | Logout: invalida o refresh token | `200` |
+| `POST` | `/api/v1/auth/password/forgot` | anônimo | Esqueci a senha: manda o token por e-mail | `200` |
+| `POST` | `/api/v1/auth/password/reset` | anônimo | Troca a senha com o token do e-mail | `200` |
+| `GET` | `/health/live` | anônimo | O processo responde | `200` |
+| `GET` | `/health/ready` | anônimo | Postgres e Redis respondem | `200` / `503` |
 
 ### 2.1 Login — `POST /api/v1/auth/sessions/login`
 
@@ -79,9 +91,10 @@ O `role` é obrigatório porque o e-mail sozinho não identifica a conta — é 
 
 | Status | Código | Quando |
 |---|---|---|
-| `200` | — | Corpo = [sessão](#24-resposta-de-sessão). |
+| `200` | — | Corpo = [sessão](#26-resposta-de-sessão). |
 | `400` | `VALIDATION_ERROR` | Campo faltando ou `role` desconhecido. |
 | `401` | `AUTH_INVALID_CREDENTIALS` | E-mail inexistente, senha errada, e-mail malformado ou papel que não bate com a conta. Sempre a mesma resposta. |
+| `403` | `AUTH_ACCOUNT_DEACTIVATED` | Senha certa, mas a conta está inativa. Só aparece depois da senha conferida. Tutor reativa em `POST /api/v1/owners/reactivate`. |
 
 ### 2.2 Refresh — `POST /api/v1/auth/sessions/refresh`
 
@@ -108,9 +121,36 @@ O `role` é obrigatório porque o e-mail sozinho não identifica a conta — é 
 
 O access token já emitido continua válido até expirar (é um JWT sem estado). Por isso a vida dele é curta.
 
-### 2.4 Resposta de sessão
+### 2.4 Esqueci a senha — `POST /api/v1/auth/password/forgot`
 
-Login e refresh devolvem o mesmo formato:
+```json
+{ "email": "camila@exemplo.com", "role": "owner" }
+```
+
+Gera um token de uso único e manda por e-mail para a conta **(e-mail, role)**. O `role` é obrigatório pelo mesmo motivo do login.
+
+| Status | Código | Quando |
+|---|---|---|
+| `200` | — | **Sempre**, exista a conta ou não — o endpoint não revela quem tem cadastro. Corpo: `{ "success": true, "data": {}, "timestamp": "..." }`. |
+| `400` | `VALIDATION_ERROR` | `email` ou `role` faltando, ou `role` desconhecido. |
+
+O e-mail traz o token e um botão para a URL de `PasswordReset:ResetUrl`, quando configurada. Sem essa URL explícita, usa `Email:AppUrl` com `/reset-password#token=...`; sem ambas, mantém apenas o código manual. Todos os avisos usam o [design Quintal e link alternativo](email-design.md). O token vale `PasswordReset:TokenLifetimeMinutes` (padrão 30 min), serve uma vez só, e **pedir de novo invalida o anterior**.
+
+### 2.5 Troca de senha — `POST /api/v1/auth/password/reset`
+
+```json
+{ "token": "q3Jx...Vb8", "newPassword": "Nova@Senha123" }
+```
+
+| Status | Código | Quando |
+|---|---|---|
+| `200` | — | Senha trocada. **Todas as sessões da conta são encerradas** (todos os refresh tokens deixam de valer). |
+| `400` | `VALIDATION_ERROR` | `token` vazio, ou senha nova fora da regra de senha forte (seção 5.1). Vem uma mensagem por regra que falhou. O token **não** é gasto: dá para corrigir a senha e tentar de novo. |
+| `401` | `AUTH_PASSWORD_RESET_TOKEN_INVALID` | Token inexistente, vencido, já usado ou substituído por um pedido mais novo. |
+
+### 2.6 Resposta de sessão
+
+Cadastro, login, refresh, reativação e troca de conta devolvem o mesmo formato:
 
 ```json
 {
@@ -124,10 +164,18 @@ Login e refresh devolvem o mesmo formato:
       "fullName": "Camila Souza",
       "email": "camila@exemplo.com",
       "role": "owner",
-      "phone": "44 99999-0000",
-      "neighborhood": "Zona 7",
-      "city": "Maringá",
-      "state": "PR"
+      "phone": "44999990000",
+      "birthDate": "1990-05-10",
+      "address": {
+        "zipCode": "87020000",
+        "street": "Rua das Flores",
+        "number": "120",
+        "complement": "Apto 3",
+        "neighborhood": "Zona 7",
+        "city": "Maringá",
+        "state": "PR"
+      },
+      "isActive": true
     }
   },
   "timestamp": "2026-10-08T12:00:00.000+00:00"
@@ -137,9 +185,101 @@ Login e refresh devolvem o mesmo formato:
 | Campo | Tipo | Significado |
 |---|---|---|
 | `expiresAt` | `long` | Quando o access token expira, em Unix time (segundos, UTC) — igual ao claim `exp` do JWT. Use para agendar o refresh. |
-| `user.*` | — | Campos `null` são omitidos (`phone`, `avatarUrl`, `neighborhood`, `city`, `state`). Nunca inclui hash de senha. |
+| `user.*` | — | Os dados da própria pessoa, então o endereço vem completo. Campos `null` são omitidos (`avatarUrl`, `complement`; no admin, `phone`, `birthDate` e `address`). Nunca inclui hash de senha. |
 
 Nas próximas chamadas: `Authorization: Bearer <accessToken>`.
+
+### 2.7 Cadastro de anfitrião — `POST /api/v1/users/register`
+
+```json
+{
+  "fullName": "Camila Souza",
+  "email": "camila@exemplo.com",
+  "password": "Nova@Senha123",
+  "phone": "(44) 99999-0000",
+  "birthDate": "1990-05-10",
+  "address": {
+    "zipCode": "87020-000", "street": "Rua das Flores", "number": "120", "complement": "Apto 3",
+    "neighborhood": "Zona 7", "city": "Maringá", "state": "PR"
+  }
+}
+```
+
+| Status | Código | Quando |
+|---|---|---|
+| `201` | — | Conta de anfitrião criada. Header `Location: /api/v1/users/me`. Corpo = [sessão](#26-resposta-de-sessão). |
+| `400` | `VALIDATION_ERROR` | Qualquer campo inválido — **todos de uma vez**, com o campo aninhado no endereço (`address.zipCode`, `address.state`...). Inclui senha fraca (uma mensagem por regra) e menos de 18 anos. |
+| `409` | `AUTH_EMAIL_ALREADY_REGISTERED` | Esse e-mail já tem conta de anfitrião. O mesmo e-mail como tutor é permitido. |
+
+Não tem `role`: o papel é sempre `host` (se o cliente mandar `role`, é ignorado). O tutor se cadastra com CPF em `POST /api/v1/owners/register`.
+
+A conta de anfitrião nasce aqui, mas **ainda não é anfitriã**: o próximo passo é a verificação de identidade (documento e selfie, aprovada pelo admin) em `POST /api/v1/hosts/me/application`. O perfil de anfitrião só existe depois da aprovação ([`modulo-hosts.md`](modulo-hosts.md)).
+
+### 2.8 Minha conta — `GET /api/v1/users/me`
+
+`GET` devolve o objeto `user` da [sessão](#26-resposta-de-sessão). **Não há rota de edição em `/users`:** o perfil da conta muda só pelo contrato `IAccountProfileEditor`, que o módulo do papel usa — o tutor em `PATCH /api/v1/owners/me` ([`modulo-owners.md`](modulo-owners.md)) e o anfitrião em `PATCH /api/v1/hosts/me` ([`modulo-hosts.md`](modulo-hosts.md)). A regra do patch fica em `ProfilePatch` (Application):
+
+- Campo ausente ou `null` = não mexer. O endereço também é parcial: cada campo dele segue a mesma regra, e o endereço resultante é validado inteiro.
+- Para **limpar** a foto ou o complemento, envie texto vazio.
+- **Valor igual ao atual não é alteração:** passa sem erro e não mexe no `updatedAt`.
+- `birthDate` (`yyyy-MM-dd`) segue as regras do cadastro: não futura, 18+. Quando a troca é permitida é decisão de quem chama.
+- E-mail, senha e papel não mudam por aqui. Todos os erros juntos.
+
+### 2.9 Troca de senha — `POST /api/v1/users/me/password`
+
+```json
+{ "currentPassword": "Tutora@123", "newPassword": "Outra@Senha789" }
+```
+
+1. Confere a senha atual. Errada: `400 VALIDATION_ERROR` no campo `currentPassword` — **não** `401`, porque o token é válido e um `401` faria o app achar que a sessão caiu.
+2. A nova precisa ser forte (mesma regra do cadastro) e diferente da atual (`400` no campo `newPassword`).
+3. Grava, **encerra todas as sessões da conta** (refresh tokens e access tokens, na hora) e devolve uma [sessão](#26-resposta-de-sessão) nova, emitida depois da revogação — o app troca os tokens e segue logado; os outros aparelhos caem.
+4. Manda um e-mail "sua senha foi alterada", com a orientação de usar "Esqueci minha senha" se não foi a pessoa.
+
+Vale só para a conta do token: a outra conta da mesma pessoa tem senha própria. Conta inativa: `403 AUTH_ACCOUNT_DEACTIVATED`.
+
+### 2.10 Inativar e reativar
+
+**Não há rota em `/users`.** O Auth oferece inativar e reativar só pelo contrato `IAccountStatusManager`, que o módulo do papel usa para mudar conta e perfil juntos — hoje, o tutor em `POST /api/v1/owners/me/deactivate` e `POST /api/v1/owners/reactivate` ([`modulo-owners.md`](modulo-owners.md) seção 3.5). O anfitrião, em `POST /api/v1/hosts/me/deactivate` e `POST /api/v1/hosts/reactivate` ([`modulo-hosts.md`](modulo-hosts.md)).
+
+O que a inativação faz na conta, venha de onde vier:
+
+- Vale **só para aquela conta**: a outra conta da mesma pessoa continua ativa. Derruba todas as sessões: login passa a responder `403 AUTH_ACCOUNT_DEACTIVATED`; refresh, `401`; e o access token já emitido é recusado **na hora** com `401` (seção 6.6.1). Idempotente. O admin não pode ser inativado (`AUTH_ADMIN_DEACTIVATION_FORBIDDEN`).
+- A reativação pede as credenciais do login (e-mail, senha, papel) — conta inativa não consegue entrar para pedir isso logada — e já abre a sessão. Credenciais erradas: `401 AUTH_INVALID_CREDENTIALS`. Numa conta ativa, funciona como login. Conta **suspensa** não reativa: `403 AUTH_ACCOUNT_SUSPENDED`.
+
+**Exclusão (LGPD, art. 18, VI).** Também só pelo contrato (`IAccountStatusManager.EraseAsync`), chamado **por último** pelo módulo do papel — `POST /api/v1/owners/me/deletion` ([`modulo-owners.md`](modulo-owners.md) seção 3.5.1) e `POST /api/v1/hosts/me/deletion` ([`modulo-hosts.md`](modulo-hosts.md) seção 4.2.1) —, depois que cada módulo apagou a sua parte ([`PROJECT_STANDARDS.md`](PROJECT_STANDARDS.md) §5). Na conta:
+
+- A linha **fica**, anonimizada, porque reservas, pagamentos e avaliações apontam para ela: nome vira `Conta excluída` (é o que o outro lado vê no histórico), e-mail vira `excluida-<id>@pethost.invalid` (domínio reservado, único por conta, então o e-mail de verdade fica livre para um cadastro novo), telefone, nascimento, endereço e foto ficam nulos, o hash da senha passa a ser o de um segredo aleatório descartado, e a conta é inativada. `erased_at` marca a exclusão.
+- Derruba as sessões na hora. Login com o e-mail antigo responde `401` (não há mais conta com ele), reativação também; um token de "esqueci a senha" pendente passa a valer como inválido.
+- Sem volta: `User.Reactivate` recusa (`AUTH_ACCOUNT_ERASED`). Idempotente. O admin não pode ser excluído (`AUTH_ADMIN_ERASURE_FORBIDDEN`).
+- Vale só para aquela conta: a outra conta da mesma pessoa continua. A foto no bucket é apagada por quem chama (que lê a URL antes).
+
+**Suspensão (admin).** Também só pelo contrato (`IAccountStatusManager.SuspendAsync` / `LiftSuspensionAsync`); o tutor é suspenso em `POST /api/v1/owners/{ownerId}/suspension` ([`modulo-owners.md`](modulo-owners.md) seção 3.7) e o anfitrião em `POST /api/v1/hosts/{hostId}/suspension` ([`modulo-hosts.md`](modulo-hosts.md)); `DELETE` na mesma rota tira a suspensão.
+
+- Grava `suspended_at`, `suspension_reason` (obrigatório, até 500 caracteres) e `suspended_by` (o admin) e derruba as sessões na hora.
+- Recusa, sempre depois da senha conferida: login (`403 AUTH_ACCOUNT_SUSPENDED`, antes de "inativa"), refresh (`401`), troca de conta (`404`, como conta inexistente), reativação (`403`), troca de senha (`403`). "Esqueci a senha" responde `200` mas não manda e-mail.
+- Só o admin tira. O status de ativa/inativa não muda com a suspensão.
+- Ao tirar, a pessoa recebe um e-mail "sua conta foi liberada" (`IAccountSuspensionLiftedNotifier`), dizendo qual conta voltou (tutor ou anfitrião) e, se ela estava inativa, que precisa reativar com a senha. Tirar de quem não está suspenso não grava nem manda e-mail. O admin não pode ser suspenso (`AUTH_ADMIN_SUSPENSION_FORBIDDEN`).
+- O motivo e a data aparecem para o admin em `user.suspensionReason` / `user.suspendedAt` (contrato `IUserDirectory`).
+
+### 2.11 Contas da mesma pessoa e troca — `GET /api/v1/users/me/accounts` e `POST /api/v1/auth/sessions/switch`
+
+`GET /users/me/accounts` lista as contas com o mesmo e-mail da conta do token, para o seletor "Tutor / Anfitrião":
+
+```json
+{ "success": true, "data": [ { "role": "owner", "isActive": true, "isCurrent": true },
+                             { "role": "host",  "isActive": true, "isCurrent": false } ], "timestamp": "..." }
+```
+
+`POST /sessions/switch` com `{ "role": "host", "password": "..." }` abre uma sessão na outra conta e devolve a [sessão](#26-resposta-de-sessão) dela. A sessão atual continua valendo: o front descarta os tokens antigos ou guarda os dois para alternar.
+
+**Por que pede a senha da conta de destino:** o e-mail não é verificado. Sem a senha, quem criasse uma conta de anfitrião com o e-mail de outra pessoa entraria na conta de tutor dela.
+
+| Status | Código | Quando |
+|---|---|---|
+| `200` | — | Sessão na outra conta. |
+| `400` | `VALIDATION_ERROR` | `role` diferente de `owner`/`host` ou senha vazia. |
+| `404` | `AUTH_LINKED_ACCOUNT_NOT_FOUND` | Não há conta ativa nesse papel com o mesmo e-mail, ou a senha não confere, ou o papel é o da conta atual. Mesma resposta nos três casos. |
 
 ---
 
@@ -165,13 +305,15 @@ Toda resposta — inclusive 401, 403 e 500 — usa o `ApiResponse<T>` do §7. Ca
 { "success": false, "error": { "code": "UNEXPECTED_ERROR", "message": "An unexpected error occurred.", "details": { "traceId": "0HN7..." } }, "timestamp": "..." }
 ```
 
-Corpo ilegível — JSON malformado, corpo vazio ou tipo errado (`"email": 123`) — responde `400` em qualquer endpoint, sem repassar a mensagem do parser:
+Corpo ilegível — JSON malformado ou corpo vazio — responde `400` em qualquer endpoint com o campo `body`, sem repassar a mensagem do parser:
 
 ```json
 { "success": false, "error": { "code": "VALIDATION_ERROR", "message": "Validation failed",
     "details": [ { "field": "body", "messages": ["The request body is missing or is not valid JSON."] } ] },
   "timestamp": "..." }
 ```
+
+Valor com **tipo errado** num JSON válido (`"phone": 123`) aponta o próprio campo: `{ "field": "phone", "messages": ["The value has an invalid type or format."] }`. O leitor de JSON para no primeiro valor assim, então só esse campo aparece. Por isso a data de nascimento é lida como **texto** (`yyyy-MM-dd`) e validada pelo FluentValidation: `"birthDate": ""` ou `"10/05/1990"` vira erro no campo `birthDate`, junto com todos os outros erros de validação.
 
 O middleware do JWT também responde no envelope: rota protegida sem token válido → `401 UNAUTHORIZED`; autenticado sem permissão → `403 FORBIDDEN`.
 
@@ -184,10 +326,20 @@ O middleware do JWT também responde no envelope: rota protegida sem token váli
 | `VALIDATION_ERROR` | 400 | `Validation failed` + `details` por campo |
 | `AUTH_INVALID_CREDENTIALS` | 401 | Email or password is incorrect. |
 | `AUTH_REFRESH_TOKEN_INVALID` | 401 | The refresh token is invalid, expired or already used. |
+| `AUTH_PASSWORD_RESET_TOKEN_INVALID` | 401 | The password reset token is invalid, expired or already used. |
+| `AUTH_ACCOUNT_DEACTIVATED` | 403 | This account is deactivated. Reactivate it to sign in again. |
+| `AUTH_ADMIN_DEACTIVATION_FORBIDDEN` | 403 | The admin account cannot be deactivated. |
+| `AUTH_ADMIN_ERASURE_FORBIDDEN` | 403 | The admin account cannot be deleted. |
+| `AUTH_ACCOUNT_ERASED` | 422 | This account was deleted and cannot be reactivated. (Regra de domínio: pela API, a conta excluída já cai no `401` das credenciais.) |
+| `AUTH_ACCOUNT_SUSPENDED` | 403 | This account is suspended. Contact support. |
+| `AUTH_ADMIN_SUSPENSION_FORBIDDEN` | 403 | The admin account cannot be suspended. |
+| `AUTH_LINKED_ACCOUNT_NOT_FOUND` | 404 | No active account with this email was found for the requested role, or the password is incorrect. |
+| `AUTH_EMAIL_ALREADY_REGISTERED` | 409 | An account with this email already exists for this role. |
 | `UNAUTHORIZED` | 401 | Authentication is required to access this resource. |
 | `FORBIDDEN` | 403 | You do not have permission to access this resource. |
 | `AUTH_USER_NOT_FOUND` | 404 | User '{id}' was not found. |
 | `AUTH_PASSWORD_HASH_INVALID` | 422 | Erro interno de integridade; não deve aparecer na prática. |
+| `TOO_MANY_REQUESTS` | 429 | Too many requests. Try again in {n} seconds. (com `Retry-After`) |
 | `UNEXPECTED_ERROR` | 500 | An unexpected error occurred. |
 
 Todos declarados em `AuthErrors` (Domain). O status é decidido em `ErrorCodeStatusMapper` pelo código: primeiro os códigos transversais do §8, depois o **sufixo** do código de módulo:
@@ -197,10 +349,10 @@ Todos declarados em `AuthErrors` (Domain). O status é decidido em `ErrorCodeSta
 | `_NOT_FOUND` | 404 |
 | `_CONFLICT`, `_ALREADY_EXISTS`, `_ALREADY_REGISTERED` | 409 |
 | `_UNAUTHORIZED`, `_INVALID_CREDENTIALS`, `_TOKEN_INVALID`, `_TOKEN_EXPIRED` | 401 |
-| `_FORBIDDEN`, `_NOT_OWNED_BY_REQUESTER` | 403 |
+| `_FORBIDDEN`, `_NOT_OWNED_BY_REQUESTER`, `_DEACTIVATED`, `_SUSPENDED` | 403 |
 | qualquer outro | 422 |
 
-`AUTH_ADMIN_REGISTRATION_FORBIDDEN` (403) existe só no domínio, como barreira do `User.Register` contra criar admin. Com o cadastro desligado, nenhum endpoint o devolve hoje.
+`AUTH_ADMIN_REGISTRATION_FORBIDDEN` (403) existe só no domínio, como barreira do `User.Register` contra criar admin. Pela API o validador barra `role: "admin"` antes, com `400`.
 
 ---
 
@@ -217,10 +369,40 @@ Duas camadas, como manda o §10:
 | `password` | Login: obrigatório, ≤ 128 (sem mínimo: não vaza a política de senha) |
 | `role` | Login: `owner`, `host` ou `admin` (maiúscula/minúscula tanto faz) |
 | `refreshToken` | Obrigatório no refresh e no logout |
+| `email`, `role` | Esqueci a senha: mesmas regras do login |
+| `token` | Troca de senha: obrigatório |
+| `newPassword` | Troca de senha: **senha forte** (seção 5.1) |
+| cadastro | Cada campo pela regra do próprio value object (seção 5.1): `fullName`, `email`, `password` (senha forte), `phone`, `birthDate` (obrigatório, não futuro, 18+), `address` (obrigatório, cada campo validado). Todos os erros juntos. |
+| perfil (contrato `IAccountProfileEditor`) | Só os campos enviados, pelas mesmas regras; o endereço parcial é completado com o atual e validado inteiro. `avatarUrl` e `address.complement` vazios limpam o campo. `birthDate` como no cadastro. Todos os erros juntos. |
+| troca de senha | `currentPassword` obrigatória e certa; `newPassword` forte e diferente da atual |
+| troca de conta | `role` `owner`/`host`, `password` obrigatório |
 
 O teto de 128 na senha existe porque o custo do Argon2 cresce com o tamanho da entrada.
 
-No domínio, além disso: e-mail é aparado e convertido para minúsculas; nome é aparado; `role` nunca muda depois de criada a conta (o setter é privado e não há método que a altere); `User.Register` recusa `admin`.
+No domínio, além disso: `role` nunca muda depois de criada a conta (o setter é privado e não há método que a altere); `User.Register` recusa `admin` e menor de 18 anos; `Deactivate` recusa o admin.
+
+### 5.1 Value objects
+
+Cada atributo do usuário com regra própria é um value object: só existe se for válido, e a regra mora num lugar só. O validador da entrada usa o próprio value object em vez de repetir a regra (`PasswordRules.StrongPassword()` chama `Password.Create`).
+
+| Value object | Coluna | Regra |
+|---|---|---|
+| `Email` | `email` | Obrigatório, ≤ 160, formato de e-mail. Aparado e em minúsculas. |
+| `Password` | — (só em memória) | **Senha forte:** 8 a 128 caracteres, com maiúscula, minúscula, número e caractere especial. Não é aparada. Devolve **todas** as regras que falharam. `ToString()` = `***`. |
+| `PasswordHash` | `password_hash` | Hash PHC já calculado, ≤ 255. Nunca recebe senha em texto. |
+| `FullName` | `full_name` | Obrigatório, ≤ 120, aparado. |
+| `PhoneNumber` | `phone` | Telefone com DDD, guardado **só com dígitos** (`44999990000`). Aceita entrada formatada (`(44) 99999-0000`, `+55 ...`); 10 a 13 dígitos; letra é erro. |
+| `AvatarUrl` | `avatar_url` | URL absoluta `http`/`https`, ≤ 500. Recusa `javascript:`, `data:` e caminho relativo. Na prática vem do bucket de imagens: quem grava é a rota de upload do papel (`PUT /owners/me/avatar`), nunca um corpo JSON. |
+| `StateCode` | `state` | Uma das 27 UFs, em maiúsculas (`pr` → `PR`). |
+| `ZipCode` | `zip_code` | CEP com 8 dígitos, guardado **só com dígitos** (`87020-000` → `87020000`). Não confere se existe — o front pode usar o ViaCEP para preencher o resto. |
+| `Address` | `zip_code`, `street`, `street_number`, `complement`, `neighborhood`, `city`, `state` | Endereço completo: CEP, rua (≤ 120), número (texto, ≤ 10, aceita "S/N"), complemento (opcional, ≤ 60), bairro (≤ 80), cidade (≤ 80) e UF. Devolve **todos** os campos inválidos, cada um como `address.<campo>`. Mapeado como tipo complexo do EF: colunas na própria `users`. Bate com o endereço de cobrança do Stripe. |
+| `UserId` | `id` | UUID v7 gerado pelo domínio. |
+
+Bairro, cidade, rua e número são `string` dentro do `Address`: a regra deles é obrigatoriedade e tamanho, que o próprio `Address` confere.
+
+A senha forte vale para senha **escolhida pelo usuário** — o cadastro e a troca de senha. Não vale para o login (conferir uma senha antiga não pode depender de uma regra que talvez nem existisse quando ela foi criada) nem para a senha do admin do seed.
+
+Os value objects viram colunas por conversores do EF (`*Converter`). Valor inválido vindo do banco estoura na leitura — é bug de integridade, não entrada de usuário.
 
 ---
 
@@ -235,7 +417,45 @@ No domínio, além disso: e-mail é aparado e convertido para minúsculas; nome 
 
 Todas as falhas devolvem o mesmo `AUTH_INVALID_CREDENTIALS`: de fora, não dá para saber se o e-mail existe.
 
-### 6.2 Access token (JWT)
+### 6.1.1 Credenciais
+
+Login e reativação conferem e-mail + senha + papel pelo mesmo helper (`UserCredentials.FindAsync`): conta inexistente gasta o tempo de um hash de verdade, e todas as falhas viram o mesmo `401`. A checagem de conta inativa vem **depois** da senha conferida — sem a senha, ninguém descobre que uma conta existe e está inativa.
+
+### 6.2 Esqueci a senha
+1. Normaliza o e-mail e busca a conta por **(e-mail, role)**. E-mail inválido ou conta inexistente → `200` sem fazer nada.
+2. Emite um token opaco de 32 bytes (Base64Url) e guarda no Redis só o **SHA-256** dele, com TTL = `PasswordReset:TokenLifetimeMinutes`.
+3. Monta o e-mail (texto + HTML, em português) e deixa na **caixa de saída** (uma linha no Postgres). O envio por SMTP roda em segundo plano (`EmailDispatcher`), então o tempo de resposta não depende do SMTP, e o request não fica preso a um SMTP lento ou fora do ar.
+
+Chaves no Redis: `pethost:auth:password-reset:<hash>` → id do usuário, e `pethost:auth:password-reset:user:<id>` → hash do token vigente. Um pedido novo troca esse ponteiro e apaga o token anterior.
+
+### 6.3 Troca de senha
+1. O validador roda antes: senha fora da regra → `400`, sem tocar no token.
+2. Consome o token com `GETDEL` (uso único; duas trocas simultâneas com o mesmo token não podem as duas valer). Inválido → `401`.
+3. Busca o usuário; conta que não existe mais → o mesmo `401`.
+4. Cria o `Password`, calcula o hash Argon2id, `user.ChangePassword(...)`, salva.
+5. **Derruba todas as sessões** da conta: apaga todos os refresh tokens dela. Quem estava logado com a senha antiga — inclusive quem a roubou — precisa entrar de novo.
+
+### 6.4 E-mail
+
+Fica em `Shared.Infrastructure/Email`, para outros módulos reaproveitarem:
+
+- `IEmailOutbox` → caixa de saída **persistente**: cada e-mail vira uma linha em `email.outbox_emails` (schema e `EmailDbContext` próprios, em `Shared.Infrastructure/Email/Persistence`). Gravado num contexto próprio, depois que o caso de uso salvou o dele. Se a API reiniciar ou o SMTP cair, o e-mail continua lá.
+- `EmailDispatcher` (`BackgroundService`) → acorda quando um e-mail é enfileirado e, de qualquer forma, a cada 10 s (novas tentativas e o que ficou de uma subida anterior). Pega um lote de até 20 com um único `UPDATE ... FOR UPDATE SKIP LOCKED`, que conta a tentativa e **reserva** o e-mail por 5 min: duas instâncias da API nunca pegam o mesmo, e se a API cair no meio do envio a reserva vence e ele é tentado de novo.
+  - Entregou → a linha é **apagada** (o corpo pode ter token de troca de senha; não fica no banco).
+  - Falhou → nova tentativa em 30 s, 1 min, 2 min… dobrando até 1 h, com o erro em `last_error`. Depois de **8 tentativas** (~2 h) o e-mail recebe `failed_at`, sai da fila e é apagado 7 dias depois.
+  - A garantia é "pelo menos uma vez": se a API cair entre o SMTP aceitar e a linha ser apagada, aquele e-mail sai de novo.
+- `SmtpEmailSender` → MailKit (o `System.Net.Mail.SmtpClient` é marcado como não recomendado pela Microsoft). TLS negociado sozinho.
+- Configuração inválida (sem `Email:Host` ou `Email:FromAddress`) **derruba a subida**.
+
+Migration da caixa de saída (`CreateOutboxEmailsTable`, schema `email`):
+
+```bash
+dotnet dotnet-ef migrations add <Nome> --project src/Shared/PetHost.Shared.Infrastructure --startup-project src/Host/PetHost.Api --context EmailDbContext --output-dir Email/Persistence/Migrations
+```
+
+Em desenvolvimento, o compose sobe o **Mailpit**, que recebe tudo e não entrega a ninguém: os e-mails aparecem em `http://localhost:8025`.
+
+### 6.5 Access token (JWT)
 
 HMAC-SHA256, emitido em `JwtAccessTokenGenerator`.
 
@@ -248,17 +468,28 @@ HMAC-SHA256, emitido em `JwtAccessTokenGenerator`.
 | `jti` | id único do token |
 | `iss`, `aud` | `Jwt:Issuer`, `Jwt:Audience` |
 | `iat`, `nbf`, `exp` | emissão, início e expiração |
+| `iat_ms` | emissão em milissegundos, para a revogação (seção 6.6.1) |
 
 Na entrada, o host valida assinatura, issuer, audience e expiração, com tolerância de 30 s de relógio. `MapInboundClaims = false` mantém os nomes curtos (`sub`, `role`) no `User` do controller.
 
-### 6.3 Refresh token (Redis)
+### 6.6 Refresh token (Redis)
 
 - Valor opaco de 32 bytes aleatórios em Base64Url — **não** é JWT.
 - Chave no Redis: `pethost:auth:refresh:<SHA-256 do token>`, valor = id do usuário, TTL = `Jwt:RefreshTokenLifetimeDays`. Guarda-se o hash, não o token: um dump do Redis não serve para logar.
 - **Rotação:** cada refresh consome o token com `GETDEL` (ler e apagar num comando só) e emite outro. Reusar um token falha, e duas chamadas simultâneas com o mesmo token não podem ambas ter sucesso.
 - **Logout:** apaga a chave. Não existe tabela de sessão nem limpeza de tokens vencidos — o TTL cuida disso.
+- **Encerrar todas as sessões:** cada usuário tem um conjunto `pethost:auth:refresh:user:<id>` com as chaves dos tokens dele. A troca de senha e a inativação apagam todas de uma vez.
 
-### 6.4 Senha (Argon2id)
+### 6.6.1 Revogação do access token
+
+O JWT não tem estado, então "revogar" é guardar no Redis o instante (Unix, em milissegundos) da revogação: `pethost:auth:access-revoked:<id>`, com TTL = vida do access token + 1 min. A cada request autenticada, o host (`OnTokenValidated` em `JwtEnvelopeEvents`) lê essa chave e recusa com `401 UNAUTHORIZED` o token emitido **antes** desse instante.
+
+- Acontece ao **inativar a conta** e ao **trocar a senha** (logado ou pelo "esqueci a senha").
+- Custo: um `GET` no Redis por request autenticada.
+- O instante de emissão vem da claim `iat_ms` (milissegundos), que o PetHost põe no token além do `iat` padrão (segundos). Assim a sessão aberta logo depois da revogação — a que a troca de senha devolve, ou um login em seguida — já vale, mesmo no mesmo segundo. Token sem `iat_ms` é comparado pelo `iat`.
+- O logout continua invalidando só o refresh token: o access token daquela sessão vale até expirar.
+
+### 6.7 Senha (Argon2id)
 
 Biblioteca `Konscious.Security.Cryptography.Argon2`. Custo padrão = mínimo do OWASP: 19 MiB de memória, 2 iterações, paralelismo 1. Salt de 16 bytes, hash de 32 bytes.
 
@@ -270,7 +501,7 @@ $argon2id$v=19$m=19456,t=2,p=1$<salt base64>$<hash base64>
 
 Por isso dá para subir o custo depois sem invalidar senhas antigas: cada hash é conferido com os parâmetros com que foi criado. Hash corrompido no banco devolve `false` (vira `401`), nunca `500`.
 
-### 6.5 Seed do admin
+### 6.8 Seed do admin
 
 O dicionário de dados diz que o admin é criado direto no banco. `AuthDbSeeder` faz isso na subida da API:
 
@@ -278,23 +509,24 @@ O dicionário de dados diz que o admin é criado direto no banco. `AuthDbSeeder`
 - **Idempotente:** se já existe admin com aquele e-mail, não faz nada.
 - **Nunca atualiza a senha** de um admin existente — trocar senha por variável de ambiente seria um jeito silencioso de sequestrar a conta.
 - O e-mail aparece mascarado no log (`a***@pethost.com`); a senha nunca aparece.
+- A senha do admin **não** passa pela regra de senha forte: vem do ambiente, não do usuário.
 
 O admin entra pelo login normal com `"role": "admin"`.
 
-### 6.6 Subida da API
+### 6.9 Subida da API
 
-Ordem no `Program.cs`: Serilog (JSON) → MVC com envelope → JSON camelCase sem nulos → módulo Auth → JWT → health checks → handler global de exceção. Depois do build:
+Ordem no `Program.cs`: Serilog (JSON) → MVC com envelope → JSON camelCase sem nulos → e-mail → módulo Auth → JWT → health checks → handler global de exceção. Depois do build:
 
 - Em **Development**, aplica as migrations automaticamente.
 - Em produção, **não** aplica (o §11 diz que migration é passo do pipeline).
 - O seed roda em qualquer ambiente, se estiver habilitado.
-- Configuração do JWT inválida (chave com menos de 32 bytes, issuer vazio, tempo ≤ 0) **derruba a subida** com mensagem clara, em vez de virar 500 no primeiro login.
+- Configuração do JWT inválida (chave com menos de 32 bytes, issuer vazio, tempo ≤ 0), do e-mail (sem host ou remetente) ou do `PasswordReset` (validade ≤ 0, `ResetUrl` sem `{token}`) **derruba a subida** com mensagem clara, em vez de virar 500 no primeiro uso.
 
 ---
 
 ## 7. Banco
 
-Schema `auth`, histórico de migrations em `auth.__ef_migrations_history`. Migration: `CreateUsersTable`.
+Schema `auth`, histórico de migrations em `auth.__ef_migrations_history`. Migrations: `CreateUsersTable`, `AddProfileAndStatusToUsers` (nascimento, endereço completo, `is_active`, `deactivated_at`), `AddSuspensionToUsers`, `AddErasedAtToUsers`.
 
 ```sql
 CREATE TABLE auth.users (
@@ -305,9 +537,20 @@ CREATE TABLE auth.users (
     role           varchar(10)  NOT NULL,
     phone          varchar(20),
     avatar_url     varchar(500),
+    birth_date     date,
+    zip_code       char(8),
+    street         varchar(120),
+    street_number  varchar(10),
+    complement     varchar(60),
     neighborhood   varchar(80),
     city           varchar(80),
     state          char(2),
+    is_active      boolean      NOT NULL DEFAULT true,
+    deactivated_at timestamptz,
+    suspended_at      timestamptz,
+    suspension_reason varchar(500),
+    suspended_by      uuid,
+    erased_at      timestamptz,
     created_at     timestamptz  NOT NULL,
     updated_at     timestamptz  NOT NULL,
     CONSTRAINT pk_users PRIMARY KEY (id),
@@ -316,7 +559,7 @@ CREATE TABLE auth.users (
 CREATE UNIQUE INDEX uq_users_email_role ON auth.users (email, role);
 ```
 
-Bate coluna por coluna com a tabela `users` do `dicionario-de-dados.md`. O `id` é UUID v7 gerado pelo domínio (`UserId.New()`), não pelo banco: o usuário já tem id antes do insert. O índice único é composto: é ele que deixa a mesma pessoa ter conta de tutor e de anfitrião.
+Bate coluna por coluna com a tabela `users` do `dicionario-de-dados.md`. O `id` é UUID v7 gerado pelo domínio (`UserId.New()`), não pelo banco: o usuário já tem id antes do insert. O índice único é composto: é ele que deixa a mesma pessoa ter conta de tutor e de anfitrião. Telefone, nascimento e endereço são nulos no banco só por causa do admin; o cadastro de tutor e anfitrião sempre preenche.
 
 Gerar nova migration:
 
@@ -340,15 +583,26 @@ dotnet dotnet-ef migrations add <Nome> --project src/Modules/Auth/PetHost.Module
 | `Jwt:AccessTokenLifetimeMinutes` | `Jwt__AccessTokenLifetimeMinutes` | `15` | `long` |
 | `Jwt:RefreshTokenLifetimeDays` | `Jwt__RefreshTokenLifetimeDays` | `30` | `long` |
 | `Argon2:MemorySizeKib` / `Iterations` / `DegreeOfParallelism` | `Argon2__...` | `19456` / `2` / `1` | |
+| `Email:Host` | `Email__Host` | `localhost` em Development | Obrigatória. No compose: `mailpit` |
+| `Email:Port` | `Email__Port` | `587` (`1025` em Development) | |
+| `Email:Username` / `Email:Password` | `Email__Username` / `Email__Password` | vazio | Vazio = SMTP sem autenticação. Senha nunca versionada |
+| `Email:FromAddress` | `Email__FromAddress` | `no-reply@pethost.local` em Development | Obrigatória |
+| `Email:FromName` | `Email__FromName` | `PetHost` | |
+| `PasswordReset:TokenLifetimeMinutes` | `PasswordReset__TokenLifetimeMinutes` | `30` | Também é o TTL no Redis |
+| `PasswordReset:ResetUrl` | `PasswordReset__ResetUrl` | vazio | Tela de nova senha no front, com `{token}`. Vazio = e-mail só com o código |
 | `Seed:Admin:Enabled` | `Seed__Admin__Enabled` | `false` | |
 | `Seed:Admin:Email` | `Seed__Admin__Email` | — | |
 | `Seed:Admin:Password` | `Seed__Admin__Password` | — | Nunca versionar |
 | `Seed:Admin:FullName` | `Seed__Admin__FullName` | `PetHost Admin` | |
+| `RateLimiting:Enabled` | `RateLimiting__Enabled` | `true` | `false` desliga todos os limites |
+| `RateLimiting:Global:PermitLimit` / `WindowSeconds` | `RateLimiting__Global__...` | `120` / `60` | Limite geral, por usuário ou IP |
+| `RateLimiting:Policies:<nome>:PermitLimit` / `WindowSeconds` | `RateLimiting__Policies__<nome>__...` | ver §13 do padrão | Ex.: `RateLimiting__Policies__credentials__PermitLimit=20` |
+| `ForwardedHeaders:Enabled` | `ForwardedHeaders__Enabled` | `false` (`true` no compose) | Lê o IP real do `X-Forwarded-For` atrás do ngrok |
 
 Rodar local sem Docker para a API (Postgres e Redis no compose):
 
 ```bash
-docker compose up -d postgres redis
+docker compose up -d postgres redis mailpit
 ```
 
 ```powershell
@@ -367,30 +621,30 @@ dotnet run --project src/Host/PetHost.Api
 |---|---|---|
 | `Shared.Kernel.UnitTests` | `Result`, `Map`, `BindAsync`, propagação de erros | 14 ✅ |
 | `Shared.Contracts.UnitTests` | Montagem do envelope e agrupamento de validação | 6 ✅ |
-| `Shared.Infrastructure.UnitTests` | Decorator de validação, código → status HTTP, `ToActionResult` | 25 ✅ |
-| `Auth.Domain.UnitTests` | `Email`, `PasswordHash`, `User`, `UserRoleValues` | 53 ✅ |
-| `Auth.Application.UnitTests` | Os 3 handlers de sessão e os validadores (com Moq e `FakeTimeProvider`) | 27 ✅ |
+| `Shared.Infrastructure.UnitTests` | Decorator de validação, código → status HTTP, `ToActionResult`, imagens (formato, remoção de metadados, troca), espera entre tentativas de e-mail, exclusão de conta (chama cada módulo em ordem e para no primeiro que falha) | 100 ✅ |
+| `Auth.Domain.UnitTests` | `User` (cadastro, 18+, inativar/reativar, perfil sem tocar `updatedAt` quando nada muda, troca da data de nascimento, suspensão com motivo e admin, sem suspender admin, exclusão: anonimiza, inativa, e-mail único por conta, idempotente, sem excluir admin nem reativar), `UserRoleValues` e todos os value objects (`Email`, `Password`, `PasswordHash`, `FullName`, `PhoneNumber`, `AvatarUrl`, `StateCode`, `ZipCode`, `Address`) | 137 ✅ |
+| `Auth.Application.UnitTests` | Handlers de sessão, senha, troca de senha logada e cadastro, a regra do PATCH de perfil (`ProfilePatch`) e os validadores, incluindo senha forte, endereço aninhado e data de nascimento no PATCH; login de conta suspensa, aviso por e-mail ao tirar a suspensão (conta ativa ou inativa, nada se não estava suspensa) e o que vai para a trilha (com Moq e `FakeTimeProvider`) | 98 ✅ |
 | `Auth.Infrastructure.UnitTests` | Argon2id (hash, verificação, PHC, entrada inválida) e geração de JWT | 32 ✅ |
-| `ArchitectureTests` | Regras de dependência do §4, `sealed`, sincronia `Roles` ↔ `UserRoleValues` | 16 ✅ |
-| `Auth.IntegrationTests` | Corpo malformado, fluxo HTTP completo com Postgres e Redis reais em container (Testcontainers), banco limpo com Respawn, seed, rotação e concorrência do refresh, validação do JWT pelo host. Os usuários de teste são inseridos direto no banco (não há mais cadastro pela API) | 26 ✅ |
+| `ArchitectureTests` | Regras de dependência do §4 em todos os módulos, fronteira do §5 (nenhum módulo referencia outro: um `*ModuleBoundaryTests` por módulo), `sealed`, sincronia `Roles` ↔ `UserRoleValues` | 77 ✅ |
+| `Auth.IntegrationTests` | Corpo malformado, fluxo HTTP completo com Postgres e Redis reais em container (Testcontainers), banco limpo com Respawn, seed, rotação e concorrência do refresh, validação do JWT pelo host. Esqueci a senha e troca de senha ponta a ponta, com o SMTP trocado por um coletor que guarda os e-mails. PATCH do perfil, troca de senha logada (sessões antigas caem, a nova vale), inativar/reativar, contas da mesma pessoa, troca de conta, revogação imediata do access token, `Location` do cadastro, validação do cadastro com todos os campos. Rate limit numa instância com limites baixos (`429` no envelope com `Retry-After`, política própria por endpoint, limite geral por usuário, health check de fora). Data de nascimento no PATCH do anfitrião. Inativar/reativar pelo contrato `IAccountStatusManager`. Caixa de saída de e-mail: entregue sai da tabela, e-mail que sobrou de outra subida é entregue, SMTP fora deixa o e-mail na fila com a próxima tentativa agendada | 73 ✅ |
+| `Owners.*` | Ver [`modulo-owners.md`](modulo-owners.md) | 151 ✅ |
+| `Audit.*` | Ver [`modulo-audit.md`](modulo-audit.md) | 8 ✅ |
 
-**199 testes passando** nos 8 projetos, build com 0 avisos. Nomes no padrão `MethodName_Should_X_When_Y` (§14).
+**2277 testes sem Docker passando** na solução (última execução: unitários e de arquitetura de todos os módulos), build com 0 avisos. Nomes no padrão `MethodName_Should_X_When_Y` (§14).
 
-Como rodar: nesta máquina (SDK 10.0.400-preview) o `dotnet test` não reportou os resultados corretamente. Os testes rodam pelo executável de cada projeto. Os de integração precisam do Docker Desktop ligado:
-
-```bash
-dotnet build
-```
+Como rodar (os de integração precisam do Docker Desktop ligado; a solução inteira tem 2778 testes, 433 deles de integração; os outros módulos estão nos documentos de cada um):
 
 ```bash
-./tests/Modules/Auth/PetHost.Modules.Auth.Application.UnitTests/bin/Debug/net10.0/PetHost.Modules.Auth.Application.UnitTests.exe
+dotnet test --solution PetHost.slnx
 ```
 
-Cobertos pela integração, entre outros: a mesma pessoa com conta de tutora e de anfitriã (senha de uma não serve na outra), 5 refresh simultâneos com o mesmo token (só 1 vence), logout invalidando o refresh, token adulterado recusado pelo host, envelope em todo erro, `/health/ready` com Postgres e Redis.
+Só os que não precisam de Docker, um projeto, um teste, cobertura e o que fazer com "Zero testes executados": [`PROJECT_STANDARDS.md`](PROJECT_STANDARDS.md), seção 14, "Rodando os testes".
+
+Cobertos pela integração, entre outros: a mesma pessoa com conta de tutora e de anfitriã (senha de uma não serve na outra), 5 refresh simultâneos com o mesmo token (só 1 vence), logout invalidando o refresh, token adulterado recusado pelo host, envelope em todo erro, `/health/ready` com Postgres e Redis, troca de senha encerrando as sessões de dois aparelhos, token de troca reusado ou substituído por pedido novo, senha fraca devolvendo todas as regras sem gastar o token, inativar a conta de tutor sem afetar a de anfitriã, troca de conta recusando a senha da conta errada.
 
 Bugs encontrados durante o desenvolvimento:
 1. A biblioteca do Argon2 estoura com senha vazia, e o login chamava `Hash("")` no caminho de "conta inexistente" → teria virado `500` em vez de `401`.
-2. `AUTH_INVALID_CREDENTIALS` e `AUTH_EMAIL_ALREADY_REGISTERED` (este removido junto com o cadastro) caíam em `422` em vez de `401` e `409`, porque só os sufixos `_NOT_FOUND` e `_CONFLICT` eram reconhecidos.
+2. `AUTH_INVALID_CREDENTIALS` e `AUTH_EMAIL_ALREADY_REGISTERED` caíam em `422` em vez de `401` e `409`, porque só os sufixos `_NOT_FOUND` e `_CONFLICT` eram reconhecidos.
 3. Um teste de imutabilidade da `role` estava mal escrito e passava por motivo errado.
 4. JSON malformado no corpo chegava ao handler como `null` e virava `500`. Achado num teste manual pelo Insomnia; corrigido com o `MalformedRequestBodyFilter` e coberto por 7 testes de integração.
 
@@ -400,11 +654,35 @@ Bugs encontrados durante o desenvolvimento:
 
 | Decisão | Por quê |
 |---|---|
-| Refresh token no **Redis**, sem tabela nova | Escolha sua. O dicionário fecha em 14 tabelas; o TTL do Redis faz a expiração sozinho. |
+| Refresh token no **Redis**, sem tabela nova | Escolha sua. O TTL do Redis faz a expiração sozinho. |
+| Cadastro de tutor num pedido só, orquestrado pelo Owners | Decisão sua. O Owners cria a conta pelo contrato `IAccountRegistrar` (mesmo validador e handler do `POST /users/register`) e a desfaz se o tutor não puder ser gravado (compensação). |
+| Endereço como tipo complexo em `users` | Decisão sua: um endereço por conta, sem tabela nem join. Mesmo formato do endereço do cantinho e do Stripe. |
+| Sem registro de aceite de termos | Decisão sua. Se precisar guardar a versão aceita, vira uma tabela própria. |
+| Inativar é por conta, não por pessoa | Pedido seu: tutor e anfitrião da mesma pessoa são contas separadas. |
+| Troca de conta pede a senha da conta de destino | O e-mail não é verificado; mesmo e-mail não prova que é a mesma pessoa. |
+| Sem verificação de e-mail | Fora do escopo, decisão sua. Por isso a troca de conta continua pedindo a senha. |
+| E-mail não muda depois do cadastro | Fora do escopo, decisão sua: não há rota para trocar o e-mail, e o `PATCH` do perfil não mexe nele. |
+| Cadastro em `POST /users/register` (escolha sua) | Mesmo estilo de `/sessions/login`. |
+| `/users/register` só para anfitrião; sem editar perfil nem inativar/reativar em `/users` | Pedido seu: o tutor nasce, muda de perfil e de status e volta pelo Owners, junto com o perfil de tutor. As rotas `PATCH /users/me`, `POST /users/me/deactivate` e `POST /users/reactivate` foram removidas; a regra continua no Auth (`ProfilePatch`, `AccountProfileEditor`, `AccountStatusManager`), usada pelos contratos `IAccountProfileEditor` e `IAccountStatusManager`. |
+| `PATCH` em vez de `PUT` no perfil | Pedido seu: a pessoa manda só o que quer trocar. Texto vazio limpa os opcionais, porque `null` não distingue "não mexer" de "apagar". Valor igual ao atual não é alteração. |
+| Data de nascimento editável, com trava decidida por quem chama | Pedido seu: ela serve para validar documentos. O Auth só aplica as regras do cadastro (`User.ChangeBirthDate`); o tutor troca pelo Owners, que pede a senha e trava no primeiro pagamento. |
+| Troca de senha logada pede a senha atual e devolve sessão nova | Dado sensível exige reautenticação; todas as sessões caem (se a senha vazou, quem a usou perde o acesso), mas quem trocou segue logado. Senha errada é `400` no campo, não `401`. |
+| Suspensão separada da inativação | Pedido seu: o admin tira a conta do ar sem que a pessoa a reative com a senha. O Auth guarda o motivo e quem suspendeu. |
+| Auditoria pelo contrato `IAuditTrail` | Pedido seu. Os handlers registram depois de gravar; a trilha nunca derruba o request (ver `modulo-audit.md`). |
+| Claim `iat_ms` no access token | O `iat` é em segundos; sem a claim, a sessão nova devolvida pela troca de senha cairia junto com as antigas quando emitida no mesmo segundo. |
+| `Location` do `201` aponta para `/me` | A conta e o perfil de tutor são lidos pelo token em `/users/me` e `/owners/me`; não há rota pública por id para o próprio usuário. Regra do §13. |
+| Access token revogável por usuário | Pedido seu: inativar e trocar a senha cortam o acesso na hora, sem esperar o token expirar. |
+| Contratos `IUserDirectory`, `IAccountRegistrar`, `IAccountProfileEditor` e `IAccountStatusManager` em `Shared.Contracts` | Portas do §5: o Owners lê a conta para as respostas, cria/desfaz a conta no cadastro, altera o perfil (com compensação) e inativa/reativa a conta junto com o perfil de tutor — sem referenciar o Auth nem fazer JOIN entre schemas. |
 | Ids `uuid` v7 em vez de `int` identity | Decisão sua, vale para todas as tabelas. Gerado no domínio (`UserId.New()`), ordenado por tempo para não fragmentar o índice. A migration inicial `CreateUsersTable` foi recriada já com `uuid`. |
+| "Esqueci a senha" responde `200` sempre | Não vira oráculo de quem tem cadastro. Pelo mesmo motivo o e-mail sai pela caixa de saída em segundo plano: o tempo de resposta não depende do SMTP. |
+| Token de troca no Redis, opaco, só o hash guardado | Mesmo molde do refresh token; o TTL faz a expiração. Uso único e um pedido novo invalida o anterior. |
+| `AUTH_PASSWORD_RESET_TOKEN_INVALID` responde `401` | Segue o sufixo `_TOKEN_INVALID` do `ErrorCodeStatusMapper`, igual ao refresh token. |
+| Troca de senha encerra todas as sessões | Se a senha vazou, quem a usou perde o acesso na hora. |
+| Senha forte só em senha nova | O login confere senhas antigas sem a regra; o admin do seed fica de fora por decisão sua. |
+| E-mail com MailKit + Mailpit no compose | O `SmtpClient` do .NET é marcado como não recomendado. O Mailpit captura os e-mails em dev sem risco de mandar para gente de verdade. |
+| Rotas `POST /password/forgot` e `POST /password/reset` | Mesmo estilo de `/sessions/login` e `/sessions/logout`, pedido seu. |
 | Login exige `role` | O `escopo-mvp.md` define e-mail único **por papel**. |
-| Cadastro removido por enquanto | Decisão sua. `User.Register` e `UserRegisteredDomainEvent` ficam no domínio para quando o cadastro voltar. |
-| `SessionResponse` único para login e refresh | O §9 sugere um `...Response` por caso de uso; aqui o formato é idêntico e o cliente trata os três igual. |
+| `SessionResponse` único para cadastro, login, refresh, reativação e troca | O §9 sugere um `...Response` por caso de uso; aqui o formato é idêntico e o cliente trata os três igual. |
 | Login e logout em `POST /sessions/login` e `POST /sessions/logout` | Evita `DELETE` com corpo, que alguns proxies descartam. |
 | `role` trafega como `string` nos commands | Mantém a Presentation sem referência ao Domain (§4). |
 | Handlers registrados no DI da **Infrastructure** | O decorator de validação mora em `Shared.Infrastructure` (o §3 diz que é lá), e a Application não pode referenciar Infrastructure. |
@@ -416,15 +694,3 @@ Bugs encontrados durante o desenvolvimento:
 | Regras de analisador desligadas: `CA1716`, `CA1000`, `CA1002` | Brigam com os nomes e assinaturas que o próprio §6 define (`Error`, `Result<T>.Success`, `List<Error>`). |
 | `CA1707` e `CA1711` desligadas só nos testes | Brigam com `MethodName_Should_X_When_Y` (§14) e com `[CollectionDefinition]` do xUnit. |
 | Pasta `Migrations` marcada como código gerado | O §11 proíbe editar migration à mão, e o código do EF não segue o `.editorconfig`. |
-
-**Conflito em aberto entre os documentos** (não afeta o Auth): o dicionário guarda dinheiro em centavos `int` (`*_cents`), o §11 do `PROJECT_STANDARDS.md` manda `numeric(18,2)` + moeda. Precisa ser decidido antes do módulo de pagamentos.
-
----
-
-## 11. Pendências
-
-| # | O quê | Impacto |
-|---|---|---|
-| 1 | Cadastro de tutor/anfitrião desligado. | Sem ele, contas owner/host só existem se forem inseridas direto no banco. Ao religar, lembrar do header `Location` no `201` (§13). |
-| 2 | `dotnet test` não reporta corretamente neste SDK preview. | Rodar pelos executáveis até atualizar o SDK. |
-| 3 | Seed dos tipos de pet (Cachorro, Gato, Pequenos animais). | É do módulo Pets, fora do escopo do Auth. |

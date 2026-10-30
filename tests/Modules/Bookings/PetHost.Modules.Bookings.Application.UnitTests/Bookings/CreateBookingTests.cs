@@ -1,0 +1,382 @@
+using FluentAssertions;
+using Microsoft.Extensions.Time.Testing;
+using Moq;
+using PetHost.Modules.Bookings.Application.Abstractions;
+using PetHost.Modules.Bookings.Application.Bookings.CreateBooking;
+using PetHost.Modules.Bookings.Domain.Bookings;
+using PetHost.Modules.Bookings.Domain.Errors;
+using PetHost.Shared.Kernel.Errors;
+using PetHost.Shared.Contracts.Audit;
+using PetHost.Shared.Kernel.Results;
+using PetHost.TestKit;
+using Xunit;
+
+namespace PetHost.Modules.Bookings.Application.UnitTests.Bookings;
+
+public sealed class CreateBookingCommandHandlerTests
+{
+    private readonly Mock<IBookingRepository> _repository = BookingsTestData.Repository();
+    private readonly Mock<IBookingsUnitOfWork> _unitOfWork = BookingsTestData.UnitOfWork();
+    private readonly Mock<IAuditTrail> _auditTrail = new();
+    private Mock<IBookingListings> _listings = BookingsTestData.Listings();
+    private Mock<IBookingPayments> _payments = BookingsTestData.Payments();
+    private readonly Mock<IBookingNotifier> _notifier = new();
+    private readonly Mock<IBookingParties> _parties = BookingsTestData.Parties();
+
+    private CreateBookingCommandHandler Sut() => new(
+        _repository.Object,
+        _unitOfWork.Object,
+        _parties.Object,
+        _listings.Object,
+        BookingsTestData.Pets().Object,
+        _payments.Object,
+        BookingsTestData.ResponseBuilder(),
+        BookingsTestData.Notifications(_notifier.Object),
+        _auditTrail.Object,
+        new FakeTimeProvider(BookingBuilder.DefaultNow));
+
+    private static CreateBookingCommand Command(Guid? userId = null, Guid? listingId = null, params Guid[] petIds) => new(
+        userId ?? BookingsTestData.OwnerUserId,
+        listingId ?? BookingBuilder.ListingId,
+        petIds.Length == 0 ? [BookingBuilder.PipocaId] : petIds,
+        "2026-10-20",
+        "2026-10-25",
+        CareTermsAccepted: true);
+
+    [Fact]
+    public async Task HandleAsync_Should_ReturnOwnListing_When_TheHostAccountIsTheSamePerson()
+    {
+        // Arrange: a conta de anfitrião do cantinho tem o mesmo e-mail da tutora (maiúsculas não importam).
+        _parties.Setup(p => p.GetHostsAsync(It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyCollection<Guid> ids, CancellationToken _) =>
+                ids.ToDictionary(id => id, id => new PartyInfo(id, "Camila Souza", null, null, BookingsTestData.OwnerEmail.ToUpperInvariant())));
+
+        // Act
+        var result = await Sut().HandleAsync(Command(), CancellationToken.None);
+
+        // Assert
+        result.FirstError.Should().Be(BookingsErrors.OwnListing);
+        _repository.Verify(r => r.Add(It.IsAny<Booking>()), Times.Never);
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+        _notifier.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task HandleAsync_Should_RecordWhenTheOwnerAcceptedTheCareTerms_When_TheRequestIsSaved()
+    {
+        // Act
+        var result = await Sut().HandleAsync(Command(), CancellationToken.None);
+
+        // Assert
+        result.Value!.CareTermsAcceptedAt.Should().Be(BookingBuilder.DefaultNow);
+    }
+
+    [Fact]
+    public async Task HandleAsync_Should_EmailOnlyTheHostWithTheDeadlineAndNoContact_When_TheRequestIsSaved()
+    {
+        // Act
+        await Sut().HandleAsync(Command(), CancellationToken.None);
+
+        // Assert
+        _notifier.Verify(
+            n => n.NotifyRequestedAsync(
+                It.Is<BookingNotice>(x => x.Recipient == BookingParty.Host
+                    && x.Email == BookingsTestData.HostEmail
+                    && x.OtherPartyName == "Camila Souza"
+                    && x.OtherPartyPhone == null
+                    && x.Address == null
+                    && x.Booking.ResponseDeadline == BookingBuilder.DefaultNow + Booking.ResponseWindow),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+        _notifier.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task HandleAsync_Should_SendNoEmail_When_TheRequestIsRefused()
+    {
+        // Act — pet de outro tutor.
+        await Sut().HandleAsync(Command(petIds: [Guid.CreateVersion7()]), CancellationToken.None);
+
+        // Assert
+        _notifier.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task HandleAsync_Should_SaveRequestedBookingAndRecord_When_EverythingIsValid()
+    {
+        // Act
+        var result = await Sut().HandleAsync(Command(petIds: [BookingBuilder.PipocaId, BookingBuilder.ThorId]), CancellationToken.None);
+
+        // Assert
+        var booking = result.Value!;
+        booking.Status.Should().Be("requested");
+        booking.TotalPrice.Should().Be(600m);
+        booking.Nights.Should().Be(5);
+        booking.CheckIn.Should().Be(new DateOnly(2026, 10, 20));
+        booking.ResponseDeadline.Should().Be(BookingBuilder.DefaultNow.AddHours(24));
+        booking.Pets.Select(p => p.Name).Should().Equal("Pipoca", "Thor");
+        booking.Listing!.Neighborhood.Should().Be("Zona 7");
+        _repository.Verify(r => r.Add(It.Is<Booking>(b => b.PetCount == 2)), Times.Once);
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+        _auditTrail.Verify(a => a.RecordAsync(It.Is<AuditRecord>(r => r.Action == AuditActions.BookingRequested && r.TargetType == AuditTargets.Booking), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task HandleAsync_Should_ReturnOwnerNotFound_When_AccountHasNoOwnerProfile()
+    {
+        // Act
+        var result = await Sut().HandleAsync(Command(BookingsTestData.NoProfileUserId), CancellationToken.None);
+
+        // Assert
+        result.FirstError.Should().Be(BookingsErrors.OwnerNotFound);
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task HandleAsync_Should_ReturnOwnerDeactivated_When_OwnerIsInactive()
+    {
+        // Act
+        var result = await Sut().HandleAsync(Command(BookingsTestData.InactiveOwnerUserId), CancellationToken.None);
+
+        // Assert
+        result.FirstError.Should().Be(BookingsErrors.OwnerDeactivated);
+    }
+
+    [Fact]
+    public async Task HandleAsync_Should_ReturnListingNotFound_When_ListingDoesNotExist()
+    {
+        // Arrange
+        var unknown = Guid.CreateVersion7();
+
+        // Act
+        var result = await Sut().HandleAsync(Command(listingId: unknown), CancellationToken.None);
+
+        // Assert
+        result.FirstError.Should().Be(BookingsErrors.ListingNotFound(unknown));
+        _repository.Verify(r => r.Add(It.IsAny<Booking>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task HandleAsync_Should_NotSave_When_DomainRejectsTheRequest()
+    {
+        // Arrange
+        _listings = BookingsTestData.Listings(BookingBuilder.Listing() with { AcceptedSpecies = ["cat"] });
+
+        // Act
+        var result = await Sut().HandleAsync(Command(), CancellationToken.None);
+
+        // Assert
+        result.FirstError.Should().Be(BookingsErrors.SpeciesNotAccepted(BookingBuilder.PipocaId, "Pipoca", "dog"));
+        _repository.Verify(r => r.Add(It.IsAny<Booking>()), Times.Never);
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task HandleAsync_Should_PassTheBusyPetsToTheDomain()
+    {
+        // Arrange
+        _repository
+            .Setup(r => r.ListPetsBookedAsync(It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<StayPeriod>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([BookingBuilder.PipocaId]);
+
+        // Act
+        var result = await Sut().HandleAsync(Command(), CancellationToken.None);
+
+        // Assert
+        result.FirstError.Should().Be(BookingsErrors.PetPeriodConflict(BookingBuilder.PipocaId, "Pipoca"));
+    }
+
+    [Fact]
+    public async Task HandleAsync_Should_CountOnlyConfirmedStaysForCapacity()
+    {
+        // Arrange
+        _listings = BookingsTestData.Listings(BookingBuilder.Listing() with { Capacity = 1 });
+        var other = new BookingBuilder().WithPets(BookingBuilder.Thor()).BuildConfirmed();
+        _repository
+            .Setup(r => r.ListOccupyingAsync(BookingBuilder.ListingId, It.IsAny<StayPeriod>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([other]);
+
+        // Act
+        var result = await Sut().HandleAsync(Command(), CancellationToken.None);
+
+        // Assert
+        result.FirstError.Should().Be(BookingsErrors.CapacityExceeded(BookingBuilder.DefaultCheckIn));
+    }
+
+    [Fact]
+    public async Task HandleAsync_Should_NotRecord_When_SaveFails()
+    {
+        // Arrange
+        _unitOfWork.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(Result.Failure(BookingsErrors.Conflict));
+
+        // Act
+        var result = await Sut().HandleAsync(Command(), CancellationToken.None);
+
+        // Assert
+        result.FirstError.Should().Be(BookingsErrors.Conflict);
+        _auditTrail.Verify(a => a.RecordAsync(It.IsAny<AuditRecord>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+}
+
+public sealed class CreateBookingCommandValidatorTests
+{
+    private readonly CreateBookingCommandValidator _sut = new(new FakeTimeProvider(BookingBuilder.DefaultNow));
+
+    private static CreateBookingCommand Valid() =>
+        new(Guid.CreateVersion7(), BookingBuilder.ListingId, [BookingBuilder.PipocaId], "2026-10-20", "2026-10-25", CareTermsAccepted: true);
+
+    private List<string> Fields(CreateBookingCommand command) =>
+        [.. _sut.Validate(command).Errors.Select(e => e.PropertyName)];
+
+    private List<string> Messages(CreateBookingCommand command) =>
+        [.. _sut.Validate(command).Errors.Select(e => e.ErrorMessage)];
+
+    [Fact]
+    public void Validate_Should_Pass_When_CommandIsValid()
+    {
+        // Act
+        var result = _sut.Validate(Valid());
+
+        // Assert
+        result.IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Validate_Should_ReportEveryMissingField_When_CommandIsEmpty()
+    {
+        // Act
+        var fields = Fields(new CreateBookingCommand(Guid.CreateVersion7(), Guid.Empty, null, null, null));
+
+        // Assert
+        fields.Should().BeEquivalentTo(["ListingId", "PetIds", "CareTermsAccepted", "CheckIn", "CheckOut"]);
+    }
+
+    [Fact]
+    public void Validate_Should_CarryAStableCodeForEveryRule_When_CommandIsEmpty()
+    {
+        // Act
+        var failures = _sut.Validate(new CreateBookingCommand(Guid.CreateVersion7(), Guid.Empty, null, null, null)).Errors;
+
+        // Assert
+        failures.Select(e => e.ErrorCode).Should().BeEquivalentTo(
+            ["BOOKING_LISTING_ID_REQUIRED", "BOOKING_PET_IDS_REQUIRED", "BOOKING_CARE_TERMS_NOT_ACCEPTED", "BOOKING_CHECK_IN_REQUIRED", "BOOKING_CHECK_OUT_REQUIRED"]);
+        failures.Should().OnlyContain(e => e.CustomState is Error);
+    }
+
+    [Fact]
+    public void Validate_Should_CarryTheCodeAndParams_When_CheckInIsTooSoon()
+    {
+        // Act: a chegada de hoje (a regra do custom também passa por AddFailure(Error)).
+        var failure = _sut.Validate(Valid() with { CheckIn = "2026-10-11", CheckOut = "2026-10-17" }).Errors.Should().ContainSingle().Subject;
+
+        // Assert
+        var error = failure.CustomState.Should().BeOfType<Error>().Subject;
+        error.Reason.Should().Be("BOOKING_CHECK_IN_TOO_SOON");
+        error.Params!.Values.Should().BeEquivalentTo(new Dictionary<string, object> { ["minimumHours"] = 72, ["responseHours"] = 24, ["acceptHours"] = 48 });
+        failure.PropertyName.Should().Be("checkIn");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(null)]
+    public void Validate_Should_RequireTheCareTerms_When_TheOwnerDidNotConfirm(bool? accepted)
+    {
+        // Act
+        var messages = Messages(Valid() with { CareTermsAccepted = accepted });
+
+        // Assert
+        messages.Should().ContainSingle().Which.Should().Be(BookingsErrors.CareTermsNotAccepted.Message);
+    }
+
+    [Fact]
+    public void Validate_Should_ReportFormat_When_DateIsNotIso()
+    {
+        // Act
+        var messages = Messages(Valid() with { CheckIn = "20/10/2026" });
+
+        // Assert
+        messages.Should().ContainSingle().Which.Should().Be(BookingsErrors.CheckInInvalid.Message);
+    }
+
+    [Fact]
+    public void Validate_Should_ApplyThePeriodRule_When_CheckInIsInThePast()
+    {
+        // Act
+        var messages = Messages(Valid() with { CheckIn = "2026-10-10" });
+
+        // Assert
+        messages.Should().ContainSingle().Which.Should().Be(BookingsErrors.CheckInInThePast.Message);
+    }
+
+    [Theory]
+    [InlineData("2026-10-11")] // hoje
+    [InlineData("2026-10-14")] // 63h depois do pedido (11/10 09h)
+    public void Validate_Should_ReportCheckInTooSoon_When_CheckInIsLessThan72HoursAway(string checkIn)
+    {
+        // Act
+        var messages = Messages(Valid() with { CheckIn = checkIn, CheckOut = "2026-10-17" });
+
+        // Assert
+        messages.Should().ContainSingle().Which.Should().Be(BookingsErrors.CheckInTooSoon.Message);
+    }
+
+    [Fact]
+    public void Validate_Should_Pass_When_CheckInIsMoreThan72HoursAway()
+    {
+        // Act: 87h depois do pedido.
+        var result = _sut.Validate(Valid() with { CheckIn = "2026-10-15", CheckOut = "2026-10-17" });
+
+        // Assert
+        result.IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Validate_Should_ReportBothFields_When_CheckInIsPastAndCheckOutIsMalformed()
+    {
+        // Act
+        var messages = Messages(Valid() with { CheckIn = "2026-10-10", CheckOut = "amanhã" });
+
+        // Assert
+        messages.Should().BeEquivalentTo([BookingsErrors.CheckInInThePast.Message, BookingsErrors.CheckOutInvalid.Message]);
+    }
+
+    [Fact]
+    public void Validate_Should_ApplyThePeriodRule_When_CheckOutIsBeforeCheckIn()
+    {
+        // Act
+        var result = _sut.Validate(Valid() with { CheckOut = "2026-10-19" });
+
+        // Assert
+        result.Errors.Should().ContainSingle(e => e.PropertyName == "checkOut" && e.ErrorMessage == BookingsErrors.CheckOutNotAfterCheckIn.Message);
+    }
+
+    [Fact]
+    public void Validate_Should_RejectMoreThanTenPets()
+    {
+        // Act
+        var messages = Messages(Valid() with { PetIds = [.. Enumerable.Range(0, Booking.MaxPets + 1).Select(_ => Guid.CreateVersion7())] });
+
+        // Assert
+        messages.Should().ContainSingle().Which.Should().Be(BookingsErrors.PetIdsTooMany.Message);
+    }
+
+    [Fact]
+    public void Validate_Should_RejectRepeatedPets()
+    {
+        // Act
+        var messages = Messages(Valid() with { PetIds = [BookingBuilder.PipocaId, BookingBuilder.PipocaId] });
+
+        // Assert
+        messages.Should().ContainSingle().Which.Should().Be(BookingsErrors.PetIdsInvalid.Message);
+    }
+
+    [Fact]
+    public void Validate_Should_RejectEmptyPetId()
+    {
+        // Act
+        var messages = Messages(Valid() with { PetIds = [Guid.Empty] });
+
+        // Assert
+        messages.Should().ContainSingle().Which.Should().Be(BookingsErrors.PetIdsInvalid.Message);
+    }
+}

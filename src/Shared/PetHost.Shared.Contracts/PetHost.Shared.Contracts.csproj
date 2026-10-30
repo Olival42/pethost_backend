@@ -4,4 +4,8 @@
     <ProjectReference Include="..\PetHost.Shared.Kernel\PetHost.Shared.Kernel.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="FluentValidation" />
+  </ItemGroup>
+
 </Project>

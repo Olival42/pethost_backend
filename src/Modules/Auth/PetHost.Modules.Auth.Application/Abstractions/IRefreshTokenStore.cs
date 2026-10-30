@@ -19,4 +19,10 @@ public interface IRefreshTokenStore
 
     /// <summary>Invalida o token sem emitir outro. É o logout.</summary>
     Task RevokeAsync(string refreshToken, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Invalida todos os refresh tokens do usuário — derruba as sessões em todos os
+    /// aparelhos. Usado depois da troca de senha.
+    /// </summary>
+    Task RevokeAllAsync(UserId userId, CancellationToken cancellationToken);
 }

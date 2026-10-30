@@ -14,5 +14,16 @@ public interface IUserRepository
 
     Task<User?> GetByIdAsync(UserId id, CancellationToken cancellationToken);
 
+    Task<bool> ExistsByEmailAndRoleAsync(Email email, UserRole role, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Todas as contas com esse e-mail — no máximo uma por papel. É a base do
+    /// seletor de contas e da troca entre tutor e anfitrião.
+    /// </summary>
+    Task<IReadOnlyList<User>> ListByEmailAsync(Email email, CancellationToken cancellationToken);
+
     void Add(User user);
+
+    /// <summary>Só para compensação: desfazer uma conta recém-criada num cadastro que falhou.</summary>
+    void Remove(User user);
 }

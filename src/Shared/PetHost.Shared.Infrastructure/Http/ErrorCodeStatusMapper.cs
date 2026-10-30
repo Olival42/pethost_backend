@@ -34,7 +34,12 @@ public static class ErrorCodeStatusMapper
         ("_TOKEN_EXPIRED", StatusCodes.Status401Unauthorized),
 
         ("_FORBIDDEN", StatusCodes.Status403Forbidden),
+        ("_DEACTIVATED", StatusCodes.Status403Forbidden),
+        ("_SUSPENDED", StatusCodes.Status403Forbidden),
         ("_NOT_OWNED_BY_REQUESTER", StatusCodes.Status403Forbidden),
+
+        // Serviço externo fora do ar (ex.: o geocodificador): tente de novo depois.
+        ("_UNAVAILABLE", StatusCodes.Status503ServiceUnavailable),
     ];
 
     public static int ToHttpStatusCode(this string errorCode)
@@ -51,6 +56,14 @@ public static class ErrorCodeStatusMapper
                 return StatusCodes.Status404NotFound;
             case ErrorCodes.Conflict:
                 return StatusCodes.Status409Conflict;
+            case ErrorCodes.MethodNotAllowed:
+                return StatusCodes.Status405MethodNotAllowed;
+            case ErrorCodes.PayloadTooLarge:
+                return StatusCodes.Status413PayloadTooLarge;
+            case ErrorCodes.UnsupportedMediaType:
+                return StatusCodes.Status415UnsupportedMediaType;
+            case ErrorCodes.TooManyRequests:
+                return StatusCodes.Status429TooManyRequests;
             case ErrorCodes.BusinessRule:
                 return StatusCodes.Status422UnprocessableEntity;
             case ErrorCodes.Unexpected:

@@ -16,15 +16,15 @@ internal static class SessionResponseFactory
             accessToken.ExpiresAt.ToUnixTimeSeconds(),
             ToUserResponse(user));
 
-    private static AuthenticatedUserResponse ToUserResponse(User user) =>
+    public static AuthenticatedUserResponse ToUserResponse(User user) =>
         new(
             user.Id.Value,
-            user.FullName,
+            user.FullName.Value,
             user.Email.Value,
             UserRoleValues.ToWire(user.Role),
-            user.Phone,
-            user.AvatarUrl,
-            user.Neighborhood,
-            user.City,
-            user.State);
+            user.Phone?.Value,
+            user.AvatarUrl?.Value,
+            user.BirthDate,
+            AddressMapping.ToAddressData(user.Address),
+            user.IsActive);
 }

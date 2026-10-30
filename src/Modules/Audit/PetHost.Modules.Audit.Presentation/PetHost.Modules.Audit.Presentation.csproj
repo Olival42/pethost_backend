@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PetHost.Modules.Audit.Application\PetHost.Modules.Audit.Application.csproj" />
+    <ProjectReference Include="..\..\..\Shared\PetHost.Shared.Contracts\PetHost.Shared.Contracts.csproj" />
+    <ProjectReference Include="..\..\..\Shared\PetHost.Shared.Infrastructure\PetHost.Shared.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

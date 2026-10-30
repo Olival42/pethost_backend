@@ -3,7 +3,7 @@
 > Documento normativo. Tudo é obrigatório salvo onde marcado como *recomendado*.
 > Em conflito com o código existente, este documento vence.
 
-**Atualizado:** 2026-10-07 · **Escopo:** backend (API)
+**Atualizado:** 2026-10-25 · **Escopo:** backend (API)
 
 ---
 
@@ -19,10 +19,12 @@
 | Validação | FluentValidation (via decorator) |
 | Testes | **xUnit** + **Moq** + **FluentAssertions 7.x** + Testcontainers |
 | Logs | Serilog (JSON estruturado) |
+| Imagens | Bucket **S3 compatível** via `AWSSDK.S3`: **Cloudflare R2** em produção, **RustFS** no compose e nos testes |
+| Pagamentos | **Stripe Connect** via `Stripe.net`, sempre em **modo de teste** |
 
 > ⚠️ `FluentAssertions` 8+ exige licença paga. Fixado em **7.x** (Apache-2.0) via `Directory.Packages.props`. Subir de versão exige decisão de licenciamento.
 
-**Raiz obrigatória:** `Directory.Build.props` (propriedades comuns), `Directory.Packages.props` (Central Package Management — nenhum `.csproj` declara `Version`), `.editorconfig`, `PetHost.sln`.
+**Raiz obrigatória:** `Directory.Build.props` (propriedades comuns), `Directory.Packages.props` (Central Package Management — nenhum `.csproj` declara `Version`), `.editorconfig`, `PetHost.slnx` (formato de solution do SDK 10).
 
 ---
 
@@ -34,7 +36,7 @@
 4. **Erro esperado não usa exceção.** Fluxo de negócio previsível retorna `Result`. Exceção só para bug ou infraestrutura fora.
 5. **Toda regra de negócio tem teste unitário.** Sem exceção.
 
-**Módulos** (bounded contexts): `Auth`, `Users`, `Pets`, `Booking`, `Availability`, `Payments`, `Reviews`, `Notifications`. Criar módulo novo é decisão de arquitetura — discutir antes do PR.
+**Módulos** (bounded contexts): `Auth` (conta, sessão, perfil comum), `Owners` (perfil de tutor), `Hosts` (anfitrião: verificação de identidade aprovada pelo admin e perfil verificado, PF/PJ), `Audit` (trilha de auditoria de todos os módulos), `Pets` (ficha do pet, do tutor ou do anfitrião), `Listings` (cantinho: o espaço do anfitrião, com fotos e busca com filtros e raio — [`modulo-listings.md`](modulo-listings.md)), `Bookings` (reserva: pedido, aceite/recusa, cancelamento, check-in e check-out — [`modulo-bookings.md`](modulo-bookings.md)), `Payments` (pagamento da reserva: Pix ou cartão em até 6 parcelas, checkout transparente, webhook, reembolso, repasse 90/10 e contestação — [`modulo-payments.md`](modulo-payments.md)), `Conversations` (chat: uma conversa por dupla tutor–anfitrião, texto e foto, não lidas e aviso em tempo real pelo hub — [`modulo-conversations.md`](modulo-conversations.md)), `Reviews` (avaliação: depois do check-out cada lado avalia o outro — o tutor, o anfitrião; o anfitrião, o tutor e os pets — com nota de 1 a 5, em até 7 dias, às cegas; resposta do avaliado, denúncia e moderação, nota e selo "Bem avaliado" na busca, nota do tutor no pedido, histórico do pet, lembrete por e-mail — [`modulo-reviews.md`](modulo-reviews.md)), `Availability`, `Notifications`. Criar módulo novo é decisão de arquitetura — discutir antes do PR.
 
 ---
 
@@ -44,14 +46,14 @@ Um **`.csproj` por camada por módulo** — o compilador vira o guardião do Cle
 
 ```
 pethost_backend/
-├── PetHost.sln · Directory.Build.props · Directory.Packages.props · .editorconfig
+├── PetHost.slnx · Directory.Build.props · Directory.Packages.props · .editorconfig
 ├── docs/PROJECT_STANDARDS.md
 ├── src/
 │   ├── Host/PetHost.Api/                     ← único executável (composition root)
 │   ├── Shared/
 │   │   ├── PetHost.Shared.Kernel/            ← Result, Error, Entity, ValueObject, abstrações
-│   │   ├── PetHost.Shared.Contracts/         ← ApiResponse, ErrorResponse, integration events
-│   │   └── PetHost.Shared.Infrastructure/    ← cross-cutting: EF base, outbox, decorators
+│   │   ├── PetHost.Shared.Contracts/         ← ApiResponse, ErrorResponse, integration events, IImageStorage
+│   │   └── PetHost.Shared.Infrastructure/    ← cross-cutting: EF base, outbox, decorators, storage S3, conexão Redis (`AddRedis`), Stripe (`AddStripe`: cliente + webhook), tempo real (`AddRealtime`: SignalR + backplane Redis), CORS do front (`AddFrontendCors`), CPF entre papéis (`AddCpfOwnership`), exclusão de conta (`AddPersonalDataErasure`)
 │   └── Modules/<Module>/
 │       ├── PetHost.Modules.<Module>.Domain/
 │       ├── PetHost.Modules.<Module>.Application/
@@ -113,6 +115,14 @@ Proibido: referenciar projeto de outro módulo, compartilhar `DbContext`, fazer 
 2. **Integration event** (assíncrono) — domain event fica dentro do módulo; para cruzar fronteira, publique um `record ...IntegrationEvent` declarado em `Shared.Contracts`, via **padrão Outbox** (tabela no schema do publicador, atômica com a transação).
 3. **Read model próprio** — módulo que lê muito dado de outro mantém tabela desnormalizada alimentada por integration events. Duplicar dado é aceitável; acoplar schema não é.
 
+**Recurso de infraestrutura usado por mais de um módulo** (conexão Redis, bucket, caixa de saída de e-mail, cliente do Stripe) é registrado pelo `Shared.Infrastructure`, de forma idempotente (`TryAdd*`): cada módulo chama `AddRedis(...)`/`AddStripe(...)`, e nenhum depende do registro feito por outro. Cada módulo usa um prefixo próprio nas chaves (`pethost:<módulo>:...`).
+
+**Webhook de serviço externo** (Stripe) tem **um** endpoint para a API inteira, no `Shared.Infrastructure` (`POST /api/v1/stripe/webhooks`): ele confere a assinatura uma vez e entrega o evento a cada `IStripeWebhookHandler` que o módulo registrou para o tipo (`AddScoped<IStripeWebhookHandler, ...>`). O handler trata o evento como **aviso** e relê o objeto na API do serviço — idempotente e imune a evento repetido ou fora de ordem. Exceção no handler = `500`, e o serviço reenvia. Hoje: o Hosts trata `account.updated`; o Payments, os eventos de cobrança, reembolso e contestação (e guarda os ids tratados em `payment.stripe_events`).
+
+**Regra que atravessa módulos** (ex.: o CPF identifica a pessoa entre tutor e anfitrião): cada módulo implementa um contrato de consulta pequeno em `Shared.Contracts` (`ICpfHolderLookup`), registrado com `AddScoped` — todos são lidos —, e a regra mora num lugar só (`ICpfOwnership`, implementado em `Shared.Infrastructure`). Nenhum módulo conhece o outro.
+
+**Ação que cada módulo cumpre na sua parte** (ex.: excluir a conta a pedido do titular, LGPD): mesmo molde. Cada módulo com dado pessoal implementa `IPersonalDataEraser` (`Shared.Contracts/Privacy`, `AddScoped`) e apaga ou anonimiza o que é dele; `IPersonalDataErasure` (`Shared.Infrastructure/Privacy`) chama todos, em sequência. Quem dispara é o módulo do papel (Owners, Hosts), que confere as regras antes (senha, reserva em aberto), faz a própria parte depois dos outros e deixa a conta (Auth, `IAccountStatusManager.EraseAsync`) **por último** — assim, se algo falhar no meio, a pessoa ainda entra e repete. Todo eraser é **idempotente**, grava antes de apagar arquivo do bucket e lança em erro de infraestrutura (o pedido volta `500` e pode ser repetido). Hoje: Pets (pets inativos, sem fotos), Listings (cantinhos inativos, sem fotos nem endereço exato), Conversations (as conversas). Reservas, pagamentos, avaliações e a trilha não têm eraser: ficam (obrigação legal e o outro lado), e o nome some porque vem da conta.
+
 ---
 
 ## 6. Result Pattern
@@ -125,9 +135,11 @@ namespace PetHost.Shared.Kernel.Errors;
 /// <param name="Code">Código estável, legível por máquina (SCREAMING_SNAKE_CASE).</param>
 /// <param name="Message">Mensagem em inglês, frase completa.</param>
 /// <param name="Field">Campo do payload em camelCase. Só em erro de validação.</param>
-public sealed record Error(string Code, string Message, string? Field = null)
+/// <param name="Reason">Motivo estável da regra de validação (`MODULO_CAMPO_REGRA`). Só em erro de validação.</param>
+/// <param name="Params">Valores que a frase usa (`ErrorParams`): limites e formatos na validação; datas, limites e ids no erro de topo.</param>
+public sealed record Error(string Code, string Message, string? Field = null, string? Reason = null, ErrorParams? Params = null)
 {
-    public static Error Validation(string field, string message) => new(ErrorCodes.Validation, message, field);
+    public static Error Validation(string field, string reason, string message, params (string Name, object Value)[] parameters) => new(ErrorCodes.Validation, message, field, reason, ErrorParams.Of(parameters));
     public static Error NotFound(string message)     => new(ErrorCodes.NotFound, message);
     public static Error Conflict(string message)     => new(ErrorCodes.Conflict, message);
     public static Error Unauthorized(string message) => new(ErrorCodes.Unauthorized, message);
@@ -143,6 +155,10 @@ public static class ErrorCodes
     public const string Unauthorized = "UNAUTHORIZED";
     public const string Forbidden    = "FORBIDDEN";
     public const string BusinessRule = "BUSINESS_RULE_VIOLATION";
+    public const string TooManyRequests = "TOO_MANY_REQUESTS";
+    public const string MethodNotAllowed = "METHOD_NOT_ALLOWED";
+    public const string UnsupportedMediaType = "UNSUPPORTED_MEDIA_TYPE";
+    public const string PayloadTooLarge = "PAYLOAD_TOO_LARGE";
     public const string Unexpected   = "UNEXPECTED_ERROR";
 }
 ```
@@ -208,13 +224,15 @@ Extensões de composição em `ResultExtensions`: `Map`, `BindAsync`.
 | Acumular só em validação | Validação retorna N erros; regra de domínio retorna 1 |
 | `Field` em camelCase | Precisa casar com o campo no JSON da request |
 | `Code` nunca muda | É contrato público. Mudar = breaking change |
+| Erro de topo que cita valor leva `params` | `new Error(code, msg).WithParams(("date", "2026-12-25"))`: o front lê o valor de `error.params`, nunca da frase (§7) |
+| Validação tem `Reason` | `Error.Validation(field, reason, message, params?)`: o `Reason` é o código estável da regra (§10) |
 
-Erros centralizados por módulo em `<Module>Errors` — **zero** literal inline:
+Erros centralizados por módulo em `<Module>Errors` — **zero** literal inline. O exemplo abaixo (e os do §9 e §14, que continuam o mesmo caso) é **ilustrativo**: simplificado, não é o `BookingsErrors` real — os códigos de verdade estão nas classes `*Errors` e no enum `ApiErrorCode` do OpenAPI.
 
 ```csharp
 public static class BookingErrors
 {
-    public static readonly Error CheckInInThePast = Error.Validation("checkIn", "CheckIn cannot be in the past.");
+    public static readonly Error CheckInInThePast = Error.Validation("checkIn", "BOOKING_CHECK_IN_IN_THE_PAST", "CheckIn cannot be in the past.");
     public static readonly Error OverlappingPeriod = new("BOOKING_OVERLAPPING_PERIOD", "The host already has a booking in this period.");
     public static Error NotFound(BookingId id) => new("BOOKING_NOT_FOUND", $"Booking '{id.Value}' was not found.");
 }
@@ -274,6 +292,43 @@ public static class ApiResponseMapper
 
 **Comportamento normativo:** havendo ≥1 `VALIDATION_ERROR`, a resposta é `VALIDATION_ERROR` com `Details` agrupado por campo (erros de outro tipo na lista são descartados). Senão, vence o **primeiro** erro e `Details` fica `null`. `Field` nulo cai no bucket `"general"`.
 
+**Código por regra de validação (tarefa 090).** Cada item de `details` tem `messages` (frases em inglês, para log e compatibilidade) e `errors`, alinhado a `messages` (mesma ordem, mesmo tamanho): `errors[i]` é o motivo estável de `messages[i]`. O front traduz por `errors[i].code` e nunca mostra a frase da API.
+
+```json
+{ "field": "checkIn",
+  "messages": ["Check-in must be at least 72 hours ahead: the host answers in up to 24 hours and can only accept up to 48 hours before the stay."],
+  "errors": [ { "code": "BOOKING_CHECK_IN_TOO_SOON", "params": { "minimumHours": 72, "responseHours": 24, "acceptHours": 48 } } ] }
+```
+
+- `code`: `MODULO_CAMPO_REGRA` em `SCREAMING_SNAKE_CASE` (`AUTH_EMAIL_REQUIRED`, `PET_NAME_TOO_LONG`, `LISTING_NIGHTLY_RATE_OUT_OF_RANGE`). Estável: **renomear ou remover é breaking change**; adicionar é retrocompatível. O `code` de topo continua `VALIDATION_ERROR`.
+- `params`: só o que a frase precisa (`max`, `min`, `format`, `digits`, ou o que a regra nomear), com nome em camelCase e valor número, texto ou booleano. Nunca dado pessoal nem o valor enviado. Ausente quando a regra não tem parâmetros. As listas de valores aceitos ficam de fora (o front conhece as opções).
+- Regra de negócio tem código próprio; não há código genérico de validação (`FIELD_INVALID`).
+- O OpenAPI expõe `ApiFieldErrorItem` (`code` + `params`) em `ApiFieldErrors.errors` e o enum `ApiErrorCode` com **todos** os códigos (os de topo e os de validação). O enum é gerado por reflexão (`ErrorCatalog`) das classes `*Errors` e de `ErrorCodes`, não é lista manual: o front gera os tipos dele e o catálogo de textos é `Record<ApiErrorCode, ...>`.
+- **Erro de topo com `params`.** Quando a frase de um erro de topo cita um valor, o envelope leva o mesmo valor em `error.params` (objeto opcional, mesmas regras de `params` acima: número, texto ou booleano, nome em camelCase, nunca dado pessoal). Id de recurso pode; nome de pessoa ou de pet não. Declare no `*Errors` com `WithParams`:
+
+  ```json
+  { "success": false, "data": null, "error": {
+      "code": "BOOKING_CAPACITY_EXCEEDED",
+      "message": "The listing has no room for these pets on the night of 2026-12-25.",
+      "params": { "date": "2026-12-25" } } }
+  ```
+
+  | Código | `params` |
+  |--------|----------|
+  | `BOOKING_WEEKDAY_NOT_AVAILABLE`, `BOOKING_DATES_BLOCKED`, `BOOKING_CAPACITY_EXCEEDED`, `BOOKING_CHECK_IN_TOO_EARLY` | `date` (`yyyy-MM-dd`): o dia fechado, a noite cheia, o dia em que o check-in abre |
+  | `BOOKING_PET_PERIOD_CONFLICT`, `BOOKING_PET_INACTIVE` | `petId` |
+  | `BOOKING_PET_SPECIES_NOT_ACCEPTED` | `petId`, `species` |
+  | `BOOKING_PET_SIZE_NOT_ACCEPTED` | `petId`, `size` |
+  | `LISTING_AVAILABILITY_BLOCK_OVERLAP` | `startDate`, `endDate` |
+  | `LISTING_LIMIT_REACHED`, `LISTING_PHOTO_LIMIT_REACHED`, `LISTING_AVAILABILITY_BLOCK_LIMIT_REACHED`, `PET_PHOTO_LIMIT_REACHED`, `HOST_APPLICATION_ATTEMPTS_EXCEEDED` | `max` |
+  | `HOST_APPLICATION_DOCUMENTS_MISSING` | `missing` (tipos de foto separados por vírgula) |
+  | `PAYMENT_INSTALLMENT_NOT_FOUND`, `PAYMENT_INSTALLMENT_ALREADY_PAID`, `PAYMENT_INSTALLMENT_PROCESSING` | `number` |
+  | `PAYMENT_INSTALLMENT_OUT_OF_ORDER` | `earlier` |
+  | `REVIEW_WINDOW_CLOSED` | `days` |
+
+  Os `*_NOT_FOUND` não levam o id: é o que a própria requisição mandou. O OpenAPI expõe `ApiError.params` (opcional), pelo mesmo schema `ApiErrorParams` dos itens de validação.
+- Erros que nascem antes do caso de uso seguem a mesma regra: corpo ilegível é `REQUEST_BODY_INVALID` no campo `body`, valor com tipo errado é `REQUEST_VALUE_INVALID` no campo (`RequestErrors`), imagem ausente é `IMAGE_FILE_REQUIRED` (`ImageErrors`).
+
 ### Ponte com o ASP.NET Core
 
 ```csharp
@@ -299,6 +354,7 @@ public static int ToHttpStatusCode(this string errorCode) => errorCode switch
     // Códigos de módulo herdam o status pelo sufixo.
     var c when c.EndsWith("_NOT_FOUND", StringComparison.Ordinal) => StatusCodes.Status404NotFound,
     var c when c.EndsWith("_CONFLICT",  StringComparison.Ordinal) => StatusCodes.Status409Conflict,
+    var c when c.EndsWith("_UNAVAILABLE", StringComparison.Ordinal) => StatusCodes.Status503ServiceUnavailable, // serviço externo fora (ex.: mapa)
 
     _ => StatusCodes.Status422UnprocessableEntity,   // fallback: regra de negócio, não falha do servidor
 };
@@ -319,6 +375,8 @@ builder.Services.ConfigureHttpJsonOptions(o =>
 });
 ```
 
+**Erro sem corpo também vai no envelope.** O ASP.NET Core responde sem corpo quando nenhuma rota casa — rota inexistente ou id fora do formato da rota (`/pets/abc` com `{petId:guid}`) —, quando o método não existe na rota (405) e quando o content-type é errado (415). `app.UseEmptyErrorEnvelope()` (em `Shared.Infrastructure/Http`, logo depois do `UseExceptionHandler`) completa essas respostas com o `ApiResponse`: `404 NOT_FOUND`, `405 METHOD_NOT_ALLOWED`, `415 UNSUPPORTED_MEDIA_TYPE`. Resposta que já tem corpo passa intacta. **Nenhuma** resposta de erro sai com corpo vazio.
+
 ### Payloads
 
 Sucesso `200` · validação `400` · regra de negócio `422` · inesperado `500`:
@@ -328,11 +386,13 @@ Sucesso `200` · validação `400` · regra de negócio `422` · inesperado `500
 
 { "success": false, "data": null, "error": {
     "code": "VALIDATION_ERROR", "message": "Validation failed",
-    "details": [ { "field": "checkOut", "messages": ["CheckOut must be after CheckIn."] } ] },
+    "details": [ { "field": "checkOut",
+                   "messages": ["CheckOut must be after CheckIn."],
+                   "errors": [ { "code": "BOOKING_CHECK_OUT_NOT_AFTER_CHECK_IN" } ] } ] },
   "timestamp": "2026-10-07T13:45:12.331+00:00" }
 
 { "success": false, "data": null, "error": {
-    "code": "BOOKING_OVERLAPPING_PERIOD", "message": "The host already has a booking in this period.", "details": null },
+    "code": "BOOKING_CAPACITY_EXCEEDED", "message": "The listing has no room for these pets on the night of 2026-12-20.", "details": null },
   "timestamp": "2026-10-07T13:45:12.331+00:00" }
 
 { "success": false, "data": null, "error": {
@@ -355,9 +415,16 @@ Sucesso `200` · validação `400` · regra de negócio `422` · inesperado `500
 | `NOT_FOUND` | 404 | Recurso inexistente |
 | `CONFLICT` | 409 | Duplicidade, concorrência otimista |
 | `BUSINESS_RULE_VIOLATION` | 422 | Payload válido, regra impede a operação |
+| `METHOD_NOT_ALLOWED` | 405 | A rota existe, mas não com esse método |
+| `PAYLOAD_TOO_LARGE` | 413 | Corpo acima do teto da rota (upload de imagem: 8 MB; as outras rotas, o limite do Kestrel, 30 MB) |
+| `UNSUPPORTED_MEDIA_TYPE` | 415 | Corpo num content-type que a rota não aceita (use `application/json`) |
+| `TOO_MANY_REQUESTS` | 429 | Rate limit estourado. Vem com o header `Retry-After` (segundos) |
+| `<MODULE>_..._UNAVAILABLE` | 503 | Serviço externo fora do ar ou lento (ex.: `LISTING_GEOCODER_UNAVAILABLE`). Tente de novo depois |
 | `UNEXPECTED_ERROR` | 500 | Exceção não tratada |
 
-**Códigos de módulo:** `<MODULE>_<REASON>` em `SCREAMING_SNAKE_CASE` — `AUTH_INVALID_CREDENTIALS`, `AUTH_EMAIL_ALREADY_REGISTERED`, `BOOKING_NOT_FOUND`, `BOOKING_OVERLAPPING_PERIOD`, `BOOKING_ALREADY_CANCELLED`, `PET_NOT_OWNED_BY_REQUESTER`, `PAYMENT_GATEWAY_REJECTED`.
+**Códigos de módulo:** `<MODULE>_<REASON>` em `SCREAMING_SNAKE_CASE` — `AUTH_INVALID_CREDENTIALS`, `AUTH_EMAIL_ALREADY_REGISTERED`, `BOOKING_NOT_FOUND`, `BOOKING_CAPACITY_EXCEEDED`, `BOOKING_ALREADY_CANCELLED`, `PET_MICROCHIP_ALREADY_REGISTERED`, `PAYMENT_STRIPE_REQUEST_REJECTED`.
+
+**Recurso de outra conta responde `404`, não `403`.** Ler ou alterar pelo id um recurso que pertence a outro usuário (pet, reserva, mensagem) devolve o mesmo `<MODULE>_NOT_FOUND` de um id inexistente: um `403` confirmaria que o id existe. O `403` fica para o que não depende do recurso — papel errado no token (`FORBIDDEN`), conta desativada ou suspensa. O sufixo `_NOT_OWNED_BY_REQUESTER` → 403 continua no mapeador, mas não deve ser usado para recurso que se busca pelo id.
 
 Toda constante em `<Module>Errors`. `Message` em inglês, frase completa, sem expor infraestrutura nem dado de outro usuário. Adicionar código é retrocompatível; **renomear ou remover é breaking change**.
 
@@ -477,6 +544,21 @@ public sealed class BookingsController(
 
 - Toda `ICommand` tem validador, mesmo trivial. `IQuery` só com filtro/paginação.
 - O handler **nunca** chama o validador: um `ValidationCommandHandlerDecorator` registrado no DI intercepta, acumula as falhas como `Error.Validation(...)` e retorna antes de executar.
+- **Toda regra de validação declara o erro em `<Module>Errors` e o validador o usa por inteiro**, sem texto nem código inline:
+
+  ```csharp
+  // <Module>Errors (Domain)
+  public static readonly Error NameTooLong =
+      Error.Validation("name", "PET_NAME_TOO_LONG", $"Name must be at most {PetProfile.NameMaxLength} characters.", ("max", PetProfile.NameMaxLength));
+
+  // Validador (Application)
+  RuleFor(x => x.Name).MaximumLength(PetProfile.NameMaxLength).WithError(PetsErrors.NameTooLong);
+  RuleFor(x => x).CustomErrors((command, context) => { /* ... */ context.AddFailure(error); });
+  ```
+
+  `WithError`, `CustomErrors`, `CustomErrorsAsync` e `AddFailure(Error)` (`Shared.Contracts/Validation`) levam mensagem, código e parâmetros do mesmo `Error`. **Proibido** `.WithMessage(...)`, `.Custom(...)`, `.CustomAsync(...)`, `new ValidationFailure(...)` e `AddFailure(campo, texto)` em `src/`: o decorator lança `InvalidOperationException` para a regra sem código.
+- O código é `<MODULO>_<CAMPO>_<REGRA>`, derivado do nome do membro (`PetsErrors.NameTooLong` → `PET_NAME_TOO_LONG`). Dois erros só dividem um código se tiverem o mesmo campo, os mesmos parâmetros e a mesma frase.
+- `ErrorCodeCoverageTests` (em `PetHost.ArchitectureTests`) falha se surgir validação sem código, código fora do formato, validação com código genérico, código repetido com outro significado, ou `WithMessage`/`Custom` em `src/`.
 - `PropertyName` do FluentValidation é convertido para **camelCase** (`CheckOut` → `checkOut`) para casar com o JSON.
 - Validador **não** acessa banco. Unicidade (e-mail duplicado, período sobreposto) é regra de domínio → `CONFLICT` ou código de módulo.
 - Mensagem em inglês, frase completa, terminada em ponto.
@@ -487,25 +569,25 @@ public sealed class BookingsController(
 
 | Regra | Detalhe |
 |-------|---------|
-| Um `DbContext` por módulo | `BookingDbContext`, `AuthDbContext` |
-| Um schema por módulo | `booking`, `auth`, `pets` |
+| Um `DbContext` por módulo | `BookingsDbContext`, `AuthDbContext` |
+| Um schema por módulo | `auth`, `owner`, `host`, `pet`, `listing`, `booking`, `conversation`, `review`, `payment`, `audit` (singular). Infraestrutura compartilhada que precisa de tabela também ganha schema e `DbContext` próprios em `Shared.Infrastructure`: `email` (caixa de saída de e-mails) |
 | Migrations e histórico isolados | `Persistence/Migrations`, `__ef_migrations_history` no schema do módulo |
 | Sem `JOIN` entre schemas | Cruzar dado só pelo §5 |
 | `DbContext` nunca sai da `Infrastructure` | `Application` só conhece interfaces |
 
-**Convenções de banco:** schema `snake_case` singular · tabela `snake_case` **plural** · coluna `snake_case` · PK `id` do tipo `uuid` (v7, gerado pela aplicação com `Guid.CreateVersion7()`, **nunca** auto-incremento/identity) · FK `<singular>_id` também `uuid` · índice `ix_<table>_<cols>` · unique `uq_<table>_<cols>` · timestamp `timestamptz` sempre UTC · dinheiro `numeric(18,2)` + coluna de moeda (**nunca** `float`/`double`).
+**Convenções de banco:** schema `snake_case` singular · tabela `snake_case` **plural** · coluna `snake_case` · PK `id` do tipo `uuid` (v7, gerado pela aplicação com `Guid.CreateVersion7()`, **nunca** auto-incremento/identity) · FK `<singular>_id` também `uuid` · índice `ix_<table>_<cols>` · unique `uq_<table>_<cols>` · timestamp `timestamptz` sempre UTC · dinheiro **nunca** em `float`/`double`: em reais, `numeric` com 2 casas (diária, total da reserva — `nightly_rate`, `total_price`); no Payments, em **centavos inteiros** (`bigint`, `*_cents`) + coluna `currency`, como o Stripe. A conversão reais → centavos acontece só no Payments.
 
 Mapeamento `PascalCase → snake_case` via `UseSnakeCaseNamingConvention()`; configuração explícita por entidade em `IEntityTypeConfiguration<T>`.
 
-**Queries:** `AsNoTracking()` sempre na leitura · toda lista **paginada** (sem coleção ilimitada) · `Include` explícito, lazy loading off · projetar direto no DTO via `Select` · `enum` como **string** · concorrência otimista com `xmin` → `CONFLICT`.
+**Queries:** `AsNoTracking()` sempre na leitura · toda lista **paginada** (exceção: lista administrativa, ver §13) (sem coleção ilimitada) · `Include` explícito, lazy loading off · projetar direto no DTO via `Select` · `enum` como **string** · concorrência otimista com `xmin` → `CONFLICT`.
 
 **Migrations:** nome em inglês, `PascalCase`, imperativo (`CreateBookingsTable`, `AddCancellationReasonToBookings`). Migration já aplicada em produção **nunca** é editada — crie outra. Em produção não rodam no startup: step dedicado do pipeline.
 
 ```bash
-dotnet ef migrations add CreateBookingsTable \
-  --project src/Modules/Booking/PetHost.Modules.Booking.Infrastructure \
+dotnet ef migrations add CreateBookingsTables \
+  --project src/Modules/Bookings/PetHost.Modules.Bookings.Infrastructure \
   --startup-project src/Host/PetHost.Api \
-  --context BookingDbContext --output-dir Persistence/Migrations
+  --context BookingsDbContext --output-dir Persistence/Migrations
 ```
 
 ---
@@ -528,7 +610,7 @@ dotnet ef migrations add CreateBookingsTable \
 
 **Estilo obrigatório:** `namespace` file-scoped · um tipo público por arquivo · `sealed` por padrão · `record` para DTO/Command/VO/evento, `class` para entidade e serviço · sem `#region` · `using` fora do namespace · nunca `!` para silenciar warning (exceto após checar `IsSuccess`) · `async`/`await` ponta a ponta, nunca `.Result`/`.Wait()`.
 
-**JSON:** propriedade `camelCase` · nulo omitido · data ISO 8601 (`DateOnly` → `"2026-11-02"`) · `enum` como string.
+**JSON:** propriedade `camelCase` · nulo omitido · data ISO 8601 (`DateOnly` → `"2026-11-02"`) · **expiração de credencial** (`expiresAt` do access token e de URL assinada) em **Unix time, segundos, UTC** (`long`, igual ao `exp` do JWT) · `enum` como string.
 
 ### Glossário do domínio
 
@@ -545,6 +627,45 @@ O time pensa em português, o código fala inglês. Esta é a tradução oficial
 | Cuidador | `Sitter` | Check-in / check-out | `CheckIn` / `CheckOut` |
 | Disponibilidade | `Availability` | Diária | `NightlyRate` |
 | Usuário / perfil | `User` / `Profile` | Vacina | `Vaccination` |
+| Inativar (pela pessoa) | `Deactivate` | Suspender (pelo admin) | `Suspend` |
+| Trilha de auditoria | `AuditTrail` / `AuditEntry` | Motivo | `Reason` |
+| Dono do pet (tutor **ou** anfitrião) | `Keeper` *(❌ Owner, que é só o tutor)* | Animal fora da lista | `Exotic` (+ `SpeciesDescription`) |
+| Pessoa física / jurídica | `Individual` / `Company` (`PersonType`) | Razão social / nome fantasia | `LegalName` / `TradeName` |
+| Cantinho (o espaço do anfitrião; empresa tem um por filial) | `Listing` *(❌ Space, Room)* | Diária (em reais, `decimal`) | `NightlyRate` |
+| Tipos de pet aceitos / dias em que recebe | `AcceptedSpecies` / `AvailableWeekdays` (`Weekdays`) | Coordenada / geocodificar | `GeoPoint` / `Geocoder` (`IGeocoder`) |
+| Solicitação de cadastro de anfitrião (verificação) | `HostApplication` *(❌ HostRequest, Verification)* | Foto da verificação (frente, verso, selfie) | `HostApplicationDocument` (`DocumentKind`) |
+| Aprovar / recusar (admin) | `Approve` / `Reject` (`RejectionReason`) | Documento de identidade (RG, CNH, CIN) | `IdentityDocumentType` |
+| Prazo de guarda das fotos | `DocumentRetention` | Apagar as fotos | `PurgeDocuments` |
+| Cadastro de recebimento (onboarding do Stripe) | `StripeOnboarding` *(❌ Registration, Signup)* | Conta conectada no Stripe (`acct_...`) | `StripeAccount` (`StripeAccountId`) |
+| Repasses liberados pelo Stripe | `PayoutsEnabled` | Anfitrião disponível para os outros (cantinho na busca) | `IsListable` |
+| Lembrete (e-mail de "termine o cadastro") | `Reminder` | Manutenção do cadastro de recebimento (releitura + lembretes) | `PayoutsMaintenance` |
+| Representante legal (da empresa) | `Representative` (o CPF do `HostApplication`/`Host` de empresa) | Dados da empresa | `CompanyDetails` |
+| Período da estadia (chegada e saída) | `StayPeriod` (`CheckIn`/`CheckOut`, `DateOnly`) | Aceitar / recusar o pedido (anfitrião) | `Accept` / `Decline` (rotas `/acceptance`, `/refusal`) |
+| Prazo para responder (24h) | `ResponseDeadline` (`ResponseWindow`) | Expirar (sem resposta no prazo) | `Expire` (`Expired`) |
+| Quem cancelou (tutor ou anfitrião) | `CancelledBy` (`BookingParty`: `owner`/`host`) | Percentual de reembolso | `RefundPercentage` |
+| Ocupação do cantinho (pets por noite) | `ListingOccupancy` | Valor total da estadia | `TotalPrice` |
+| Selo (automático) | `Badge` (`ListingBadges`: `neighbor`, `fast_responder`, `yard`, `experienced`) | Datas da busca | `StayWindow` (`checkIn`/`checkOut`) |
+| Contato liberado (endereço exato e telefone) | `Contact` (`RevealsContact`) | Histórico do anfitrião (estadias, tempo de resposta) | `HostTrackRecord` / `HostBookingStats` |
+| Conversa (chat da dupla tutor–anfitrião) | `Conversation` *(❌ Chat, Thread)* | Mensagem | `Message` |
+| Puxar conversa (no cantinho) | `StartConversation` | Quem enviou (tutor ou anfitrião) | `SentBy` (`ConversationParty`: `owner`/`host`) |
+| Não lidas / marcar como lida | `Unread` (`UnreadCount`) / `ReadMarker` (`MarkConversationRead`) | Mensagens mais antigas (cursor) | `Before` |
+| Aviso em tempo real (hub) | `Realtime` (`ConversationsHub`, `IConversationRealtime`) | Apagar conversas paradas (LGPD) | `Retention` (`PurgeInactiveConversations`) |
+| Excluir a conta a pedido do titular (LGPD) | `Erase` / `Erasure` (`ErasedAt`, `IPersonalDataEraser`, rota `/me/deletion`) *(❌ Delete, quando é anonimização)* | Inativar (a pessoa volta com a senha) | `Deactivate` |
+| Avaliação da estadia (cada lado, depois do check-out) | `Review` (`ReviewedStay`: a estadia vista pelo Bookings) | Prazo para avaliar e editar (7 dias do check-out) | `WindowDays` (`EditableUntil`, `REVIEW_WINDOW_CLOSED`) |
+| Quem escreveu / quem é avaliado | `AuthorSide` / `SubjectSide` (`ReviewParty`: `owner`/`host`) | Nota do pet (na avaliação do anfitrião) | `ReviewPetRating` (`pets`) |
+| Resposta do avaliado | `Reply` (`ReplyText`, rota `/reply`) | Denúncia de avaliação / ocultar (admin) | `ReviewReport` / `Hide` (`HiddenByModeration`, rota `/moderation-hide`) |
+| Nota média e contagem | `RatingSummary` (`IReviewDirectory`) / `ListingRating` | Selo "Bem avaliado" | `well_rated` (`ListingBadges.WellRated`) |
+| Lembrete de avaliar | `ReviewReminder` (`SendReviewReminders`) | Avaliação às cegas (publicada quando os dois avaliam ou no fim do prazo) | `PublishedAt` / `Publish` (`REVIEW_ALREADY_PUBLISHED`, `NotifyPublishedReviews`) |
+| Histórico de notas do pet ("currículo") | `ListPetReviews` (rota `/pets/{petId}/reviews`) | Nota do tutor no pedido | `OwnerRating` (`ownerRating`, `IBookingReviews`) |
+| "Combina com seu pet" (aviso, não bloqueia) | `PetCompatibility` (`CompatibilityWarning`, rota `/compatibility`) | Outros hóspedes do período | `Guests` (`StayingPet` / `ListingGuest`) |
+| Pagamento da reserva (o plano de parcelas) | `Payment` (`InstallmentCount`) | Parcela | `Installment` *(❌ Parcel, Quota)* |
+| Prazo para pagar a 1ª parcela (24h depois do aceite) | `PaymentDeadline` (`PaymentWindow`) | Checkout transparente (abrir o pagamento da parcela) | `PaymentSession` (rota `/payment-session`) |
+| Parcela em atraso / tolerância de 24h | `Overdue` / `OverdueGrace` | Lembrete de vencimento | `Reminder` (`TakeReminders`) |
+| Multa e juros por atraso | `LateFee` (`LateFeeFor`, `LateFeeCents`) *(❌ Interest, Penalty)* | Lembrete semanal da parcela em atraso | `OverdueReminder` (`TakeOverdueReminders`) |
+| Contestação no cartão (chargeback) | `Dispute` | Estorno do repasse (contestação perdida) | `TransferReversal` (`PayoutStatus.Reversed`) |
+| Taxa da plataforma (10%) | `PlatformFee` | Parte do anfitrião (90%) | `HostShare` / `HostPayout` |
+| Ganhos do anfitrião (os repasses) | `HostEarnings` (`/payments/payouts/me`) | Pendências de pagamento (admin) | `PaymentIssues` |
+| Cancelada pela plataforma (parcela não paga) | `BookingParty.Platform` (`CancelUnpaid`) | Releitura do Stripe / reconciliação | `ChargeSnapshot` / `Reconcile` (`PaymentReconciler`) |
 
 ---
 
@@ -556,13 +677,20 @@ O time pensa em português, o código fala inglês. Esta é a tradução oficial
 
 Prefixo `/api` sempre · versão obrigatória desde o primeiro endpoint · recurso substantivo **plural** em `kebab-case` · ID com constraint tipada (`{bookingId:guid}`) · query string `camelCase`.
 
-**Sem verbo na rota.** Ação não-CRUD vira sub-recurso substantivado:
+**Ação não-CRUD:** prefira sub-recurso substantivado (`POST /bookings/{id}/cancellation`). Verbo curto no fim da rota é **permitido** quando a ação é sobre a sessão ou a própria conta e o substantivo ficaria artificial — sempre `POST`, sempre no último segmento:
 
 | ❌ | ✅ |
 |----|----|
 | `POST /bookings/{id}/cancel` | `POST /bookings/{id}/cancellation` |
 | `POST /auth/do-login` | `POST /auth/sessions/login` |
 | `POST /auth/refresh-token` | `POST /auth/sessions/refresh` |
+| `POST /users/create` | `POST /users/register` |
+| `POST /users/{id}/disable` (id vindo do cliente) | `POST /owners/me/deactivate` |
+| `POST /pets/{id}/deactivate` (recurso que não é a conta) | `POST /pets/{id}/deactivation` · reativar: `DELETE /pets/{id}/deactivation` |
+
+Verbos em uso: `register`, `login`, `refresh`, `logout`, `switch`, `deactivate`, `reactivate`, `forgot`, `reset`. Sub-recurso da conta: `POST /users/me/password` (troca de senha logada).
+
+**`me`:** rota sobre a conta do usuário autenticado usa `me` (`GET /users/me`, `GET /owners/me`); o id sai do token (`sub`), **nunca** do corpo ou da rota. Ninguém lê nem altera dado de outra pessoa por um id que ela mesma enviou.
 
 | Verbo | Uso | Sucesso |
 |-------|-----|---------|
@@ -571,28 +699,141 @@ Prefixo `/api` sempre · versão obrigatória desde o primeiro endpoint · recur
 | `PUT` / `PATCH` | Substitui / atualiza parcialmente | `200` |
 | `DELETE` | Remove (preferir soft delete) | `200` |
 
+`Location` aponta para onde o recurso criado é lido: `/{resource}/{id}` ou, quando o recurso é do próprio usuário, a rota `me` (`Location: /api/v1/users/me`). No controller: `result.ToCreatedResult(location)`.
+
+**Edição de perfil é `PATCH`:** só o que vier no corpo muda. Campo ausente ou `null` = não mexer; texto vazio (`""`) limpa um campo opcional, porque `null` não distingue "não mexer" de "apagar". Objeto aninhado (endereço) também é parcial e é validado inteiro depois de completado com o valor atual. Todos os erros de validação voltam juntos.
+
+**Dado sensível fora do `PATCH`:** a senha tem rota própria e pede a senha atual (`POST /users/me/password`). O e-mail não muda depois do cadastro. Dado sensível que fica no `PATCH` do papel (CPF do tutor) pede `currentPassword` quando muda. Senha atual errada é `400` no campo `currentPassword`, não `401` — o token é válido.
+
 > Nunca `204` — o envelope acompanha toda resposta.
 
 ```
-POST   /api/v1/auth/registrations
+POST   /api/v1/users/register      ·  GET  /api/v1/users/me
 POST   /api/v1/auth/sessions/login    ·  POST /api/v1/auth/sessions/refresh
-GET    /api/v1/pets?page=1&pageSize=20&species=Dog
-POST   /api/v1/bookings               ·  GET  /api/v1/bookings/{bookingId:guid}
-POST   /api/v1/bookings/{bookingId:guid}/cancellation
+POST   /api/v1/pets               ·  GET  /api/v1/pets/me  ·  PATCH /api/v1/pets/{petId:guid}
+POST   /api/v1/pets/{petId:guid}/deactivation  ·  DELETE /api/v1/pets/{petId:guid}/deactivation
+GET    /api/v1/hosts/{hostId:guid}/pets
+GET    /api/v1/hosts/me/dashboard?month=2026-10   (leitura que junta vários módulos: substantivo sob `me`, só GET)
+POST   /api/v1/listings           ·  GET  /api/v1/listings/me  ·  GET /api/v1/listings?radiusKm=10&city=Maringá&species=dog
+GET    /api/v1/listings/{listingId:guid}/compatibility?petId=&checkIn=&checkOut=
+PUT    /api/v1/listings/{listingId:guid}/photos/order
+POST   /api/v1/bookings               ·  GET  /api/v1/bookings/me  ·  GET /api/v1/bookings/{bookingId:guid}
+POST   /api/v1/bookings/{bookingId:guid}/acceptance  ·  POST /api/v1/bookings/{bookingId:guid}/refusal
+POST   /api/v1/bookings/{bookingId:guid}/cancellation  ·  POST /api/v1/bookings/{bookingId:guid}/check-in  ·  /check-out
+POST   /api/v1/conversations  ·  GET /api/v1/conversations/me  ·  GET /api/v1/conversations/me/unread-count  ·  GET /api/v1/conversations/{conversationId:guid}
+GET    /api/v1/conversations/{conversationId:guid}/messages?before=&pageSize=  ·  POST .../messages  ·  POST .../messages/photo  ·  PUT .../read-marker
+POST   /api/v1/reviews  ·  GET /api/v1/reviews?hostId=&listingId=  ·  GET /api/v1/reviews/summary  ·  GET /api/v1/reviews/me  ·  GET /api/v1/reviews/me/received
+GET    /api/v1/reviews/{reviewId:guid}  ·  PATCH /api/v1/reviews/{reviewId:guid}  ·  DELETE /api/v1/reviews/{reviewId:guid}
+PUT    /api/v1/reviews/{reviewId:guid}/reply  ·  DELETE .../reply  ·  POST .../report  ·  DELETE .../moderation-hide (admin)
+GET    /api/v1/reviews/reports  ·  GET /api/v1/reviews/reports/{reportId:guid}  ·  PUT .../resolution (admin)
+GET    /api/v1/owners/{ownerId:guid}/reviews  ·  GET /api/v1/owners/{ownerId:guid}/reviews/summary (anfitrião, admin)
+GET    /api/v1/pets/{petId:guid}/reviews  ·  GET /api/v1/pets/{petId:guid}/reviews/summary (anfitrião, admin)
+GET    /api/v1/bookings/{bookingId:guid}/payment  ·  PUT /api/v1/bookings/{bookingId:guid}/payment  ·  POST .../payment/synchronization
+POST   /api/v1/bookings/{bookingId:guid}/payment/installments/{installmentNumber:int}/payment-session
+GET    /api/v1/payments/payouts/me  ·  GET /api/v1/payments/issues  ·  POST /api/v1/stripe/webhooks
 GET    /api/v1/hosts/{hostId:guid}/availability?from=2026-11-01&to=2026-11-30
 ```
 
 **Paginação:** `?page=1&pageSize=20` — `page` inicia em 1, `pageSize` default 20 e máximo 100. Resposta em `Data` via `PagedResult<T>` (`items`, `page`, `pageSize`, `totalCount`, `totalPages`).
 
-Todo endpoint tem `/// <summary>`, `[ProducesResponseType<ApiResponse<T>>]` para **cada** status possível e `[Authorize]`/`[AllowAnonymous]` explícito.
+Exceções, sem paginação nem filtro enquanto o volume for pequeno:
+
+- **Lista administrativa** (só `admin`) — ex.: `GET /owners`.
+- **Pets de uma pessoa** — `GET /pets/me` e `GET /hosts/{hostId}/pets`: poucos itens por definição (os pets de um tutor ou de uma casa). Idem **cantinhos de um anfitrião** — `GET /listings/me` (um para pessoa física; um por filial para empresa). Pedido do produto. Como todos os itens são do mesmo dono, a resposta traz o dono **uma vez** no topo (`{ keeper, pets }`) em vez de repeti-lo em cada item — regra para qualquer lista "de uma pessoa".
+
+Fora isso, lista que o usuário final vê é sempre paginada.
+
+**Exceção de formato — mensagens do chat:** paginação por **cursor**, não por número de página (`GET /conversations/{id}/messages?before={messageId}&pageSize=50`). Da mais nova para a mais antiga; `before` = id da mensagem mais antiga já carregada; a resposta traz `items`, `pageSize` e `hasMore`. Motivo: mensagem nova chegando no meio da leitura faria as páginas numeradas "andarem" (repetir ou pular mensagem). O cursor compara `(created_at, id)`. Decisão do produto (2026-10-15); detalhes em [`modulo-conversations.md`](modulo-conversations.md).
+
+Todo endpoint tem `/// <summary>`, `[ProducesResponseType<ApiResponse<T>>]` para **cada** status possível e `[Authorize]`/`[AllowAnonymous]` explícito — é o que aparece no Swagger (`/swagger`, só em Development, documento do `Microsoft.AspNetCore.OpenApi` em `/openapi/v1.json`, com o JWT declarado para o botão Authorize). No documento, o `ApiResponse<T>` descreve só o sucesso (`success: true` + `data`), e todo status 4xx/5xx é trocado pelo envelope de erro `ApiErrorResponse` (`success: false` + `error`), com descrição em português e um exemplo com o código transversal do status (transformers em `PetHost.Api/OpenApi`) — o controller continua declarando `ApiResponse<T>` em todos. O `429` do limite geral vale para todos e não é repetido em cada um; endpoint com política própria declara o `429`.
+
+### Rate limit
+
+Rate limiting nativo do ASP.NET Core (`AddPetHostRateLimiting`, em `Shared.Infrastructure/RateLimiting`), janela fixa, sem fila:
+
+- **Limite geral** em todo endpoint: por usuário logado (`sub`) ou, sem token, por IP.
+- **Endpoint crítico** ganha política própria, mais rígida, com `[EnableRateLimiting(RateLimitPolicies.X)]` — conta à parte do limite geral:
+
+| Política | Para | Chave | Padrão |
+|---|---|---|---|
+| `credentials` | Senha conferida sem sessão: login, troca de conta, reativação | IP | 10 / 5 min |
+| `registration` | Criar conta | IP | 10 / 1 h |
+| `password-reset` | Esqueci a senha (pedido e troca com o token) | IP | 5 / 15 min |
+| `session` | Refresh e logout | IP | 30 / 1 min |
+| `account-sensitive` | Logado, pede a senha ou derruba a conta: trocar senha, inativar, excluir a conta | usuário | 5 / 15 min |
+| `account-update` | Logado, muda a própria conta ou cria algo no Stripe: `PATCH` de perfil (inclui troca de CPF), avatar, solicitação de verificação do anfitrião, cadastro de recebimento no Stripe, plano e cobrança do pagamento | usuário | 20 / 15 min |
+| `chat-messages` | Mensagem do chat, texto ou foto (contam juntos) | usuário | 30 / 1 min |
+| `review-writes` | Criar, editar e apagar avaliação; criar e apagar a resposta | usuário | 20 / 15 min |
+| `reports` | Denúncia de avaliação e de mensagem do chat (cada uma avisa o admin por e-mail; contam juntas) | usuário | 10 / 1 h |
+| geral | Todo endpoint | usuário ou IP | 120 / 1 min |
+
+- Estourou: `429 TOO_MANY_REQUESTS` no envelope + `Retry-After`. Log `Warning` com rota e IP.
+- Health checks ficam fora (`DisableRateLimiting`). Webhook de serviço externo também: é anônimo, a origem é provada pela assinatura (`Stripe-Signature`), e o serviço manda rajadas e reenvia com espera própria.
+- Endpoint novo que confere senha, cria conta, manda e-mail ou deixa a pessoa escrever para outra em volume (mensagem do chat) **precisa** de política própria.
+- Atrás de proxy, o IP vem do `X-Forwarded-For` (`ForwardedHeaders:Enabled`), confiando só em proxy de rede privada e loopback.
+- Os contadores ficam em memória: valem por instância. Com mais de uma instância, mover para o Redis.
+
+### CORS
+
+O front é **Next.js** e chama a API (e o hub) pelo navegador, de outra origem. CORS nativo do ASP.NET Core (`AddFrontendCors`, em `Shared.Infrastructure/Cors`), uma política padrão para a API inteira, com `app.UseCors()` logo depois do `UseExceptionHandler` — antes do rate limit e da autenticação, para o preflight (`OPTIONS`) responder ali e os headers saírem também nos erros (`401`, `404`, `429`, `500`).
+
+| Chave (`Cors`) | Padrão | Para quê |
+|---|---|---|
+| `AllowedOrigins` | vazio (`appsettings.json`) · `http://localhost:3000` (`Development`) | Origens aceitas: só esquema, host e porta (`https://app.pethost.com.br`). No compose: `CORS_ALLOWED_ORIGIN` (`Cors__AllowedOrigins__0`; mais de uma, `__1`, `__2`...) |
+| `PreflightMaxAgeMinutes` | 10 (0 a 120) | Quanto tempo o navegador guarda o preflight |
+
+- **Lista explícita, nunca `*`:** a política manda credenciais (`AllowCredentials`), porque o cliente do SignalR negocia com `withCredentials`, e o navegador recusa credencial com origem `*`. Origem malformada (caminho, query, `*`, sem esquema) derruba a API no startup.
+- Qualquer método e header (o `Authorization` do JWT e o `Content-Type` do JSON e do upload). O JavaScript do front lê `Location` (recurso criado) e `Retry-After` (`429`), expostos.
+- A API não usa cookie: o token vai no header `Authorization` (e na query `access_token` só no hub). O bucket público de imagens não precisa de CORS; o **privado** precisa, para o `PUT` do upload direto, com as mesmas origens de `Cors:AllowedOrigins` ([upload-direto.md](upload-direto.md) seção 12).
 
 ---
+
+### E-mails
+
+Todo e-mail sai pela **caixa de saída persistente** (`IEmailOutbox`, tabela `email.outbox_emails`), nunca chamando o SMTP no request. O despachante em segundo plano entrega com novas tentativas (até 8, espera dobrando até 1 h); e-mail enfileirado sobrevive a restart da API e a SMTP fora do ar. Entregue, a linha é apagada. Detalhes em [`modulo-auth.md`](modulo-auth.md) seção 6.4.
+
+---
+
+### Imagens
+
+Toda foto (avatar, pet, anfitrião, cantinho) vai para o **bucket S3 compatível** — Cloudflare R2 em produção, RustFS no compose e nos testes — pelas peças genéricas do `Shared` (`IImageStorage`, `ImageReplacement`, `[ImageUploadEndpoint]`). Detalhes e configuração em [armazenamento-de-imagens.md](armazenamento-de-imagens.md).
+
+- **Upload direto ao bucket** ([upload-direto.md](upload-direto.md)): `POST /api/v1/uploads` (finalidade + metadados) → `PUT` na URL assinada → `POST /api/v1/uploads/{id}/confirm`. Foto nova de entidade ganha uma **finalidade** (`IUploadPurpose`, registrada na Presentation do módulo) que chama o **mesmo caso de uso** do multipart: no pedido com `ImageUpload.Preflight` (só as checagens), na confirmação com o arquivo. Nenhuma regra é reescrita na finalidade.
+- **Rota própria de upload** por entidade, com `multipart/form-data` e a imagem na parte `file`; a resposta é a entidade, no formato de sempre. Continua no ar durante a migração do front para o upload direto.
+  - **Uma foto** (avatar): `PUT /<recurso>/me/avatar` troca, `DELETE` na mesma rota tira.
+  - **Várias fotos** (pet, cantinho): tabela própria (`<recurso>_photos`) com vaga única por dono. `POST /<recurso>/{id}/photos` adiciona, `PATCH /<recurso>/{id}/photos/{photoId}` só substitui (mesmo id e posição) e `DELETE` na mesma rota tira.
+  - **Fotos em ordem escolhida** (cantinho): posição 1..n sempre sem buraco (nova entra no fim; tirar sobe as de trás) e `PUT /<recurso>/{id}/photos/order` com **todas** as fotos na ordem nova. A unicidade da posição é constraint `DEFERRABLE INITIALLY DEFERRED`, para trocar posições numa transação.
+- **URL de imagem nunca vem no JSON.** Cadastro e PATCH não aceitam `photoUrl`/`photos`/`avatarUrl`: só existe no banco URL que a API gerou no bucket.
+- **Posse antes do upload.** O handler confere se quem pede é dono da entidade antes de enviar qualquer coisa ao bucket; recurso de outra conta é `404`, como nas outras rotas.
+- **O formato é conferido pelo conteúdo** (JPEG, PNG, WebP; até 5 MB), nunca pelo nome ou pelo `Content-Type` declarado. Erros no campo `file`.
+- **Metadados saem antes de gravar.** EXIF (GPS, aparelho, data), XMP, IPTC, comentários e o que vem depois do fim da imagem são removidos no `ImageUploadReader`, em todo upload, público ou privado; fica só a orientação do JPEG. Arquivo com estrutura quebrada é recusado. Não grave imagem no bucket por outro caminho.
+- **Trocar apaga a anterior; falhar desfaz.** Use `ImageReplacement`, que envia, grava e apaga a antiga, ou apaga a nova se gravar falhar. Não reimplemente o fluxo no módulo.
+
+**Imagem com dado pessoal sensível** (documento de identidade, selfie de verificação) **nunca** vai para o bucket público:
+
+- Usa `IPrivateImageStorage` — bucket **privado** (`Storage:PrivateBucketName`, sem leitura pública, obrigatoriamente diferente do público). Mesmas regras de arquivo.
+- O banco guarda a **chave** do arquivo, nunca uma URL. Quem enviou não recebe link nem a imagem de volta.
+- Só o admin lê: uma rota da API confere a permissão e devolve uma **URL assinada** (S3 pre-signed, `IPrivateImageStorage.GetSignedUrlAsync`) que **vence** em `Storage:SignedUrlLifetimeMinutes` (padrão 5, no máximo 60), com `Cache-Control: no-store` na resposta. **Cada link emitido vai para a trilha** (`<alvo>.document_viewed`). Nunca devolva URL assinada em listagem ou em resposta de quem enviou.
+- Tem **prazo de guarda**: apagar quando a finalidade acabar (padrão: na decisão), com uma tarefa de limpeza para o que ficar. Detalhes em [`modulo-hosts.md`](modulo-hosts.md) seção 5.
+
+---
+
+### Tempo real
+
+Aviso em tempo real usa **SignalR** (já vem no ASP.NET Core), registrado uma vez pelo `Shared.Infrastructure` (`AddRealtime`). Hoje o único hub é o do chat ([`modulo-conversations.md`](modulo-conversations.md)).
+
+- **O hub só empurra.** Escrever (criar, enviar, marcar) é sempre rota REST: validação, envelope, `Result`, rate limit e trilha ficam num lugar só. Hub sem método que o cliente chame.
+- **Depois de gravar, best-effort.** O handler chama uma porta da Application (`I<M>Realtime`) depois do `SaveChanges`; a implementação com `IHubContext` fica na **Presentation** (é ela quem conhece o hub). Falha no envio vai para o log e nunca derruba o request; o cliente recupera pelo REST ao reconectar.
+- **Hub em `/hubs/...`**, com `[Authorize(Roles = ...)]`. O token vem na query `access_token` (o WebSocket do navegador não manda header) — **só** em `/hubs`. A revogação é conferida na conexão; a conexão fecha quando o access token expira (`CloseOnAuthenticationExpiration`).
+- **Usuário = conta do token (`sub`)**: `Clients.User(userId)`. A outra conta da mesma pessoa é outro usuário.
+- **Mesmo JSON da API** no hub (camelCase, nulo omitido, enum como texto). Nome de evento em camelCase, constante na Presentation (`<M>Events`); renomear quebra o front.
+- **Várias instâncias: backplane no Redis** (`Microsoft.AspNetCore.SignalR.StackExchangeRedis`, canais `pethost:signalr`, registrado no `AddRealtime`). As conexões vivem na memória da instância que as aceitou; o `Clients.User(...)` publica no Redis e cada instância entrega às suas. Conexão própria (o SignalR a descarta ao desligar), com a connection string `Redis`. Teste de hub novo que dependa de entrega entre instâncias usa uma segunda instância da fixture (`WithSettings`). O rate limit continua em memória por instância (§13, Rate limit).
 
 ## 14. Testes
 
 > **Nenhum PR é aprovado sem teste.** Todo arquivo com lógica tem teste unitário; todo arquivo que cruza fronteira de processo tem teste de integração.
 
-**Stack:** `xunit.v3` · `Moq` · `FluentAssertions 7.x` · `Microsoft.Extensions.TimeProvider.Testing` · `Testcontainers.PostgreSql` · `Microsoft.AspNetCore.Mvc.Testing` · `Bogus` · `NetArchTest` · `coverlet.collector`.
+**Stack:** `xunit.v3` · `Moq` · `FluentAssertions 7.x` · `Microsoft.Extensions.TimeProvider.Testing` · `Testcontainers.PostgreSql` · `Testcontainers` (RustFS, em `TestImageBucket` do TestKit) · `Microsoft.AspNetCore.Mvc.Testing` · `Microsoft.AspNetCore.SignalR.Client` (testes de hub, com WebSocket do `TestServer`) · `Bogus` · `NetArchTest` · `coverlet.collector`.
 
 ### Exige teste unitário
 
@@ -670,9 +911,45 @@ Integração: `WebApplicationFactory<Program>` + `PostgreSqlContainer` (`postgre
 
 Pipeline falha abaixo do mínimo. `[ExcludeFromCodeCoverage]` exige justificativa em comentário — permitido só em `Migrations/` e `DependencyInjection.cs`.
 
+**Todo `dotnet test` já mede a cobertura** (`TestingPlatformCommandLineArguments` no `Directory.Build.props`): um `artifacts/coverage/<Projeto>.cobertura.xml` por projeto de teste, sobrescrito a cada execução. O filtro está em `coverage.settings.xml` na raiz: mede só os assemblies `PetHost.*` da aplicação — fora os projetos de teste, o `PetHost.TestKit`, as `Migrations/` e o que tiver `[ExcludeFromCodeCoverage]`.
+
+> **O `dotnet test` sozinho não gera o HTML nem mostra os percentuais** — só os XMLs. O `dotnet test` não tem um gancho que rode depois de todos os projetos terminarem, então o relatório fica no script.
+
+| Comando | Roda os testes? | Gera |
+|---------|-----------------|------|
+| `dotnet test` | sim | só os `artifacts/coverage/*.cobertura.xml` (um por projeto) |
+| `./scripts/coverage.ps1` / `./scripts/coverage.sh` | sim | os XMLs **+** o HTML em `artifacts/coverage/report/index.html` **+** o resumo no terminal |
+| `dotnet reportgenerator ...` (abaixo) | não | só o HTML e o resumo, a partir dos XMLs que já estão lá (ex.: depois de um `dotnet test`, ou se o `report/` foi apagado) |
+
+Para ver o número, o script roda os testes e junta tudo com o **ReportGenerator** (ferramenta local, em `dotnet-tools.json`; o script faz o `dotnet tool restore`):
+
 ```bash
-dotnet test --collect:"XPlat Code Coverage" --results-directory ./artifacts/coverage
+./scripts/coverage.sh              # Linux/macOS/Git Bash  (--sem-docker: só unidade e arquitetura)
+./scripts/coverage.ps1             # PowerShell            (-SemDocker: idem)
 ```
+
+Mostra no terminal o resumo (linha, branch, método) e uma linha por assembly; o detalhe por classe e por linha fica em `artifacts/coverage/report/index.html`. Sem Docker, `Infrastructure` e `Presentation` aparecem quase zeradas: elas são cobertas pela integração (tabela acima). Só o relatório, sem rodar os testes de novo (precisa dos XMLs em `artifacts/coverage`; se a pasta inteira sumiu, rode o script):
+
+```bash
+dotnet reportgenerator "-reports:artifacts/coverage/*.cobertura.xml" "-targetdir:artifacts/coverage/report" "-reporttypes:Html;TextSummary" "-filefilters:-*.g.cs"
+```
+
+Última medição (solução inteira, com integração): **92,9 % de linha e 81,5 % de branch**.
+
+### Rodando os testes
+
+O `global.json` liga o **Microsoft Testing Platform** (`"test": { "runner": "Microsoft.Testing.Platform" }`) e cada projeto de teste é um executável do xUnit v3. Precisa do SDK do .NET 10; os testes de integração precisam do Docker rodando (Testcontainers sobe Postgres, Redis e RustFS).
+
+| Para | Comando |
+|------|---------|
+| Tudo (unidade, arquitetura e integração) | `dotnet test` |
+| Só o que não precisa de Docker | `dotnet test --filter-not-namespace "*.IntegrationTests*" --ignore-exit-code 8` |
+| Um projeto | `dotnet test --project tests/Modules/Listings/PetHost.Modules.Listings.Application.UnitTests` |
+| Um teste ou grupo | `dotnet test --project <projeto> --filter-method "*Search*"` (também `--filter-class`, `--filter-namespace`) |
+| Sem compilar de novo | acrescente `--no-build` |
+| Direto pelo executável | `tests/<...>/bin/Debug/net10.0/<Projeto>.exe` |
+
+> **"Zero testes executados" (código de saída 5)?** É opção do runner antigo (VSTest) que o `dotnet test` repassa ao executável do teste, e ele recusa: `-nologo`, `--collect:"XPlat Code Coverage"`, `--logger`, `--settings`. Use os equivalentes acima (`--filter-*`; a cobertura já vem ligada). O código **8** é "nenhum teste rodou" num projeto — esperado nos projetos de integração quando o filtro tira todos eles; por isso o `--ignore-exit-code 8`.
 
 ---
 
@@ -687,18 +964,32 @@ Exceção é **falha inesperada**, nunca controle de fluxo.
 | Nunca expor detalhe interno | A resposta leva só `code`, mensagem genérica e `traceId` |
 | `catch` específico na `Infrastructure` | Traduza para `Error`: `UniqueViolation` → código de módulo, `DbUpdateConcurrencyException` → `CONFLICT` |
 | Log no ponto de tratamento | Não logar e relançar |
-| Toda exceção 500 gera alerta | Monitoramento obrigatório |
+| Toda exceção 500 gera alerta | *Recomendado* (ainda não implementado): hoje a exceção vai para o log do Serilog com o `TraceId`; alerta depende de uma ferramenta de monitoramento |
 
-Um `IExceptionHandler` global no host é o **único** lugar que captura exceção não tratada: loga com `TraceId` e devolve `ApiResponse` com `UNEXPECTED_ERROR` + 500.
+Um `IExceptionHandler` global no host é o **único** lugar que captura exceção não tratada: loga com `TraceId` e devolve `ApiResponse` com `UNEXPECTED_ERROR` + 500. A exceção só não vira 500 quando é `BadHttpRequestException`, o pedido que o próprio servidor recusou (corpo acima de 30 MB, por exemplo): sai o status dela no envelope (413 `PAYLOAD_TOO_LARGE`; os outros, `VALIDATION_ERROR`), com log `Warning`. O log da requisição (`UseSerilogRequestLogging`) segue a mesma regra: `Error` para exceção e 5xx, `Warning` para o pedido recusado pelo servidor.
 
 | Item | Padrão |
 |------|--------|
 | Logging | Serilog, JSON, *message template* — `logger.LogInformation("Booking {BookingId} created.", id)`, nunca interpolação |
 | Nível | `Information` para caso de uso concluído, `Warning` para falha de negócio relevante, `Error` só para exceção |
 | Correlação | `TraceId` em toda requisição e log; devolvido no erro 500 |
-| Dado sensível | **Nunca** logar senha, token, hash, CPF, cartão. Mascarar e-mail |
-| Tracing / métricas | OpenTelemetry (ASP.NET Core, `HttpClient`, Npgsql); contador de caso de uso por resultado |
+| Dado sensível | **Nunca** logar senha, token, hash, CPF, cartão. Mascarar e-mail. URL com segredo na query (o `access_token` do hub) também é token: `Microsoft.AspNetCore.Hosting.Diagnostics`, que loga a URL inteira, fica em `Warning` nos `appsettings`; o log de requisição do Serilog grava só o caminho |
+| Tracing / métricas | *Recomendado* (ainda não implementado): OpenTelemetry (ASP.NET Core, `HttpClient`, Npgsql); contador de caso de uso por resultado |
 | Health checks | `/health/live` e `/health/ready` (inclui Postgres) |
+| Contato do suporte | `GET /api/v1/support` (pública, no host): `{ "email": "..." }` de `Support:Email` (`SUPPORT_EMAIL`). O app mostra quando um erro manda falar com o suporte (`*_CPF_ALREADY_REGISTERED`, identidade travada, recusa do Stripe). |
+
+### Trilha de auditoria
+
+Log é para operar o sistema; a **trilha** (módulo Audit, `audit.audit_entries`) é o registro de negócio de quem fez o quê. Todo módulo registra pelo contrato `IAuditTrail` (`Shared.Contracts/Audit`), nunca referenciando o Audit.
+
+| Regra | Detalhe |
+|-------|---------|
+| O que registrar | Toda mudança de estado relevante (criar, alterar dado sensível, mudar status), toda ação do admin sobre dado de outra pessoa, login (sucesso e falha) e leitura de dado pessoal pelo admin (LGPD) |
+| O que não registrar | Leitura do próprio usuário, refresh, logout — o log do request basta |
+| Quando | No handler, **depois** que a operação gravou. A trilha nunca derruba o request |
+| Ação do admin | Sempre com `reason` (obrigatório na API) |
+| Conteúdo | `AuditActions.X` (`alvo.ação`) + `AuditTargets.X` + id. Campo alterado pelo **nome**, nunca pelo valor. CPF só mascarado. Nunca senha, token, hash, e-mail digitado |
+| Quem fez | Sai do token; informe `ActorId` só quando não há token (login, cadastro) |
 
 ---
 
@@ -718,6 +1009,8 @@ test(booking): cover overlapping period rule
 ```
 
 **PR:** título em Conventional Commit · descrição com o que/por quê/como testar · CI verde (build + testes + cobertura + arquitetura) · ≥1 approve · alteração de contrato público (`Code`, formato de resposta, rota) exige nota explícita de *breaking change*.
+
+**CI** (`.github/workflows/ci.yml`, GitHub Actions): em todo push, em qualquer branch (o resultado aparece antes de abrir a PR), e em toda PR para `main` e `dev`. Faz restore, build em Release (aviso é erro) e roda **todos** os testes da solution: unitários, de integração (Postgres, Redis e RustFS via Testcontainers, com o Docker do runner) e de arquitetura. Push novo na mesma branch cancela a execução anterior. `main` e `dev` são protegidas: o merge só é liberado com o check **`build-and-test`** verde e a branch atualizada com a base.
 
 ---
 
@@ -740,6 +1033,7 @@ test(booking): cover overlapping period rule
 - [ ] Testes de arquitetura passando
 - [ ] Migration com nome descritivo, aplicada em banco limpo
 - [ ] Nenhum dado sensível em log; `/// <summary>` em todo membro público
+- [ ] Mudança de estado relevante e ação do admin registradas na trilha (`IAuditTrail`), sem dado sensível
 - [ ] Este documento atualizado, se um padrão mudou
 
 ---

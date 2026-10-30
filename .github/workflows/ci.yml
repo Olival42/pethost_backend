@@ -1,0 +1,60 @@
+# CI: compila a solution e roda todos os testes (unitários, de integração e de arquitetura).
+# Roda em todo push (para ver o resultado antes de abrir a PR) e em toda PR para main e dev.
+# A regra de proteção da branch exige o check "build-and-test" verde para liberar o merge.
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main, dev]
+  workflow_dispatch:
+
+# Um push novo na mesma branch/PR cancela a execução anterior, que ficou velha.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: build-and-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      DOTNET_NOLOGO: "true"
+      DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+      DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "true"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Versão do SDK vem do global.json, a mesma usada localmente.
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      # Pacotes NuGet em cache: só baixa de novo quando alguma versão ou referência muda.
+      - name: Cache NuGet
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('Directory.Packages.props', '**/*.csproj') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - name: Restore
+        run: dotnet restore PetHost.slnx
+
+      # TreatWarningsAsErrors está ligado: aviso novo quebra o build aqui também.
+      - name: Build
+        run: dotnet build PetHost.slnx --configuration Release --no-restore
+
+      # Os testes de integração sobem Postgres e Redis com Testcontainers; o runner
+      # ubuntu-latest já tem Docker.
+      - name: Test
+        run: dotnet test PetHost.slnx --configuration Release --no-build

@@ -72,12 +72,26 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      mailpit:
+        condition: service_started
+      rustfs-init:
+        condition: service_completed_successfully
     ports:
       - "${API_HOST_PORT:-8080}:8080"
     environment:
       # --- host ---
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
       ASPNETCORE_HTTP_PORTS: "8080"
+
+      # --- proxy ---
+      # A API fica atras do ngrok: le o IP real do X-Forwarded-For (rate limit por IP).
+      # So confia em proxies da rede privada do Docker.
+      ForwardedHeaders__Enabled: "true"
+
+      # --- CORS ---
+      # Origem do front (Next.js) que pode chamar a API pelo navegador. Para mais de uma,
+      # acrescente Cors__AllowedOrigins__1, __2...
+      Cors__AllowedOrigins__0: ${CORS_ALLOWED_ORIGIN:-http://localhost:3000}
 
       # --- conexoes ---
       # `__` e o separador de secao da configuracao do ASP.NET Core:
@@ -96,11 +110,109 @@ services:
       Stripe__SecretKey: ${STRIPE_SECRET_KEY:-}
       Stripe__PublishableKey: ${STRIPE_PUBLISHABLE_KEY:-}
       Stripe__WebhookSecret: ${STRIPE_WEBHOOK_SECRET:-}
+      Stripe__ConnectWebhookSecret: ${STRIPE_CONNECT_WEBHOOK_SECRET:-}
+      Stripe__ConnectReturnUrl: ${STRIPE_CONNECT_RETURN_URL:-http://localhost:3000/anfitriao/recebimentos?stripe=retorno}
+      Stripe__ConnectRefreshUrl: ${STRIPE_CONNECT_REFRESH_URL:-http://localhost:3000/anfitriao/recebimentos?stripe=renovar}
+
+      # --- Cadastro de recebimento: releitura periodica no Stripe + lembretes ---
+      HostPayouts__MaintenanceIntervalMinutes: ${HOST_PAYOUTS_MAINTENANCE_INTERVAL_MINUTES:-60}
+      HostPayouts__ReminderDays: ${HOST_PAYOUTS_REMINDER_DAYS:-3,7}
+      HostPayouts__AdminAlertEmail: ${HOST_PAYOUTS_ADMIN_ALERT_EMAIL:-}
+      # --- Pagamentos ---
+      Payments__MaintenanceIntervalMinutes: ${PAYMENTS_MAINTENANCE_INTERVAL_MINUTES:-15}
+      Payments__AdminAlertEmail: ${PAYMENTS_ADMIN_ALERT_EMAIL:-}
 
       # --- ngrok ---
       # PublicUrl e a base usada para montar callbacks (ex.: webhook do Stripe).
       Ngrok__AuthToken: ${NGROK_AUTHTOKEN:-}
       Ngrok__PublicUrl: ${NGROK_URL:-}
+
+      # --- e-mail (SMTP) ---
+      # Padrao: Mailpit do proprio compose, que captura os e-mails sem entregar.
+      # Caixa de entrada em http://localhost:${MAILPIT_UI_HOST_PORT:-8025}
+      Email__Host: ${EMAIL_SMTP_HOST:-mailpit}
+      Email__Port: ${EMAIL_SMTP_PORT:-1025}
+      Email__Username: ${EMAIL_SMTP_USERNAME:-}
+      Email__Password: ${EMAIL_SMTP_PASSWORD:-}
+      Email__FromAddress: ${EMAIL_FROM_ADDRESS:-no-reply@pethost.local}
+      Email__FromName: ${EMAIL_FROM_NAME:-PetHost}
+      Email__AppUrl: ${EMAIL_APP_URL:-}
+
+      # --- suporte: e-mail que o app mostra quando a API manda falar com o suporte ---
+      Support__Email: ${SUPPORT_EMAIL:-}
+
+      # --- esqueci a senha ---
+      PasswordReset__TokenLifetimeMinutes: ${PASSWORD_RESET_TOKEN_LIFETIME_MINUTES:-30}
+      PasswordReset__ResetUrl: ${PASSWORD_RESET_URL:-}
+
+      # --- imagens (bucket S3 compativel) ---
+      # Padrao: o RustFS do proprio compose. Para usar o Cloudflare R2, preencha as
+      # variaveis STORAGE_* no .env (veja docs/armazenamento-de-imagens.md).
+      # ServiceUrl e o endereco que a API usa (rede do Docker); PublicBaseUrl e o que
+      # vai para o banco e o navegador abre.
+      Storage__ServiceUrl: ${STORAGE_SERVICE_URL:-http://rustfs:9000}
+      Storage__Region: ${STORAGE_REGION:-us-east-1}
+      Storage__AccessKeyId: ${STORAGE_ACCESS_KEY_ID:-pethost}
+      Storage__SecretAccessKey: ${STORAGE_SECRET_ACCESS_KEY:-pethost_local_dev}
+      Storage__BucketName: ${STORAGE_BUCKET_NAME:-pethost-images}
+      # Bucket SEM leitura publica: documentos e selfies da verificacao do anfitriao.
+      Storage__PrivateBucketName: ${STORAGE_PRIVATE_BUCKET_NAME:-pethost-documents}
+      Storage__PublicBaseUrl: ${STORAGE_PUBLIC_BASE_URL:-http://localhost:9000/pethost-images}
+      Storage__ForcePathStyle: ${STORAGE_FORCE_PATH_STYLE:-true}
+      # URLs assinadas dos documentos (bucket privado): o endereco que o NAVEGADOR alcanca.
+      # Vazio = o mesmo de STORAGE_SERVICE_URL (Supabase, R2). So o RustFS precisa
+      # (http://localhost:9000), porque a API fala com ele por http://rustfs:9000.
+      Storage__SignedUrlServiceUrl: ${STORAGE_SIGNED_URL_SERVICE_URL:-}
+      # Validade de cada link de documento, em minutos (1 a 60).
+      Storage__SignedUrlLifetimeMinutes: ${STORAGE_SIGNED_URL_LIFETIME_MINUTES:-5}
+
+      # --- upload direto ao bucket (URL assinada; o arquivo nao passa pela API) ---
+      # Validade da URL de PUT e prazo para confirmar, em minutos.
+      Uploads__UrlLifetimeMinutes: ${UPLOADS_URL_LIFETIME_MINUTES:-10}
+      Uploads__ConfirmWindowMinutes: ${UPLOADS_CONFIRM_WINDOW_MINUTES:-30}
+      Uploads__MaxPendingPerUser: ${UPLOADS_MAX_PENDING_PER_USER:-10}
+      # Grava na subida o CORS do bucket privado com as origens de Cors__AllowedOrigins (PUT do navegador).
+      # RustFS: true. R2/Supabase: a chave de objeto nao pode mudar CORS; configure no painel (falha so vai para o log).
+      Uploads__ConfigureBucketCors: ${UPLOADS_CONFIGURE_BUCKET_CORS:-true}
+
+      # --- verificacao do anfitriao ---
+      # Dias que as fotos (documento e selfie) ficam depois da decisao. 0 = apaga na hora.
+      HostVerification__DocumentRetentionDays: ${HOST_VERIFICATION_DOCUMENT_RETENTION_DAYS:-0}
+      HostVerification__DraftLifetimeDays: ${HOST_VERIFICATION_DRAFT_LIFETIME_DAYS:-7}
+      HostVerification__CpfFingerprintKey: ${HOST_CPF_FINGERPRINT_KEY:?defina HOST_CPF_FINGERPRINT_KEY no .env (minimo 32 caracteres)}
+
+      # --- chat: retencao das conversas (LGPD) ---
+      # Conversa parada ha este numero de dias some, com mensagens e fotos (salvo reserva em aberto).
+      ConversationRetention__InactivityDays: ${CONVERSATION_RETENTION_INACTIVITY_DAYS:-90}
+      ConversationRetention__IntervalMinutes: ${CONVERSATION_RETENTION_INTERVAL_MINUTES:-1440}
+      # E-mail de "mensagens nao lidas" (resumo, sem o texto) para quem nao abriu o app.
+      ConversationUnreadEmail__DelayMinutes: ${CONVERSATION_UNREAD_EMAIL_DELAY_MINUTES:-15}
+      ConversationUnreadEmail__CooldownMinutes: ${CONVERSATION_UNREAD_EMAIL_COOLDOWN_MINUTES:-60}
+      ConversationUnreadEmail__AppUrl: ${CONVERSATION_UNREAD_EMAIL_APP_URL:-}
+      # E-mail do admin que recebe o aviso de denuncia nova. Vazio = sem e-mail (o admin consulta a fila).
+      ConversationModeration__AdminAlertEmail: ${CONVERSATION_MODERATION_ADMIN_ALERT_EMAIL:-}
+
+      # --- avaliacoes ---
+      # Tarefa das avaliacoes: lembrete de "avalie a estadia" (horas depois do check-out; o prazo e de
+      # 7 dias) e aviso das avaliacoes publicadas no fim do prazo (as cegas).
+      ReviewMaintenance__ReminderDelayHours: ${REVIEW_REMINDER_DELAY_HOURS:-24}
+      ReviewMaintenance__IntervalMinutes: ${REVIEW_MAINTENANCE_INTERVAL_MINUTES:-60}
+      # Endereco do app no botao dos e-mails e quem recebe o aviso de denuncia de avaliacao (vazio = sem e-mail).
+      ReviewEmail__AppUrl: ${REVIEW_EMAIL_APP_URL:-}
+      ReviewEmail__AdminAlertEmail: ${REVIEW_EMAIL_ADMIN_ALERT_EMAIL:-}
+
+      # --- anfitriao de demonstracao (apresentacao) ---
+      # Cria na subida um anfitriao ja verificado, opcionalmente ligado a uma conta do Stripe.
+      Seed__DemoHost__Enabled: ${SEED_DEMO_HOST_ENABLED:-false}
+      Seed__DemoHost__Email: ${SEED_DEMO_HOST_EMAIL:-}
+      Seed__DemoHost__Password: ${SEED_DEMO_HOST_PASSWORD:-}
+      Seed__DemoHost__Cpf: ${SEED_DEMO_HOST_CPF:-}
+      Seed__DemoHost__StripeAccountId: ${SEED_DEMO_HOST_STRIPE_ACCOUNT_ID:-}
+
+      # --- dados de teste ---
+      # Tutores com pets e anfitrioes verificados com cantinho (ficticios, em Maringa).
+      Seed__TestData__Enabled: ${SEED_TEST_DATA_ENABLED:-false}
+      Seed__TestData__Password: ${SEED_TEST_DATA_PASSWORD:-}
 
       # --- seed do admin ---
       # Cria o admin na subida se ainda nao existir. Nunca altera um admin existente.
@@ -108,6 +220,72 @@ services:
       Seed__Admin__FullName: ${SEED_ADMIN_FULL_NAME:-PetHost Admin}
       Seed__Admin__Email: ${SEED_ADMIN_EMAIL:-}
       Seed__Admin__Password: ${SEED_ADMIN_PASSWORD:-}
+    networks: [pethost]
+
+  # ---------------------------------------------------------------------------
+  # Mailpit - servidor SMTP de desenvolvimento com caixa de entrada web
+  # ---------------------------------------------------------------------------
+  mailpit:
+    image: axllent/mailpit:v1.31.1
+    container_name: pethost-mailpit
+    restart: unless-stopped
+    ports:
+      - "${MAILPIT_SMTP_HOST_PORT:-1025}:1025"
+      - "${MAILPIT_UI_HOST_PORT:-8025}:8025"
+    networks: [pethost]
+
+  # ---------------------------------------------------------------------------
+  # RustFS - armazenamento de imagens compativel com S3 (o R2 de desenvolvimento)
+  # ---------------------------------------------------------------------------
+  # Mesma API do Cloudflare R2: o codigo e o mesmo, muda so a configuracao.
+  # Console web em http://localhost:${RUSTFS_CONSOLE_HOST_PORT:-9001}
+  rustfs:
+    image: rustfs/rustfs:1.0.1
+    container_name: pethost-rustfs
+    restart: unless-stopped
+    environment:
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:-pethost}
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:-pethost_local_dev}
+      RUSTFS_CONSOLE_ENABLE: "true"
+    ports:
+      - "${RUSTFS_HOST_PORT:-9000}:9000"
+      - "${RUSTFS_CONSOLE_HOST_PORT:-9001}:9001"
+    volumes:
+      - rustfs-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:9000/health > /dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 5s
+    networks: [pethost]
+
+  # Cria o bucket de imagens com leitura publica (como o do R2) e o bucket privado de
+  # documentos (sem politica: so a API le), e termina. Idempotente.
+  rustfs-init:
+    image: amazon/aws-cli:2.27.50
+    container_name: pethost-rustfs-init
+    restart: "no"
+    depends_on:
+      rustfs:
+        condition: service_healthy
+    environment:
+      AWS_ACCESS_KEY_ID: ${RUSTFS_ACCESS_KEY:-pethost}
+      AWS_SECRET_ACCESS_KEY: ${RUSTFS_SECRET_KEY:-pethost_local_dev}
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+      AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+      BUCKET: ${RUSTFS_BUCKET_NAME:-pethost-images}
+      PRIVATE_BUCKET: ${RUSTFS_PRIVATE_BUCKET_NAME:-pethost-documents}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        aws --endpoint-url http://rustfs:9000 s3api head-bucket --bucket "$$PRIVATE_BUCKET" 2>/dev/null
+        || aws --endpoint-url http://rustfs:9000 s3api create-bucket --bucket "$$PRIVATE_BUCKET";
+        aws --endpoint-url http://rustfs:9000 s3api head-bucket --bucket "$$BUCKET" 2>/dev/null
+        || aws --endpoint-url http://rustfs:9000 s3api create-bucket --bucket "$$BUCKET";
+        aws --endpoint-url http://rustfs:9000 s3api put-bucket-policy --bucket "$$BUCKET"
+        --policy "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"AWS\":[\"*\"]},\"Action\":[\"s3:GetObject\"],\"Resource\":[\"arn:aws:s3:::$$BUCKET/*\"]}]}"
     networks: [pethost]
 
   # ---------------------------------------------------------------------------
@@ -142,6 +320,7 @@ services:
 volumes:
   postgres-data:
   redis-data:
+  rustfs-data:
 
 networks:
   pethost:
